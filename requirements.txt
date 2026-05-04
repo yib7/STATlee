@@ -1,0 +1,8 @@
+Flask
+pandas
+Werkzeug
+google-genai
+statsmodels
+matplotlib
+seaborn
+python-dotenv

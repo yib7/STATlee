@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  codecaster-web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      # This pulls the key from your host machine's environment and gives it to the container
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      # Optional: This syncs your local folder to the container so you don't 
+      # have to rebuild the image every time you tweak an HTML file
+      - .:/app
