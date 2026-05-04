@@ -1,6 +1,7 @@
 import os
 import tempfile
 import json
+import time
 import re
 import subprocess
 import math
@@ -73,9 +74,27 @@ def index():
     return render_template('index.html')
 
 
+def cleanup_old_files():
+    """Deletes datasets older than 2 hours to save server space."""
+    now = time.time()
+    folder = app.config['UPLOAD_FOLDER']
+    
+    for filename in os.listdir(folder):
+        filepath = os.path.join(folder, filename)
+        # Check if it's a file and if it's older than 7200 seconds (2 hours)
+        if os.path.isfile(filepath) and os.stat(filepath).st_mtime < now - 7200:
+            try:
+                os.remove(filepath)
+                print(f"Cleaned up old file: {filename}")
+            except Exception as e:
+                pass
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handles dataset uploads and generates a basic profile."""
+
+    cleanup_old_files()
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
         
@@ -487,6 +506,9 @@ def interpret_results():
 
     return jsonify({'interpretation': interpretation})
 
+@app.route('/health')
+def health_check():
+    return "OK", 200
 
 @app.route('/converse', methods=['POST'])
 def converse():
