@@ -6,7 +6,7 @@ import subprocess
 import math
 import base64
 import pandas as pd
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from google import genai
@@ -25,6 +25,8 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 app = Flask(__name__, template_folder='templates')
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24)) # Required for sessions
+APP_PASSWORD = os.environ.get("PASSWORD")
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16 MB max upload
@@ -32,6 +34,39 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16 MB max upload
 # ---------------------------------------------------------------------------
 # ROUTES
 # ---------------------------------------------------------------------------
+
+@app.before_request
+def require_auth():
+    """Protects all API routes if a password is set in the environment."""
+    if not APP_PASSWORD:
+        return # No password set, allow all traffic
+    
+    # Allow traffic to the frontend loader, static files, and login handlers
+    if request.endpoint in ['index', 'static', 'check_auth', 'login']:
+        return
+        
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized. Please log in.'}), 401
+
+@app.route('/check_auth', methods=['GET'])
+def check_auth():
+    """Tells the frontend if it needs to show the login screen."""
+    if not APP_PASSWORD or session.get('authenticated'):
+        return jsonify({'status': 'authorized'}), 200
+    return jsonify({'error': 'unauthorized'}), 401
+
+@app.route('/login', methods=['POST'])
+def login():
+    """Validates the password."""
+    if not APP_PASSWORD:
+        return jsonify({'status': 'success'}), 200
+        
+    data = request.json
+    if data.get('password') == APP_PASSWORD:
+        session['authenticated'] = True
+        return jsonify({'status': 'success'}), 200
+        
+    return jsonify({'error': 'Invalid password'}), 401
 
 @app.route('/')
 def index():
