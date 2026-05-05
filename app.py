@@ -43,7 +43,7 @@ def require_auth():
         return # No password set, allow all traffic
     
     # Allow traffic to the frontend loader, static files, and login handlers
-    if request.endpoint in ['index', 'static', 'check_auth', 'login']:
+    if request.endpoint in ['index', 'static', 'check_auth', 'login', 'health_check']:
         return
         
     if not session.get('authenticated'):
