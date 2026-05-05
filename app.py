@@ -180,18 +180,26 @@ def classify_variables():
         # 1. Read a safe, fast sample
         df = pd.read_csv(filepath, nrows=100)
         
-        # 2. Extract explicit column names so Pandas doesn't hide them!
-        dtypes_dict = df.dtypes.astype(str).to_dict()
-        
-        # 3. Small preview just for AI context
-        data_preview = df.head(20).to_string()
+        # 2. Create a compact, highly-readable JSON summary for the AI
+        # This prevents Pandas from truncating wide datasets with '...' 
+        # and drastically reduces token count for faster generation.
+        summary = {}
+        for col in df.columns:
+            # Grab up to 3 unique, non-null samples
+            samples = df[col].dropna().astype(str).unique()[:3].tolist()
+            summary[col] = {
+                "type": str(df[col].dtype),
+                "samples": samples
+            }
+            
+        data_preview = json.dumps(summary, indent=2)
         
         prompt = f"""
-        Analyze this dataset sample preview below. Your goal is to Classify EVERY column listed in the 'DATA PREVIEW' as 'Nominal', 'Ordinal', or 'Continuous'. 
+        Analyze this dataset summary below. Your goal is to Classify EVERY column listed in the summary as 'Nominal', 'Ordinal', or 'Continuous'. 
         Return STRICTLY a JSON object mapping column names to their classification.
         Example: {{"Age": "Continuous", "Gender": "Nominal", "Education_Level": "Ordinal"}}
         
-        DATA PREVIEW:
+        DATA SUMMARY:
         {data_preview}
         """
         response = client.models.generate_content(

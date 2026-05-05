@@ -578,7 +578,6 @@
             const generateBtn = document.getElementById('generateBtn');
             const promptInput = document.getElementById('promptInput');
             generateBtn.disabled = true;
-            promptInput.disabled = true;
             promptInput.placeholder = "Please wait, profiling dataset variables. This might take a sec..";
 
             try {
@@ -647,7 +646,6 @@
                     const generateBtn = document.getElementById('generateBtn');
                     const promptInput = document.getElementById('promptInput');
                     generateBtn.disabled = false;
-                    promptInput.disabled = false;
                     promptInput.placeholder = "e.g., Run a multiple regression to see if education and income predict voting behavior...";
                 }
             } catch (err) { console.error("Codebook failed."); }
@@ -691,7 +689,7 @@
             switchTab('generate'); 
             
             const codeOutput = document.getElementById('codeOutput');
-            codeOutput.className = 'text-slate-700 dark:text-slate-500 font-mono text-base leading-loose tracking-wide font-medium';
+            codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide font-medium opacity-70';
             codeOutput.innerText = "// Generating optimized code script...";
             document.getElementById('runSection').classList.add('hidden');
 
@@ -712,7 +710,7 @@
                 if (response.ok && data.code) {
                     currentCode = data.code; 
                     codeOutput.innerText = data.code;
-                    codeOutput.className = 'text-[#1e1e1e] font-semibold dark:font-normal dark:text-[#a6accd] font-mono text-base leading-loose tracking-wide'; 
+                    codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide'; 
                     document.getElementById('copyBtn').style.display = 'flex';
                     document.getElementById('runSection').classList.remove('hidden');
                     
