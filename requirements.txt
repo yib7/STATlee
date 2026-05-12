@@ -6,3 +6,4 @@ statsmodels
 matplotlib
 seaborn
 python-dotenv
+gunicorn

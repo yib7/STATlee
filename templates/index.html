@@ -99,6 +99,31 @@
         </div>
     </div>
 
+    <!-- Codebook Prompt Modal -->
+    <div id="codebookPromptOverlay" class="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-xl flex items-center justify-center transition-opacity duration-500 hidden">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-10 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-white/20 dark:border-slate-700/50 text-center transform transition-all animate-fade-in-up">
+            <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/30 text-white">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            </div>
+            <h2 class="text-2xl font-display font-bold text-slate-800 dark:text-white mb-3 tracking-tight">Attach a Codebook?</h2>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
+                Optionally upload a <span class="text-indigo-700 dark:text-indigo-400 font-semibold">PDF or TXT codebook</span> alongside your dataset. The added context improves the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">quality of variable classification, analysis suggestions, and generated code</span>.
+            </p>
+
+            <div class="flex flex-col gap-3">
+                <button id="codebookYesBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 flex justify-center items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    Upload Codebook
+                </button>
+                <button id="codebookSkipBtn" class="w-full bg-transparent border border-slate-400 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-display font-medium py-3 px-4 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all duration-300">
+                    Skip — proceed without codebook
+                </button>
+            </div>
+
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-6 font-mono uppercase tracking-widest">Max 50 pages &bull; PDF or TXT</p>
+        </div>
+    </div>
+
     <!-- Left Sidebar -->
     <div id="leftSidebar" style="width: 33.333%;" class="glass-panel shrink-0 min-w-[320px] border-r border-slate-200/60 dark:border-slate-700/30 flex flex-col shadow-2xl z-10 transition-colors duration-500">
         
@@ -136,15 +161,25 @@
                     </div>
                 </div>
                 <p id="uploadStatus" class="text-sm font-mono mt-3 hidden"></p>
+
+                <!-- Hidden PDF input — triggered by the codebook prompt modal after CSV upload -->
+                <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden"/>
+                <p id="pdfUploadStatus" class="text-sm font-mono mt-2 hidden"></p>
             </div>
 
             <!-- Codebook -->
             <div id="codebookContainer" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 backdrop-blur-sm transition-all duration-500 animate-fade-in-up">
-                <label class="flex items-center gap-2 text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-4 uppercase tracking-wider">
-                    <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                    Intelligent Codebook
-                </label>
-                <div id="codebookList" class="flex flex-wrap gap-2"></div>
+                <button id="codebookToggleBtn" onclick="toggleCodebook()" class="flex items-center justify-between w-full gap-2 text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-4 uppercase tracking-wider group focus:outline-none">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        Intelligent Codebook
+                    </span>
+                    <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors normal-case tracking-normal">
+                        <span id="codebookToggleLabel">Hide</span>
+                        <svg id="codebookChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
+                    </span>
+                </button>
+                <div id="codebookList" class="flex flex-col gap-2"></div>
             </div>
 
             <!-- Configuration -->
@@ -170,12 +205,15 @@
             <!-- Prompt Area -->
             <div class="animate-fade-in-up" style="animation-delay: 0.4s;">
                 <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider">3. What do you want to analyze?</label>
-                <textarea id="promptInput" rows="5" class="w-full bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 placeholder-slate-500 dark:placeholder-slate-400 outline-none transition-all resize-none shadow-inner text-base" placeholder="e.g., Run a multiple regression to see if education and income predict voting behavior..."></textarea>
+                <textarea id="promptInput" rows="5" class="w-full bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 placeholder-slate-500 dark:placeholder-slate-400 outline-none transition-all resize-none shadow-inner text-base" placeholder="e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals..."></textarea>
+                <p class="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                    <span class="font-bold text-indigo-700 dark:text-indigo-400">Pro Tip:</span> Specificity is integral to generating high-quality code! Explicitly state your desired analysis, statistical tests, plots, and <span class="underline decoration-indigo-500/50">exact column labels</span>.
+                </p>
             </div>
 
             <!-- Action Button -->
             <div class="animate-fade-in-up pb-8" style="animation-delay: 0.5s;">
-                <button id="generateBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none flex justify-center items-center gap-2 text-base">
+                <button id="generateBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-base">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     Generate Analysis
                 </button>
@@ -195,23 +233,27 @@
     <div id="rightContent" class="flex-1 min-w-0 bg-white/40 dark:bg-black/20 backdrop-blur-sm flex flex-col relative z-0 transition-colors duration-500">
         
         <!-- Modern Tabs -->
-        <div class="px-6 pt-4 bg-transparent border-b border-slate-300 dark:border-slate-800/60 flex justify-between items-end">
-            <div class="flex space-x-6">
-                <button id="tabGenerate" class="tab-btn active-tab pb-3 font-display font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2" onclick="switchTab('generate')">
+        <div class="px-6 pt-4 bg-transparent border-b border-slate-300 dark:border-slate-800/60 flex justify-between items-end flex-wrap">
+            <div class="flex space-x-6 overflow-x-auto">
+                <button id="tabGenerate" class="tab-btn active-tab pb-3 font-display font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('generate')">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                     Source Code
                 </button>
-                <button id="tabData" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2" onclick="switchTab('data')">
+                <button id="tabData" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('data')">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
                     Data Viewer
                 </button>
-                <button id="tabResults" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2" onclick="switchTab('results')">
+                <button id="tabResults" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('results')">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     Analysis Results
                 </button>
-                <button id="tabConverse" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2" onclick="switchTab('converse')">
+                <button id="tabConverse" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('converse')">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                     Converse
+                </button>
+                <button id="tabPdf" style="display: none;" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
+                    <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    Codebook Viewer
                 </button>
             </div>
             <button id="copyBtn" class="mb-2 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all hidden flex items-center gap-2 bg-slate-200 py-1.5 px-4 rounded-lg border border-slate-400 text-slate-800 font-bold dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 text-sm font-mono uppercase tracking-wider hover:shadow-md">
@@ -223,7 +265,6 @@
             
             <!-- CODE GENERATION TAB -->
             <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto block animate-fade-in-up">
-                
                 <!-- macOS Style Code Window -->
                 <div class="bg-[#1e1e1e] dark:bg-[#0d0d12] rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[70%]">
                     <div class="bg-[#2d2d2d] dark:bg-[#16161e] px-4 py-3 flex items-center gap-2 border-b border-black/50">
@@ -299,6 +340,19 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <!-- PDF VIEWER TAB (NEW) -->
+            <div id="contentPdf" class="tab-content h-full p-8 overflow-hidden hidden animate-fade-in-up">
+                <div class="w-full h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden flex flex-col">
+                    <div class="bg-slate-100/90 dark:bg-[#161332]/90 border-b border-slate-300 dark:border-slate-800/60 p-4 flex justify-between items-center z-10 shadow-sm">
+                        <h3 class="text-sm font-mono uppercase text-slate-700 dark:text-slate-400 font-bold tracking-widest flex items-center gap-2">
+                            <svg class="w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
+                            Codebook Reference
+                        </h3>
+                    </div>
+                    <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white" src=""></iframe>
                 </div>
             </div>
 
@@ -404,6 +458,7 @@
         let chatHistory = []; 
         let converseHistory = [];
         let currentCodebook = {};
+        let pdfMapping = {}; // NEW: Stores extracted PDF definitions
         let latestInterpretation = "";
         let currentCode = ''; 
         
@@ -412,9 +467,45 @@
         let totalPages = 1;
         let searchDebounceTimeout;
 
+        // --- SSE Streaming Helper ---
+        async function streamSSE(response, { onDelta, onDone, onError } = {}) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                const events = buffer.split('\n\n');
+                buffer = events.pop();
+
+                for (const event of events) {
+                    if (!event.trim()) continue;
+                    const dataLine = event.split('\n').find(line => line.startsWith('data: '));
+                    if (!dataLine) continue;
+
+                    const payload = dataLine.slice(6); 
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(payload);
+                    } catch (e) {
+                        console.error('Bad SSE payload:', payload, e);
+                        continue;
+                    }
+
+                    if (parsed.type === 'delta' && onDelta) onDelta(parsed.text || '');
+                    else if (parsed.type === 'done' && onDone) onDone(parsed);
+                    else if (parsed.type === 'error' && onError) onError(parsed.message || 'Stream error.');
+                }
+            }
+        }
+
         // UI Tabs Logic
         function switchTab(tabName) {
-            ['Generate', 'Data', 'Results', 'Converse'].forEach(name => {
+            ['Generate', 'Data', 'Results', 'Converse', 'Pdf'].forEach(name => {
                 const tab = document.getElementById(`tab${name}`);
                 if(tab) {
                     tab.classList.remove('font-semibold', 'border-indigo-700', 'text-indigo-900', 'dark:border-indigo-400', 'dark:text-indigo-300');
@@ -431,6 +522,11 @@
                 activeTab.classList.remove('font-medium', 'border-transparent', 'text-slate-600', 'dark:text-slate-400');
                 activeTab.classList.add('font-semibold', 'border-indigo-700', 'text-indigo-900', 'dark:border-indigo-400', 'dark:text-indigo-300');
                 activeContent.classList.remove('hidden');
+                
+                // Keep Pdf Tab flex if it was opened
+                if(tabName === 'pdf') {
+                    activeTab.style.display = 'flex';
+                }
             }
             
             document.getElementById('copyBtn').style.display = (tabName === 'generate' && currentCode.length > 0) ? 'flex' : 'none';
@@ -543,18 +639,15 @@
                     rows[i].cells[colIndex].classList.add('bg-indigo-50', 'dark:bg-indigo-900/20');
                     if(i === 0) {
                          setTimeout(() => {
-                             // FIX: Calculate scroll manually for the table container instead of using scrollIntoView()
                              const container = document.getElementById('tableScrollContainer');
                              const cell = rows[i].cells[colIndex];
                              
                              if (container && cell) {
-                                 // Calculate middle: (position of cell) - (half of container width) + (half of cell width)
                                  const scrollPos = cell.offsetLeft - (container.clientWidth / 2) + (cell.clientWidth / 2);
                                  container.scrollTo({ left: scrollPos, behavior: 'smooth' });
                              }
                              
                              const searchInput = cell.querySelector('input');
-                             // FIX: Add preventScroll to focus so browser doesn't try to auto-align layout
                              if(searchInput) searchInput.focus({ preventScroll: true });
                          }, 50);
                     }
@@ -562,7 +655,101 @@
             }
         }
 
-        // Upload
+        // Toggle Intelligent Codebook visibility
+        let codebookVisible = true;
+        function toggleCodebook() {
+            const list = document.getElementById('codebookList');
+            const label = document.getElementById('codebookToggleLabel');
+            const chevron = document.getElementById('codebookChevron');
+            codebookVisible = !codebookVisible;
+            if (codebookVisible) {
+                list.style.display = '';
+                label.textContent = 'Hide';
+                chevron.style.transform = 'rotate(0deg)';
+            } else {
+                list.style.display = 'none';
+                label.textContent = 'Show';
+                chevron.style.transform = 'rotate(180deg)';
+            }
+        }
+
+        // Render Intelligent Codebook UI
+        function renderCodebookUI() {
+            const cbContainer = document.getElementById('codebookContainer');
+            const cbList = document.getElementById('codebookList');
+            cbList.innerHTML = '';
+            
+            if (!currentCodebook || Object.keys(currentCodebook).length === 0) return;
+
+            // Use globalHeaders to preserve CSV column order; fall back to object keys for any extras
+            const orderedKeys = globalHeaders && globalHeaders.length > 0
+                ? globalHeaders.filter(h => currentCodebook.hasOwnProperty(h))
+                : Object.keys(currentCodebook);
+
+            orderedKeys.forEach(colName => {
+                const classification = currentCodebook[colName];
+                const btn = document.createElement('div');
+                
+                let colorClasses = "bg-slate-200 text-slate-900 dark:bg-slate-700/50 dark:text-slate-200 border-slate-400 dark:border-slate-600";
+                if (classification === 'Continuous') {
+                    colorClasses = "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30";
+                } else if (classification === 'Nominal') {
+                    colorClasses = "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30";
+                } else if (classification === 'Ordinal') {
+                    colorClasses = "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30";
+                }
+
+                // Match dynamically extracted PDF definition
+                const colLower = colName.toLowerCase();
+                const matchedKey = Object.keys(pdfMapping).find(k => k.toLowerCase() === colLower);
+                let desc = matchedKey ? pdfMapping[matchedKey] : null;
+                
+                let descHTML = desc ? `<div class="text-[11px] font-inter font-normal mt-1 text-slate-700 dark:text-slate-300 line-clamp-3 leading-snug w-full opacity-90 border-t border-slate-400/30 dark:border-slate-500/30 pt-1" title="${desc}">${desc}</div>` : '';
+
+                btn.className = `px-3 py-2 rounded-lg border text-left transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col items-start cursor-pointer group ${colorClasses}`;
+                btn.innerHTML = `<div class="flex justify-between w-full items-center gap-2"><span class="font-mono text-sm font-bold truncate max-w-[200px]" title="${colName}">${colName}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${classification}</span></div>${descHTML}`;
+                btn.onclick = () => viewColumn(colName);
+                cbList.appendChild(btn);
+            });
+            
+            // Always show the list on fresh render and reset toggle state
+            codebookVisible = true;
+            document.getElementById('codebookList').style.display = '';
+            const lbl = document.getElementById('codebookToggleLabel');
+            const chev = document.getElementById('codebookChevron');
+            if (lbl) lbl.textContent = 'Hide';
+            if (chev) chev.style.transform = 'rotate(0deg)';
+
+            cbContainer.classList.remove('hidden');
+        }
+
+        // Codebook prompt + post-upload pipeline state
+        let pendingFilename = null;
+
+        function showCodebookPrompt() {
+            document.getElementById('codebookPromptOverlay').classList.remove('hidden');
+        }
+        function hideCodebookPrompt() {
+            document.getElementById('codebookPromptOverlay').classList.add('hidden');
+        }
+
+        // Runs after the (optional) PDF parse completes, OR immediately if the
+        // user skips. Strict order: intelligent codebook first, then suggestions.
+        async function runPostUploadPipeline(filename) {
+            const uploadStatusEl = document.getElementById('uploadStatus');
+            uploadStatusEl.classList.remove('hidden');
+            uploadStatusEl.className = 'text-xs text-indigo-700 dark:text-amber-400 mt-3 font-mono font-bold animate-pulse uppercase tracking-wider';
+            uploadStatusEl.innerText = 'Populating intelligent codebook...';
+
+            await fetchCodebook(filename);
+
+            uploadStatusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-3 font-mono font-bold uppercase tracking-widest';
+            uploadStatusEl.innerText = 'Data loaded successfully.';
+
+            await fetchSuggestions(filename);
+        }
+
+        // CSV Upload
         document.getElementById('fileInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -580,6 +767,13 @@
             generateBtn.disabled = true;
             promptInput.placeholder = "Please wait, profiling dataset variables. This might take a sec..";
 
+            // Reset prior codebook/PDF state so a fresh upload starts clean
+            pdfMapping = {};
+            currentCodebook = {};
+            document.getElementById('codebookContainer').classList.add('hidden');
+            document.getElementById('codebookList').innerHTML = '';
+            document.getElementById('pdfUploadStatus').classList.add('hidden');
+
             try {
                 const response = await fetch('/upload', { method: 'POST', body: formData });
                 const data = await response.json();
@@ -594,16 +788,94 @@
                     await fetchDataPage(1);
                     
                     statusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-3 font-mono font-bold uppercase tracking-widest';
-                    statusEl.innerText = `Data loaded correctly.`;
+                    statusEl.innerText = `Data loaded successfully.`;
                     
-                    fetchSuggestions(data.filename);
-                    fetchCodebook(data.filename);
+                    // Stash the filename and ask the user about the codebook BEFORE
+                    // running codebook classification / suggestions.
+                    pendingFilename = data.filename;
+                    showCodebookPrompt();
                 } else {
                     statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-3 font-mono font-medium';
                     statusEl.innerText = "Upload failed.";
                 }
             } catch (err) {
                 statusEl.innerText = "Network Error.";
+            }
+        });
+
+        // Modal: "Upload Codebook" — trigger the (hidden) file picker.
+        // Modal stays open in case the user cancels the file picker, so they can still Skip.
+        document.getElementById('codebookYesBtn').addEventListener('click', () => {
+            document.getElementById('pdfInput').click();
+        });
+
+        // Modal: "Skip" — go straight to codebook classification, then suggestions.
+        document.getElementById('codebookSkipBtn').addEventListener('click', async () => {
+            hideCodebookPrompt();
+            if (pendingFilename) {
+                const fn = pendingFilename;
+                pendingFilename = null;
+                await runPostUploadPipeline(fn);
+            }
+        });
+
+        // PDF Upload — runs only when the user selects a file from the prompt modal.
+        // After parsing (success OR failure) we proceed to the codebook + suggestions pipeline.
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // The user picked a file — close the prompt modal
+            hideCodebookPrompt();
+
+            // Load local file into iframe immediately for UX
+            const fileURL = URL.createObjectURL(file);
+            document.getElementById('pdfViewerFrame').src = fileURL;
+            const pdfTabBtn = document.getElementById('tabPdf');
+            pdfTabBtn.style.display = 'flex';
+            switchTab('pdf');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const statusEl = document.getElementById('pdfUploadStatus');
+            statusEl.classList.remove('hidden');
+            statusEl.className = 'text-xs text-indigo-700 dark:text-amber-400 mt-2 font-mono font-bold animate-pulse uppercase tracking-wider';
+            statusEl.innerText = "Parsing documentation via LLM...";
+
+            try {
+                const response = await fetch('/upload_pdf', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (response.ok && data.filename) {
+                    const extRes = await fetch('/extract_pdf_codebook', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: data.filename })
+                    });
+                    const extData = await extRes.json();
+
+                    if (extData.status === 'success') {
+                        pdfMapping = extData.mapping;
+                        statusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-2 font-mono font-bold uppercase tracking-widest';
+                        statusEl.innerText = `Codebook RAG linked successfully.`;
+                    } else {
+                        statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-2 font-mono font-medium';
+                        statusEl.innerText = "Failed to extract definitions.";
+                    }
+                } else {
+                    statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-2 font-mono font-medium';
+                    statusEl.innerText = data.error || "PDF Upload failed.";
+                }
+            } catch (err) {
+                statusEl.innerText = "Network Error.";
+            }
+
+            // PDF parse done (success or failure) — now run codebook → suggestions
+            if (pendingFilename) {
+                const fn = pendingFilename;
+                pendingFilename = null;
+                await runPostUploadPipeline(fn);
             }
         });
 
@@ -619,34 +891,12 @@
                 
                 if (data.codebook) {
                     currentCodebook = data.codebook;
-                    const cbContainer = document.getElementById('codebookContainer');
-                    const cbList = document.getElementById('codebookList');
-                    cbList.innerHTML = '';
-                    
-                    Object.entries(data.codebook).forEach(([colName, classification]) => {
-                        const btn = document.createElement('button');
-                        
-                        let colorClasses = "bg-slate-200 text-slate-900 dark:bg-slate-700/50 dark:text-slate-200 border-slate-400 dark:border-slate-600";
-                        if (classification === 'Continuous') {
-                            colorClasses = "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30";
-                        } else if (classification === 'Nominal') {
-                            colorClasses = "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30";
-                        } else if (classification === 'Ordinal') {
-                            colorClasses = "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30";
-                        }
-
-                        btn.className = `px-3 py-1.5 rounded-lg border text-left transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col items-start ${colorClasses}`;
-                        btn.innerHTML = `<span class="font-mono text-sm font-bold truncate max-w-[150px]" title="${colName}">${colName}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${classification}</span>`;
-                        btn.onclick = () => viewColumn(colName);
-                        cbList.appendChild(btn);
-                    });
-                    
-                    cbContainer.classList.remove('hidden');
+                    renderCodebookUI();
                     
                     const generateBtn = document.getElementById('generateBtn');
                     const promptInput = document.getElementById('promptInput');
                     generateBtn.disabled = false;
-                    promptInput.placeholder = "e.g., Run a multiple regression to see if education and income predict voting behavior...";
+                    promptInput.placeholder = "e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals...";
                 }
             } catch (err) { console.error("Codebook failed."); }
         }
@@ -662,7 +912,7 @@
                 const res = await fetch('/suggest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename })
+                    body: JSON.stringify({ filename, codebook: currentCodebook, pdf_mapping: pdfMapping })
                 });
                 const data = await res.json();
                 if (data.suggestions) {
@@ -693,6 +943,17 @@
             codeOutput.innerText = "// Generating optimized code script...";
             document.getElementById('runSection').classList.add('hidden');
 
+            // Merge definitions securely before sending to backend
+            const mergedCodebook = {};
+            Object.entries(currentCodebook).forEach(([col, classification]) => {
+                const colLower = col.toLowerCase();
+                const matchedKey = Object.keys(pdfMapping).find(k => k.toLowerCase() === colLower);
+                mergedCodebook[col] = {
+                    type: classification,
+                    description: matchedKey ? pdfMapping[matchedKey] : null
+                };
+            });
+
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
@@ -702,23 +963,56 @@
                         language, 
                         prompt,
                         history: chatHistory,
-                        codebook: currentCodebook 
+                        codebook: mergedCodebook // Inject RAG knowledge here
                     })
                 });
-                const data = await response.json();
-                
-                if (response.ok && data.code) {
-                    currentCode = data.code; 
-                    codeOutput.innerText = data.code;
-                    codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide'; 
-                    document.getElementById('copyBtn').style.display = 'flex';
-                    document.getElementById('runSection').classList.remove('hidden');
-                    
-                    chatHistory.push({role: 'user', text: prompt});
-                    chatHistory.push({role: 'model', text: data.code});
-                } else {
+
+                const contentType = response.headers.get('Content-Type') || '';
+
+                if (!contentType.includes('text/event-stream')) {
+                    const data = await response.json();
                     codeOutput.innerText = "# Error: " + (data.error || "Unknown error.");
                     codeOutput.className = 'text-red-600 dark:text-red-400 font-mono text-sm';
+                    return;
+                }
+
+                const scrollContainer = codeOutput.closest('.overflow-auto');
+                let firstChunk = true;
+                let streamError = null;
+                let finalCode = null;
+
+                await streamSSE(response, {
+                    onDelta: (text) => {
+                        if (firstChunk) {
+                            codeOutput.innerText = '';
+                            codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide';
+                            document.getElementById('loading').classList.add('hidden');
+                            firstChunk = false;
+                        }
+                        codeOutput.innerText += text;
+                        if (scrollContainer) {
+                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                        }
+                    },
+                    onDone: (data) => {
+                        finalCode = data.code;
+                    },
+                    onError: (msg) => {
+                        streamError = msg;
+                    }
+                });
+
+                if (streamError) {
+                    codeOutput.innerText = "# Error: " + streamError;
+                    codeOutput.className = 'text-red-600 dark:text-red-400 font-mono text-sm';
+                } else if (finalCode !== null) {
+                    currentCode = finalCode;
+                    codeOutput.innerText = finalCode;
+                    document.getElementById('copyBtn').style.display = 'flex';
+                    document.getElementById('runSection').classList.remove('hidden');
+
+                    chatHistory.push({role: 'user', text: prompt});
+                    chatHistory.push({role: 'model', text: finalCode});
                 }
             } catch (err) {
                 codeOutput.innerText = "# Network error.";
@@ -776,13 +1070,46 @@
                                 plot: runData.plot || null
                             })
                         });
-                        const interpData = await interpResponse.json();
-                        
-                        if (interpResponse.ok) {
-                            latestInterpretation = interpData.interpretation || "No interpretation generated.";
-                            interpretationOutput.innerHTML = marked.parse(latestInterpretation) + plotHTML;
+
+                        const interpContentType = interpResponse.headers.get('Content-Type') || '';
+
+                        if (!interpContentType.includes('text/event-stream')) {
+                            const interpData = await interpResponse.json();
+                            if (interpResponse.ok) {
+                                latestInterpretation = interpData.interpretation || "No interpretation generated.";
+                                interpretationOutput.innerHTML = marked.parse(latestInterpretation) + plotHTML;
+                            } else {
+                                interpretationOutput.innerHTML = "Error generating interpretation." + plotHTML;
+                            }
                         } else {
-                            interpretationOutput.innerHTML = "Error generating interpretation." + plotHTML;
+                            const scrollContainer = document.getElementById('contentResults');
+                            let accumulated = '';
+                            let firstChunk = true;
+                            let streamError = null;
+
+                            await streamSSE(interpResponse, {
+                                onDelta: (text) => {
+                                    if (firstChunk) {
+                                        interpretationOutput.innerHTML = '';
+                                        firstChunk = false;
+                                    }
+                                    accumulated += text;
+                                    interpretationOutput.innerHTML = marked.parse(accumulated) + plotHTML;
+                                    if (scrollContainer) {
+                                        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                                    }
+                                },
+                                onDone: () => {
+                                    latestInterpretation = accumulated;
+                                },
+                                onError: (msg) => {
+                                    streamError = msg;
+                                }
+                            });
+
+                            if (streamError) {
+                                interpretationOutput.innerHTML = "Error generating interpretation: " + streamError + plotHTML;
+                            }
                         }
                     } catch (err) {
                         interpretationOutput.innerHTML = "Failed to connect to AI for interpretation." + plotHTML;
@@ -816,6 +1143,13 @@
             chatLog.innerHTML += `<div id="${typingId}" class="self-start bg-white/95 text-slate-700 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-400 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base flex gap-2 shadow-lg animate-fade-in-up"><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></div></div>`;
             chatLog.scrollTop = chatLog.scrollHeight;
 
+            const removeTyping = () => {
+                const t = document.getElementById(typingId);
+                if (t) t.remove();
+            };
+
+            const bubbleClass = "self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed animate-fade-in-up font-inter font-medium";
+
             try {
                 const res = await fetch('/converse', {
                     method: 'POST',
@@ -827,17 +1161,50 @@
                         code: currentCode
                     })
                 });
-                const data = await res.json();
-                document.getElementById(typingId).remove();
-                
-                if(data.reply) {
-                    let formattedReply = data.reply.replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800 dark:text-indigo-300 font-bold">$1</strong>');
-                    chatLog.innerHTML += `<div class="self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed animate-fade-in-up font-inter font-medium">${formattedReply}</div>`;
-                    converseHistory.push({role: 'user', text: text});
-                    converseHistory.push({role: 'model', text: data.reply});
+
+                const contentType = res.headers.get('Content-Type') || '';
+
+                if (!contentType.includes('text/event-stream')) {
+                    const data = await res.json();
+                    removeTyping();
+                    chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">${data.error || 'Error generating response.'}</div>`;
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                    return;
+                }
+
+                let accumulated = '';
+                let bubbleEl = null;
+                let streamError = null;
+
+                await streamSSE(res, {
+                    onDelta: (delta) => {
+                        if (!bubbleEl) {
+                            removeTyping();
+                            bubbleEl = document.createElement('div');
+                            bubbleEl.className = bubbleClass;
+                            chatLog.appendChild(bubbleEl);
+                        }
+                        accumulated += delta;
+                        bubbleEl.innerHTML = accumulated.replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800 dark:text-indigo-300 font-bold">$1</strong>');
+                        chatLog.scrollTop = chatLog.scrollHeight;
+                    },
+                    onDone: () => {
+                        if (accumulated) {
+                            converseHistory.push({role: 'user', text: text});
+                            converseHistory.push({role: 'model', text: accumulated});
+                        }
+                    },
+                    onError: (msg) => {
+                        streamError = msg;
+                    }
+                });
+
+                if (streamError) {
+                    removeTyping();
+                    chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">${streamError}</div>`;
                 }
             } catch(e) {
-                document.getElementById(typingId).remove();
+                removeTyping();
                 chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">Connection error.</div>`;
             }
             chatLog.scrollTop = chatLog.scrollHeight;

@@ -7,7 +7,9 @@ import subprocess
 import math
 import base64
 import pandas as pd
-from flask import Flask, request, jsonify, render_template, session
+from fpdf import FPDF
+import PyPDF2
+from flask import Flask, request, jsonify, render_template, session, Response, stream_with_context
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from google import genai
@@ -121,6 +123,120 @@ def upload_file():
             
     return jsonify({'error': 'Invalid file format. Please upload a CSV.'}), 400
 
+@app.route('/upload_pdf', methods=['POST'])
+def upload_pdf():
+    """Handles optional PDF or TXT codebook uploads. Max 50 pages."""
+    cleanup_old_files()
+
+    MAX_PAGES = 50
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    # Accept both PDF and TXT
+    if file and (file.filename.lower().endswith('.pdf') or file.filename.lower().endswith('.txt')):
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+
+        # Enforce 50-page limit on PDFs before any further processing
+        if filename.lower().endswith('.pdf'):
+            try:
+                with open(filepath, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    page_count = len(reader.pages)
+                if page_count > MAX_PAGES:
+                    os.remove(filepath)
+                    return jsonify({
+                        'error': f'PDF is {page_count} pages, which exceeds the {MAX_PAGES}-page limit. Please upload a shorter document.'
+                    }), 400
+            except Exception as e:
+                os.remove(filepath)
+                return jsonify({'error': f'Failed to read PDF: {str(e)}'}), 500
+
+        # Convert TXT to PDF on the fly, then enforce page limit on the result
+        if filename.lower().endswith('.txt'):
+            pdf_filename = filename.rsplit('.', 1)[0] + '.pdf'
+            pdf_filepath = os.path.join(app.config['UPLOAD_FOLDER'], pdf_filename)
+            
+            try:
+                pdf = FPDF()
+                pdf.set_auto_page_break(auto=True, margin=15)
+                pdf.add_page()
+                pdf.set_font("Arial", size=11)
+                
+                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        # FPDF built-in fonts use latin-1 encoding
+                        clean_line = line.encode('latin-1', 'ignore').decode('latin-1')
+                        pdf.multi_cell(0, 6, txt=clean_line)
+                
+                pdf.output(pdf_filepath)
+                os.remove(filepath)  # Remove original txt
+
+                # Check resulting PDF page count
+                with open(pdf_filepath, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    page_count = len(reader.pages)
+                if page_count > MAX_PAGES:
+                    os.remove(pdf_filepath)
+                    return jsonify({
+                        'error': f'TXT file converts to {page_count} pages, which exceeds the {MAX_PAGES}-page limit. Please upload a shorter document.'
+                    }), 400
+
+                filename = pdf_filename  # Update filename to the new PDF
+                
+            except Exception as e:
+                return jsonify({'error': f'Failed to convert TXT to PDF: {str(e)}'}), 500
+
+        return jsonify({'message': 'Documentation uploaded', 'filename': filename}), 200
+        
+    return jsonify({'error': 'Invalid file format. Please upload a PDF or TXT.'}), 400
+
+
+@app.route('/extract_pdf_codebook', methods=['POST'])
+def extract_pdf_codebook():
+    """Sends the PDF inline to Gemini as bytes to map variable labels."""
+    data = request.json
+    filename = data.get('filename')
+
+    if not filename:
+        return jsonify({'error': 'Missing filename'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    try:
+        with open(filepath, 'rb') as f:
+            pdf_bytes = f.read()
+
+        prompt = """
+        You are a data dictionary extractor for a social science tool.
+        Read the attached PDF codebook.
+        Identify all variable/column names and their corresponding descriptions, labels, or coding schemes (e.g., what 1=, 2= means).
+        Return STRICTLY a JSON object mapping the variable names (as keys) to their descriptive strings (as values).
+        Ensure it is valid JSON and contains NO markdown formatting outside the JSON itself.
+        Example: {"pid7": "7-point Party Identification (1=Strong Democrat, 7=Strong Republican)", "income": "Household income bracket"}
+        """
+
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=[
+                types.Part.from_bytes(data=pdf_bytes, mime_type='application/pdf'),
+                prompt
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
+            )
+        )
+        return jsonify({'status': 'success', 'mapping': json.loads(response.text)})
+    except Exception as e:
+        print(f"PDF Extraction Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/data_page', methods=['POST'])
 def data_page():
@@ -220,41 +336,89 @@ def classify_variables():
 def suggest_analysis():
     """Generates proactive analytical questions based on the uploaded data."""
     data = request.json
-    filename = data.get('filename')
-    
-    if not filename: 
+    filename   = data.get('filename')
+    codebook   = data.get('codebook', {})       # {col: 'Continuous'|'Nominal'|'Ordinal'}
+    pdf_mapping = data.get('pdf_mapping', {})   # {col: 'human-readable description from PDF'}
+
+    if not filename:
         return jsonify({'error': 'Missing filename'}), 400
 
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
+
     try:
-        df = pd.read_csv(filepath, nrows=20)
-        data_preview = df.to_string()
-        
+        df = pd.read_csv(filepath, nrows=100)
+
+        # Build a rich per-column context block that layers:
+        #   1. Intelligent codebook classification (Continuous / Nominal / Ordinal)
+        #   2. PDF-parsed description, if the researcher uploaded a codebook
+        #   3. dtype + sample values as a baseline fallback
+        # Case-insensitive lookup for pdf_mapping so minor capitalisation
+        # differences between the PDF and the CSV header don't cause misses.
+        pdf_lower = {k.lower(): v for k, v in pdf_mapping.items()}
+
+        column_context_lines = []
+        for col in df.columns:
+            classification = codebook.get(col, 'Unknown')
+            description    = pdf_lower.get(col.lower(), '')
+            samples        = df[col].dropna().astype(str).unique()[:3].tolist()
+            dtype          = str(df[col].dtype)
+
+            line = f"  - '{col}' [{classification}, dtype={dtype}, samples={samples}]"
+            if description:
+                line += f"\n      Codebook description: {description}"
+            column_context_lines.append(line)
+
+        column_context = "\n".join(column_context_lines)
+
         prompt = f"""
-        You are a proactive data science mentor. Review this dataset sample:
+        You are a proactive social science data mentor helping users get the most out of CodeCaster,
+        an AI analysis tool. Below is a rich description of every column in the uploaded dataset,
+        including its measurement level (Continuous / Nominal / Ordinal), data type, sample values,
+        and — where available — a human-readable description extracted from the researcher's codebook.
 
-        
+        DATASET COLUMN DETAILS:
+        {column_context}
 
-        {data_preview}
+        Using this information, suggest 3 ready-to-use analysis prompts that a researcher could paste
+        directly into CodeCaster.
 
+        RULES FOR EACH SUGGESTION — every suggestion MUST:
+        1. Reference specific column names using their EXACT labels as shown above (e.g., 'income', 'vote_choice').
+        2. Choose statistically appropriate methods for the measurement levels involved
+        (e.g., OLS regression for Continuous outcomes, logistic regression for binary Nominal outcomes,
+        chi-square for Nominal × Nominal, Spearman correlation for Ordinal variables, ANOVA for
+        Continuous outcome × Nominal grouping variable, Cronbach's alpha for Ordinal scale items).
+        3. Specify at least one concrete visualization (e.g., scatter plot with regression line,
+        grouped bar chart, correlation heatmap, box plot by group, histogram).
+        4. Be written as a direct, actionable instruction — start with an imperative verb
+        (e.g., "Run...", "Generate...", "Conduct...", "Plot...").
+        5. Be 1–2 sentences, specific enough that a coding assistant can act on it immediately.
+        6. Where codebook descriptions are available, use proper scale names and value labels from
+        those descriptions to make the suggestion contextually meaningful.
 
+        GOOD EXAMPLE (format guide only — do not repeat):
+        "Run an OLS regression predicting 'life_satisfaction' (Continuous) from 'income' (Continuous),
+        'education_level' (Ordinal), and 'party_id' (Nominal); include a residual scatter plot and a
+        correlation heatmap of all predictors."
 
-        Suggest 3 specific, interesting analytical questions a social scientist could ask CodeCaster. 
-        Return strictly as a JSON array of 3 strings. 
-        Example: ["Query 1", "Query 2", "Query 3"]
-        """
+        BAD EXAMPLES (never produce):
+        - "Explore the relationship between variables." (vague, no column names, no method, no plot)
+        - "What patterns exist in this data?" (a question, not an instruction)
+
+        Return STRICTLY a JSON array of exactly 3 strings and nothing else.
+        Example format: ["Suggestion 1", "Suggestion 2", "Suggestion 3"]
+"""
         response = client.models.generate_content(
             model='gemini-3-flash-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7, 
+                temperature=0.7,
                 response_mime_type="application/json"
             )
         )
         return jsonify({'status': 'success', 'suggestions': json.loads(response.text)})
     except Exception as e:
-         return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/chat', methods=['POST'])
@@ -262,8 +426,12 @@ def chat():
     """
     CORE PIPELINE:
     1. Moderation Check (Is it safe/relevant?)
-    2. Code Generation (Drafting based on Codebook)
-    3. Code Validation (Reviewing the draft for execution errors)
+    2. Feature Selection (Only on wide datasets — picks the strictly necessary
+       columns so the Pro draft model isn't bloated with irrelevant schema.
+       Skipped when the dataset has fewer than 15 columns.)
+    3. Code Generation (Drafting against the user's original prompt + the
+       filtered codebook)
+    4. Code Validation (Reviewing the draft for execution errors — streamed)
     """
     data = request.json
     user_prompt = data.get('prompt')
@@ -305,12 +473,98 @@ def chat():
     except Exception as e: 
         return jsonify({'error': 'Could not read dataset headers.'}), 500
 
+    # ---------------------------------------------------------------------
+    # STAGE 1: Feature Selection (wide-dataset gate)
+    # ---------------------------------------------------------------------
+    # On wide datasets, the full header list and codebook bloat the prompt
+    # sent to the Pro draft model with columns the analysis won't even touch.
+    # A cheap Flash call picks the strictly necessary subset; the Pro model
+    # then sees a focused schema.
+    #
+    # We deliberately do NOT rewrite the user's prompt — the Pro model is
+    # already good at interpreting natural language, and rewriting risks
+    # erasing intent (e.g., flattening an ambiguous request into the wrong
+    # statistical test based on the cheaper model's guess).
+    #
+    # The gate (>= 15 columns) skips this layer on typical small social
+    # science datasets where the savings don't justify the extra LLM call.
+    # ---------------------------------------------------------------------
+
+    FEATURE_SELECTION_THRESHOLD = 15
+
+    # Defaults — used when the gate skips Stage 1, or if Stage 1 fails /
+    # returns garbage. Either way the endpoint degrades to its previous
+    # behavior rather than erroring out.
+    filtered_headers = headers
+    filtered_codebook = codebook
+
+    if len(headers) >= FEATURE_SELECTION_THRESHOLD:
+        # Prefer the codebook as column context if available — its type
+        # classifications help the selector pick appropriate variables.
+        if codebook:
+            column_context = json.dumps(codebook, indent=2)
+        else:
+            column_context = ", ".join(headers)
+
+        feature_selection_prompt = f"""
+        You are a feature selection engine for a social science data analysis tool. A user has made an analysis request against a dataset with many columns. Your job is to identify the STRICT MINIMUM set of column names required to fulfill the request — nothing more.
+
+        DATASET COLUMNS (with classifications where available):
+        {column_context}
+
+        USER REQUEST:
+        "{user_prompt}"
+
+        Rules:
+        - Use only column names that appear in the dataset above (exact match, case-sensitive).
+        - Do not include columns that aren't directly used by the analysis.
+        - If the request is exploratory or descriptive (e.g., "summarize this data", "what's interesting here"), err on the side of INCLUDING more columns rather than fewer.
+
+        Return STRICTLY a JSON object with this exact shape (no markdown, no commentary):
+        {{
+        "required_columns": ["<col1>", "<col2>", "..."]
+        }}
+        """
+        try:
+            sel_response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=feature_selection_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json"
+                )
+            )
+            sel_result = json.loads(sel_response.text)
+            candidate_cols = sel_result.get('required_columns', [])
+
+            # Validate against actual headers; drop hallucinations. If
+            # nothing validates, keep the full header list rather than
+            # handing the draft model an empty schema.
+            if isinstance(candidate_cols, list):
+                validated = [c for c in candidate_cols if c in headers]
+                if validated:
+                    filtered_headers = validated
+                    if codebook:
+                        filtered_codebook = {c: codebook[c] for c in validated if c in codebook}
+
+            print(f"[/chat] Stage 1 selected {len(filtered_headers)}/{len(headers)} columns: {filtered_headers}")
+        except Exception as e:
+            print(f"[/chat] Stage 1 (feature selection) failed, falling back to full schema: {e}")
+            # Defaults already set above; analysis proceeds normally.
+    else:
+        print(f"[/chat] Stage 1 skipped: {len(headers)} columns is below threshold ({FEATURE_SELECTION_THRESHOLD}).")
+
+    # ---------------------------------------------------------------------
+    # STAGE 2: Code Generation (Drafting)
+    # Uses the user's original prompt (intent-preserving) with a schema
+    # that's been filtered down on wide datasets.
+    # ---------------------------------------------------------------------
     system_instruction = f"""
     You are CodeCaster, an expert social science data analyst. 
-    Dataset: '{filename}'. Columns: {', '.join(headers)}.
+    Dataset: '{filename}'. Columns: {', '.join(filtered_headers)}.
     
     INTELLIGENT CODEBOOK CLASSIFICATION:
-    {json.dumps(codebook)}
+    {json.dumps(filtered_codebook)}
     *CRITICAL*: Use this codebook to ensure statistical validity. Do not run continuous models (like OLS) on Nominal data. Select the appropriate tests based on variable type.
     
     CONSTRAINTS:
@@ -351,36 +605,48 @@ def chat():
     3. Ensure the code will execute without throwing syntax or TypeErrors.
     4. Output ONLY the finalized, raw executable code. NO MARKDOWN (do not use ```). NO EXPLANATIONS.
     """
-    
-    try:
-        val_response = client.models.generate_content(
-            model='gemini-3-flash-preview',
-            contents=validation_prompt,
-            config=types.GenerateContentConfig(temperature=0.0)
-        )
-        
 
-        final_code = val_response.text.strip()
-
-        # Robustly extract code from markdown fences
-        match = re.search(r'```(?:python|r)?\n(.*?)```', final_code, re.DOTALL | re.IGNORECASE)
-        if match:
-            final_code = match.group(1).strip()
-        elif final_code.startswith("```"):
-            # Fallback: strip all lines that are just fence markers
-            final_code = '\n'.join(
-                line for line in final_code.split('\n')
-                if not line.strip().startswith('```')
+    # Stream the validation pass to the client via Server-Sent Events.
+    # Pre-flight steps (moderation, draft generation) above remain synchronous
+    # because they are gates / inputs to this final pass; only the user-facing
+    # text is streamed.
+    def generate():
+        accumulated = ""
+        try:
+            stream = client.models.generate_content_stream(
+                model='gemini-3-flash-preview',
+                contents=validation_prompt,
+                config=types.GenerateContentConfig(temperature=0.0)
             )
+            for chunk in stream:
+                # Some chunks may have no text (e.g. usage metadata only)
+                delta = getattr(chunk, 'text', None)
+                if delta:
+                    accumulated += delta
+                    yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
 
-        return jsonify({
-            'status': 'success', 
-            'language': target_language, 
-            'code': final_code
-        })
-        
-    except Exception as e: 
-        return jsonify({'error': f'Code validation failed: {str(e)}'}), 500
+            # Post-stream: run the same defensive fence-stripping as before so
+            # `currentCode` on the client ends up clean even if the model
+            # ignored the no-markdown instruction.
+            final_code = accumulated.strip()
+            match = re.search(r'```(?:python|r)?\n(.*?)```', final_code, re.DOTALL | re.IGNORECASE)
+            if match:
+                final_code = match.group(1).strip()
+            elif final_code.startswith("```"):
+                final_code = '\n'.join(
+                    line for line in final_code.split('\n')
+                    if not line.strip().startswith('```')
+                )
+
+            yield f"data: {json.dumps({'type': 'done', 'code': final_code, 'language': target_language})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Code validation failed: {str(e)}'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
+    )
 
 
 @app.route('/run', methods=['POST'])
@@ -435,84 +701,95 @@ def run_code():
 
 @app.route('/interpret', methods=['POST'])
 def interpret_results():
-    """Handles the AI interpretation step with a two-step generation and formatting pipeline."""
+    """Handles the AI interpretation step with a two-step generation and formatting pipeline.
+    The final formatting pass is streamed to the client via SSE."""
     data = request.json
     final_output = data.get('output', '')
     plot_base64 = data.get('plot') # Retrieve the plot image data
 
-    interpretation = "No statistical output or plots generated to interpret."
+    # If there's nothing to interpret, return a plain JSON response (preserves
+    # the original behavior — client handles this as a non-streamed case).
+    if not final_output.strip() and not plot_base64:
+        return jsonify({'interpretation': "No statistical output or plots generated to interpret."})
+
+    # STEP 1: Generate the deep analysis using the Pro model (multimodal).
+    # This stays synchronous because its output feeds the formatting pass.
+    interp_prompt = f"""
+    You are a data mentor. A user ran an analysis script and got the following terminal results.
     
-    # Run interpretation if we have either text output OR a plot
-    if final_output.strip() or plot_base64:
-        
-        # STEP 1: Generate the deep analysis using the Pro model
-        interp_prompt = f"""
-        You are a data mentor. A user ran an analysis script and got the following terminal results.
-        
-        TERMINAL OUTPUT:
-        {final_output if final_output.strip() else "No terminal text output."}
-        """
-        
-        if plot_base64:
-            interp_prompt += "\n\nYou have also been provided with the generated plot. Please analyze the visual trends, distributions, or relationships shown in the graph in conjunction with the terminal output."
+    TERMINAL OUTPUT:
+    {final_output if final_output.strip() else "No terminal text output."}
+    """
+    
+    if plot_base64:
+        interp_prompt += "\n\nYou have also been provided with the generated plot. Please analyze the visual trends, distributions, or relationships shown in the graph in conjunction with the terminal output."
 
-        interp_prompt += """
-        
-        Write a clear, plain-English summary of what this means for a social scientist. 
-        Interpret p-values, correlations, trends, or any findings from these terminal results 
-        and the provided graph (if any) that are relevant for a data analyst/social scientist to know. 
-        Do not introduce yourself, go straight into summarizing and analyzing.
-        """
-        
-        # Package the prompt. If there's an image, append it to the contents list.
-        contents_payload = [interp_prompt]
-        if plot_base64:
-            try:
-                image_bytes = base64.b64decode(plot_base64)
-                contents_payload.append(
-                    types.Part.from_bytes(data=image_bytes, mime_type='image/png')
-                )
-            except Exception as e:
-                print(f"Error decoding image for AI: {e}")
-        
+    interp_prompt += """
+    
+    Write a clear, plain-English summary of what this means for a social scientist. 
+    Interpret p-values, correlations, trends, or any findings from these terminal results 
+    and the provided graph (if any) that are relevant for a data analyst/social scientist to know. 
+    Do not introduce yourself, go straight into summarizing and analyzing.
+    """
+    
+    contents_payload = [interp_prompt]
+    if plot_base64:
         try:
-            # First pass: Deep thinking and interpretation (Multimodal)
-            ai_resp = client.models.generate_content(
-                model='gemini-3.1-pro-preview',
-                contents=contents_payload,
-                config=types.GenerateContentConfig(temperature=0.3)
+            image_bytes = base64.b64decode(plot_base64)
+            contents_payload.append(
+                types.Part.from_bytes(data=image_bytes, mime_type='image/png')
             )
-            raw_interpretation = ai_resp.text.strip()
-            
-            # STEP 2: Strict Markdown formatting pass using Flash (Text-only formatting)
-            format_prompt = f"""
-            You are a strict text formatter. Take the following statistical interpretation and format it into beautiful, perfectly clean Markdown.
-            
-            CRITICAL FORMATTING RULES:
-            1. Use standard Markdown headers (###) for distinct sections.
-            2. Use simple bullet points (*) for lists and key findings.
-            3. Fix any broken formatting, orphaned asterisks, or messy spacing.
-            4. DO NOT change the content of the text unless there is an emoji or emoticon detected, then delete it.
-            5. Include proper spacing when necessary to improve readability and prevent users from being overwhelmed. 
-            6. Output ONLY the formatted Markdown.
+        except Exception as e:
+            print(f"Error decoding image for AI: {e}")
+    
+    try:
+        ai_resp = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=contents_payload,
+            config=types.GenerateContentConfig(temperature=0.3)
+        )
+        raw_interpretation = ai_resp.text.strip()
+    except Exception as e:
+        print(f"Interpretation Error: {e}")
+        return jsonify({'interpretation': "Failed to generate AI interpretation."}), 500
 
-            RAW INTERPRETATION:
-            {raw_interpretation}
-            """
-            
-            # Second pass: Fast, rigid formatting
-            format_resp = client.models.generate_content(
+    # STEP 2: Strict Markdown formatting pass using Flash — STREAMED to client.
+    format_prompt = f"""
+    You are a strict text formatter. Take the following statistical interpretation and format it into beautiful, perfectly clean Markdown.
+    
+    CRITICAL FORMATTING RULES:
+    1. Use standard Markdown headers (###) for distinct sections.
+    2. Use simple bullet points (*) for lists and key findings.
+    3. Fix any broken formatting, orphaned asterisks, or messy spacing.
+    4. DO NOT change the content of the text unless there is an emoji or emoticon detected, then delete it.
+    5. Include proper spacing when necessary to improve readability and prevent users from being overwhelmed. 
+    6. Output ONLY the formatted Markdown.
+
+    RAW INTERPRETATION:
+    {raw_interpretation}
+    """
+
+    def generate():
+        try:
+            stream = client.models.generate_content_stream(
                 model='gemini-3-flash-preview',
                 contents=format_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
-            interpretation = format_resp.text.strip()
-            
+            for chunk in stream:
+                delta = getattr(chunk, 'text', None)
+                if delta:
+                    yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
-            print(f"Interpretation Error: {e}")
-            interpretation = "Failed to generate or format AI interpretation."
+            print(f"Interpretation Format Error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to format AI interpretation.'})}\n\n"
 
-    return jsonify({'interpretation': interpretation})
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
+    )
 
 @app.route('/health')
 def health_check():
@@ -520,14 +797,16 @@ def health_check():
 
 @app.route('/converse', methods=['POST'])
 def converse():
-    """FEATURE: The Converse Tab - Contextual chat with a 3.1 Flash Lite formatting pass."""
+    """FEATURE: The Converse Tab - Contextual chat with a 3.1 Flash Lite formatting pass.
+    The final formatting pass is streamed to the client via SSE."""
     data = request.json
     message = data.get('message')
     history = data.get('history', [])
     context = data.get('context', '') 
     code = data.get('code', '') # Grab the generated code from the frontend
 
-    # STEP 1: Deep Analysis Prompt (Pro Model)
+    # STEP 1: Deep Analysis Prompt (Pro Model) — stays synchronous because its
+    # output is the input to the streamed formatting pass.
     analysis_prompt = f"""
     You are CodeCaster, an academic mentor.
     The user is asking a question about their recent analysis.
@@ -548,42 +827,53 @@ def converse():
     analysis_prompt += f"\nUSER: {message}\nCODECASTER:"
 
     try:
-        # First Pass: Generate the raw, highly intelligent answer
         raw_response = client.models.generate_content(
             model='gemini-3.1-pro-preview',
             contents=analysis_prompt,
             config=types.GenerateContentConfig(temperature=0.6)
         )
         raw_answer = raw_response.text.strip()
-        
-        # STEP 2: Strict Formatting Pass (Flash Lite Model)
-        format_prompt = f"""
-        You are a strict text formatter. Take the following conversational response and format it into clean, simple Markdown.
-        
-        CRITICAL FORMATTING RULES:
-        1. Keep the structure simple and straightforward. Do not over-structure with unnecessary headers.
-        2. Use inline code blocks (`like this`) for variable names, functions, or small code snippets.
-        3. Use standard code blocks (```) only if providing a multi-line code correction.
-        4. Use simple bullet points ONLY if listing multiple distinct items or steps.
-        5. DO NOT change the underlying meaning, tone, or advice.
-        6. Output ONLY the formatted Markdown.
-
-        RAW RESPONSE:
-        {raw_answer}
-        """
-        
-        format_response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
-            contents=format_prompt,
-            config=types.GenerateContentConfig(temperature=0.0)
-        )
-        formatted_answer = format_response.text.strip()
-        
-        return jsonify({'status': 'success', 'reply': formatted_answer})
-        
     except Exception as e:
         print(f"Converse Error: {e}")
         return jsonify({'error': str(e)}), 500
+
+    # STEP 2: Strict Formatting Pass (Flash Lite Model) — STREAMED to client.
+    format_prompt = f"""
+    You are a strict text formatter. Take the following conversational response and format it into clean, simple Markdown.
+    
+    CRITICAL FORMATTING RULES:
+    1. Keep the structure simple and straightforward. Do not over-structure with unnecessary headers.
+    2. Use inline code blocks (`like this`) for variable names, functions, or small code snippets.
+    3. Use standard code blocks (```) only if providing a multi-line code correction.
+    4. Use simple bullet points ONLY if listing multiple distinct items or steps.
+    5. DO NOT change the underlying meaning, tone, or advice.
+    6. Output ONLY the formatted Markdown.
+
+    RAW RESPONSE:
+    {raw_answer}
+    """
+
+    def generate():
+        try:
+            stream = client.models.generate_content_stream(
+                model='gemini-3.1-flash-lite-preview',
+                contents=format_prompt,
+                config=types.GenerateContentConfig(temperature=0.0)
+            )
+            for chunk in stream:
+                delta = getattr(chunk, 'text', None)
+                if delta:
+                    yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            print(f"Converse Format Error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
+    )
 
 if __name__ == '__main__':
     # Grab the port Render wants to use, or default to 5000 locally
