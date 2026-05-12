@@ -7,3 +7,5 @@ matplotlib
 seaborn
 python-dotenv
 gunicorn
+fpdf
+PyPDF2
