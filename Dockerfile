@@ -1,5 +1,5 @@
 # 1. Use an official, lightweight Python image as our base OS
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # 2. Install R and necessary system libraries
 # We pre-install R, dplyr, ggplot2, and MASS so the container is instantly ready

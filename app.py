@@ -383,13 +383,10 @@ def suggest_analysis():
         directly into CodeCaster.
 
         RULES FOR EACH SUGGESTION — every suggestion MUST:
-        1. Reference specific column names using their EXACT labels as shown above (e.g., 'income', 'vote_choice').
+        1. Reference specific column names using their EXACT labels as shown above.
         2. Choose statistically appropriate methods for the measurement levels involved
-        (e.g., OLS regression for Continuous outcomes, logistic regression for binary Nominal outcomes,
-        chi-square for Nominal × Nominal, Spearman correlation for Ordinal variables, ANOVA for
-        Continuous outcome × Nominal grouping variable, Cronbach's alpha for Ordinal scale items).
         3. Specify at least one concrete visualization (e.g., scatter plot with regression line,
-        grouped bar chart, correlation heatmap, box plot by group, histogram).
+        grouped bar chart, correlation heatmap, box plot by group, histogram, etc.).
         4. Be written as a direct, actionable instruction — start with an imperative verb
         (e.g., "Run...", "Generate...", "Conduct...", "Plot...").
         5. Be 1–2 sentences, specific enough that a coding assistant can act on it immediately.
@@ -614,7 +611,7 @@ def chat():
         accumulated = ""
         try:
             stream = client.models.generate_content_stream(
-                model='gemini-3-flash-preview',
+                model='gemini-3.1-flash-lite-preview',
                 contents=validation_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
@@ -772,7 +769,7 @@ def interpret_results():
     def generate():
         try:
             stream = client.models.generate_content_stream(
-                model='gemini-3-flash-preview',
+                model='gemini-3.1-flash-lite-preview',
                 contents=format_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
