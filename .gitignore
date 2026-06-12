@@ -1,19 +1,24 @@
 # Environment variables
-
 .env
+.env.local
 
 # Python cache files
-
-**pycache**/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # Virtual environments
-
 venv/
 env/
+.venv/
 
-# Mac system files
+# Test / tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
 
+# Editor / OS files
 .DS_Store
+.idea/
+.vscode/

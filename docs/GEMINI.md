@@ -5,7 +5,7 @@ CodeCaster is a proactive, containerized data analysis platform designed to brid
 
 ## 2. Technical Stack Standards
 When generating or modifying code for this project, adhere to the following stack and constraints:
-* **Backend:** Python 3.10 (slim) with Flask.
+* **Backend:** Python 3.12 (slim) with Flask.
 * **Data Processing:** `pandas`, `statsmodels` for Python. Base R, `dplyr`, `ggplot2`, and `MASS` for R.
 * **Frontend:** HTML5, Vanilla JavaScript, and Tailwind CSS (via CDN).
 * **AI Integration:** Google GenAI SDK (`google-genai`) using a multi-agent pipeline using the appropriate model depending on the scale of a task.

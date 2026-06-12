@@ -26,19 +26,28 @@ You can run CodeCaster on your local machine. Because CodeCaster executes dynami
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/yourusername/codecaster.git](https://github.com/yourusername/codecaster.git)
+git clone https://github.com/yourusername/codecaster.git
 cd codecaster
 ```
 
 ### 2. Set Up Environment Variables
 
-Create a `.env` file in the root directory of the project and add your Gemini API key. You can also optionally add a master password to lock the application.
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
 
 ```env
 # Required: Your Google Gemini API Key
 GEMINI_API_KEY=your_api_key_here
 
-# Optional: Set a password to lock the web interface
+# Recommended: stable key for signing sessions (see .env.example for how to generate one)
+FLASK_SECRET_KEY=
+
+# Optional: Set a password to lock the web interface.
+# Strongly recommended for any public deployment — without it, anyone can
+# execute arbitrary code via the app's /run endpoint.
 PASSWORD=your_secure_password
 ```
 
@@ -89,4 +98,3 @@ flask run --host=0.0.0.0 --port=5000
 ##  Website
 
 If you want to try out CodeCaster without dealing with the local setup, head on over to the deployed web version at: https://codecaster-th8m.onrender.com/
-```

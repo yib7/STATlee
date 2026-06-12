@@ -6,6 +6,7 @@ import re
 import subprocess
 import math
 import base64
+import logging
 import pandas as pd
 from fpdf import FPDF
 import PyPDF2
@@ -21,6 +22,12 @@ from google.genai import types
 # ---------------------------------------------------------------------------
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+logger = logging.getLogger('codecaster')
+
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
     raise ValueError("No GEMINI_API_KEY set for Flask application")
@@ -28,11 +35,64 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 app = Flask(__name__, template_folder='templates')
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24)) # Required for sessions
+
+# Sessions require a stable secret key. Falling back to a random key means
+# sessions reset on every restart AND break across multiple workers (each
+# worker would sign cookies with a different key), so warn loudly.
+secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not secret_key:
+    secret_key = os.urandom(24)
+    logger.warning(
+        "FLASK_SECRET_KEY not set — using a random key. Logins will reset on "
+        "restart and fail across multiple workers. Set FLASK_SECRET_KEY in production."
+    )
+app.secret_key = secret_key
+
 APP_PASSWORD = os.environ.get("PASSWORD")
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16 MB max upload
+
+# ---------------------------------------------------------------------------
+# GEMINI MODEL ROUTING
+# ---------------------------------------------------------------------------
+# One place to swap models as they graduate from preview. Tasks are routed to
+# the cheapest model that can do the job well (see README "Multi-Model").
+MODEL_PRO = 'gemini-3.1-pro-preview'                 # deep drafting & conversation
+MODEL_FLASH = 'gemini-3-flash-preview'               # classification, suggestions, interpretation
+MODEL_FLASH_LITE = 'gemini-3.1-flash-lite-preview'   # moderation, validation, formatting
+
+
+# ---------------------------------------------------------------------------
+# HELPERS
+# ---------------------------------------------------------------------------
+def resolve_dataset_path(filename):
+    """Map a client-supplied filename to a safe path inside UPLOAD_FOLDER.
+
+    Returns the absolute path, or None for empty names or path-traversal
+    attempts (e.g. '../../etc/passwd'). Every endpoint that opens a file by a
+    name received from the client MUST go through this.
+    """
+    if not filename:
+        return None
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        return None
+    upload_dir = os.path.realpath(app.config['UPLOAD_FOLDER'])
+    full_path = os.path.realpath(os.path.join(upload_dir, safe_name))
+    # Defense in depth: ensure the resolved path stays within the upload dir.
+    if os.path.commonpath([full_path, upload_dir]) != upload_dir:
+        return None
+    return full_path
+
+
+def sse_stream(generator):
+    """Wrap a generator function in a standard Server-Sent Events response."""
+    return Response(
+        stream_with_context(generator()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
+    )
 
 # ---------------------------------------------------------------------------
 # ROUTES
@@ -87,8 +147,8 @@ def cleanup_old_files():
         if os.path.isfile(filepath) and os.stat(filepath).st_mtime < now - 7200:
             try:
                 os.remove(filepath)
-                print(f"Cleaned up old file: {filename}")
-            except Exception as e:
+                logger.info("Cleaned up old file: %s", filename)
+            except OSError:
                 pass
 
 @app.route('/upload', methods=['POST'])
@@ -207,7 +267,9 @@ def extract_pdf_codebook():
     if not filename:
         return jsonify({'error': 'Missing filename'}), 400
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = resolve_dataset_path(filename)
+    if not filepath:
+        return jsonify({'error': 'Invalid filename'}), 400
 
     try:
         with open(filepath, 'rb') as f:
@@ -223,7 +285,7 @@ def extract_pdf_codebook():
         """
 
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model=MODEL_FLASH,
             contents=[
                 types.Part.from_bytes(data=pdf_bytes, mime_type='application/pdf'),
                 prompt
@@ -235,7 +297,7 @@ def extract_pdf_codebook():
         )
         return jsonify({'status': 'success', 'mapping': json.loads(response.text)})
     except Exception as e:
-        print(f"PDF Extraction Error: {e}")
+        logger.error("PDF extraction error: %s", e)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/data_page', methods=['POST'])
@@ -250,11 +312,13 @@ def data_page():
     if not filename:
         return jsonify({'error': 'Missing filename'}), 400
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = resolve_dataset_path(filename)
+    if not filepath:
+        return jsonify({'error': 'Invalid filename'}), 400
 
     try:
         df = pd.read_csv(filepath)
-        
+
         for col, search_term in filters.items():
             if search_term and col in df.columns:
                 df = df[df[col].astype(str).str.contains(str(search_term), case=False, na=False)]
@@ -290,8 +354,10 @@ def classify_variables():
     if not filename: 
         return jsonify({'error': 'Missing filename'}), 400
     
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
+    filepath = resolve_dataset_path(filename)
+    if not filepath:
+        return jsonify({'error': 'Invalid filename'}), 400
+
     try:
         # 1. Read a safe, fast sample
         df = pd.read_csv(filepath, nrows=100)
@@ -319,7 +385,7 @@ def classify_variables():
         {data_preview}
         """
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model=MODEL_FLASH,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1, 
@@ -328,7 +394,7 @@ def classify_variables():
         )
         return jsonify({'status': 'success', 'codebook': json.loads(response.text)})
     except Exception as e:
-        print(f"Classification Error: {e}")
+        logger.error("Classification error: %s", e)
         return jsonify({'error': str(e)}), 500
 
 
@@ -343,7 +409,9 @@ def suggest_analysis():
     if not filename:
         return jsonify({'error': 'Missing filename'}), 400
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = resolve_dataset_path(filename)
+    if not filepath:
+        return jsonify({'error': 'Invalid filename'}), 400
 
     try:
         df = pd.read_csv(filepath, nrows=100)
@@ -406,7 +474,7 @@ def suggest_analysis():
         Example format: ["Suggestion 1", "Suggestion 2", "Suggestion 3"]
 """
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model=MODEL_FLASH,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.7,
@@ -451,7 +519,7 @@ def chat():
     """
     try:
         mod_response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview', 
+            model=MODEL_FLASH_LITE, 
             contents=moderation_prompt,
             config=types.GenerateContentConfig(temperature=0.0)
         )
@@ -463,7 +531,9 @@ def chat():
     except Exception as e:
         return jsonify({'error': 'Moderation service failed.'}), 500
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = resolve_dataset_path(filename)
+    if not filepath:
+        return jsonify({'error': 'Invalid filename'}), 400
     try:
         df = pd.read_csv(filepath, nrows=0)
         headers = df.columns.tolist()
@@ -524,7 +594,7 @@ def chat():
         """
         try:
             sel_response = client.models.generate_content(
-                model='gemini-3-flash-preview',
+                model=MODEL_FLASH,
                 contents=feature_selection_prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.1,
@@ -544,12 +614,14 @@ def chat():
                     if codebook:
                         filtered_codebook = {c: codebook[c] for c in validated if c in codebook}
 
-            print(f"[/chat] Stage 1 selected {len(filtered_headers)}/{len(headers)} columns: {filtered_headers}")
+            logger.info("[/chat] Stage 1 selected %d/%d columns: %s",
+                        len(filtered_headers), len(headers), filtered_headers)
         except Exception as e:
-            print(f"[/chat] Stage 1 (feature selection) failed, falling back to full schema: {e}")
+            logger.warning("[/chat] Stage 1 (feature selection) failed, falling back to full schema: %s", e)
             # Defaults already set above; analysis proceeds normally.
     else:
-        print(f"[/chat] Stage 1 skipped: {len(headers)} columns is below threshold ({FEATURE_SELECTION_THRESHOLD}).")
+        logger.info("[/chat] Stage 1 skipped: %d columns is below threshold (%d).",
+                    len(headers), FEATURE_SELECTION_THRESHOLD)
 
     # ---------------------------------------------------------------------
     # STAGE 2: Code Generation (Drafting)
@@ -582,7 +654,7 @@ def chat():
 
     try:
         draft_response = client.models.generate_content(
-            model='gemini-3.1-pro-preview',
+            model=MODEL_PRO,
             contents=draft_prompt,
             config=types.GenerateContentConfig(temperature=0.1)
         )
@@ -611,7 +683,7 @@ def chat():
         accumulated = ""
         try:
             stream = client.models.generate_content_stream(
-                model='gemini-3.1-flash-lite-preview',
+                model=MODEL_FLASH_LITE,
                 contents=validation_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
@@ -639,11 +711,7 @@ def chat():
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': f'Code validation failed: {str(e)}'})}\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
-    )
+    return sse_stream(generate)
 
 
 @app.route('/run', methods=['POST'])
@@ -651,13 +719,15 @@ def run_code():
     """Executes the generated code locally ONLY."""
     data = request.json
     code = data.get('code')
-    language = data.get('language')
-    
-    if not code: 
+    language = (data.get('language') or 'Python')
+
+    if not code:
         return jsonify({'error': 'No code provided.'}), 400
 
+    is_python = language.lower() == 'python'
+
     try:
-        suffix = '.py' if language.lower() == 'python' else '.R'
+        suffix = '.py' if is_python else '.R'
         fd, path = tempfile.mkstemp(suffix=suffix, dir=app.config['UPLOAD_FOLDER'])
         
         with os.fdopen(fd, 'w') as f: 
@@ -667,13 +737,13 @@ def run_code():
         if os.path.exists(plot_file):
             os.remove(plot_file)
         
-        cmd = ['python', path] if language.lower() == 'python' else ['Rscript', path]
+        cmd = ['python', path] if is_python else ['Rscript', path]
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             cwd=app.config['UPLOAD_FOLDER'],
-            timeout=60  # ← add this
+            timeout=60
         )
         
         final_output = result.stdout
@@ -737,17 +807,17 @@ def interpret_results():
                 types.Part.from_bytes(data=image_bytes, mime_type='image/png')
             )
         except Exception as e:
-            print(f"Error decoding image for AI: {e}")
+            logger.error("Error decoding image for AI: %s", e)
     
     try:
         ai_resp = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model=MODEL_FLASH,
             contents=contents_payload,
             config=types.GenerateContentConfig(temperature=0.3)
         )
         raw_interpretation = ai_resp.text.strip()
     except Exception as e:
-        print(f"Interpretation Error: {e}")
+        logger.error("Interpretation error: %s", e)
         return jsonify({'interpretation': "Failed to generate AI interpretation."}), 500
 
     # STEP 2: Strict Markdown formatting pass using Flash — STREAMED to client.
@@ -769,7 +839,7 @@ def interpret_results():
     def generate():
         try:
             stream = client.models.generate_content_stream(
-                model='gemini-3.1-flash-lite-preview',
+                model=MODEL_FLASH_LITE,
                 contents=format_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
@@ -779,14 +849,10 @@ def interpret_results():
                     yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
-            print(f"Interpretation Format Error: {e}")
+            logger.error("Interpretation format error: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to format AI interpretation.'})}\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
-    )
+    return sse_stream(generate)
 
 @app.route('/health')
 def health_check():
@@ -825,13 +891,13 @@ def converse():
 
     try:
         raw_response = client.models.generate_content(
-            model='gemini-3.1-pro-preview',
+            model=MODEL_PRO,
             contents=analysis_prompt,
             config=types.GenerateContentConfig(temperature=0.6)
         )
         raw_answer = raw_response.text.strip()
     except Exception as e:
-        print(f"Converse Error: {e}")
+        logger.error("Converse error: %s", e)
         return jsonify({'error': str(e)}), 500
 
     # STEP 2: Strict Formatting Pass (Flash Lite Model) — STREAMED to client.
@@ -853,7 +919,7 @@ def converse():
     def generate():
         try:
             stream = client.models.generate_content_stream(
-                model='gemini-3.1-flash-lite-preview',
+                model=MODEL_FLASH_LITE,
                 contents=format_prompt,
                 config=types.GenerateContentConfig(temperature=0.0)
             )
@@ -863,14 +929,10 @@ def converse():
                     yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
-            print(f"Converse Format Error: {e}")
+            logger.error("Converse format error: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
-    )
+    return sse_stream(generate)
 
 if __name__ == '__main__':
     # Grab the port Render wants to use, or default to 5000 locally

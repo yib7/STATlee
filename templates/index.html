@@ -503,6 +503,18 @@
             }
         }
 
+        // Escape user/data-controlled strings before injecting into innerHTML.
+        // CSV cell values, column headers, and LLM output are all untrusted.
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         // UI Tabs Logic
         function switchTab(tabName) {
             ['Generate', 'Data', 'Results', 'Converse', 'Pdf'].forEach(name => {
@@ -582,10 +594,11 @@
             let headHTML = '<tr>';
             
             headers.forEach(h => {
+                const safeH = escapeHtml(h);
                 headHTML += `
                 <th class="px-4 py-3 whitespace-nowrap align-top transition-colors duration-300">
-                    <div class="mb-2 text-indigo-900 dark:text-indigo-300 font-bold text-sm">${h}</div>
-                    <input type="text" data-col="${h}" placeholder="Filter..." class="col-search-input w-full min-w-[120px] normal-case bg-white/90 dark:bg-black/40 border border-slate-400 dark:border-slate-700/50 rounded-lg px-2 py-1.5 text-slate-900 dark:text-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 transition-all font-mono text-xs font-semibold">
+                    <div class="mb-2 text-indigo-900 dark:text-indigo-300 font-bold text-sm">${safeH}</div>
+                    <input type="text" data-col="${safeH}" placeholder="Filter..." class="col-search-input w-full min-w-[120px] normal-case bg-white/90 dark:bg-black/40 border border-slate-400 dark:border-slate-700/50 rounded-lg px-2 py-1.5 text-slate-900 dark:text-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 transition-all font-mono text-xs font-semibold">
                 </th>`;
             });
             headHTML += '</tr>';
@@ -611,7 +624,8 @@
                 dataList.forEach(row => {
                     bodyHTML += '<tr class="border-b border-slate-100/50 dark:border-slate-800/30 hover:bg-slate-50/50 dark:hover:bg-indigo-900/10 transition-colors">';
                     headers.forEach(h => {
-                        bodyHTML += `<td class="px-4 py-3 whitespace-nowrap max-w-xs truncate" title="${row[h]}">${row[h]}</td>`;
+                        const cell = escapeHtml(row[h]);
+                        bodyHTML += `<td class="px-4 py-3 whitespace-nowrap max-w-xs truncate" title="${cell}">${cell}</td>`;
                     });
                     bodyHTML += '</tr>';
                 });
@@ -703,11 +717,14 @@
                 const colLower = colName.toLowerCase();
                 const matchedKey = Object.keys(pdfMapping).find(k => k.toLowerCase() === colLower);
                 let desc = matchedKey ? pdfMapping[matchedKey] : null;
-                
-                let descHTML = desc ? `<div class="text-[11px] font-inter font-normal mt-1 text-slate-700 dark:text-slate-300 line-clamp-3 leading-snug w-full opacity-90 border-t border-slate-400/30 dark:border-slate-500/30 pt-1" title="${desc}">${desc}</div>` : '';
+                const safeDesc = escapeHtml(desc);
+                const safeCol = escapeHtml(colName);
+                const safeClass = escapeHtml(classification);
+
+                let descHTML = desc ? `<div class="text-[11px] font-inter font-normal mt-1 text-slate-700 dark:text-slate-300 line-clamp-3 leading-snug w-full opacity-90 border-t border-slate-400/30 dark:border-slate-500/30 pt-1" title="${safeDesc}">${safeDesc}</div>` : '';
 
                 btn.className = `px-3 py-2 rounded-lg border text-left transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col items-start cursor-pointer group ${colorClasses}`;
-                btn.innerHTML = `<div class="flex justify-between w-full items-center gap-2"><span class="font-mono text-sm font-bold truncate max-w-[200px]" title="${colName}">${colName}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${classification}</span></div>${descHTML}`;
+                btn.innerHTML = `<div class="flex justify-between w-full items-center gap-2"><span class="font-mono text-sm font-bold truncate max-w-[200px]" title="${safeCol}">${safeCol}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${safeClass}</span></div>${descHTML}`;
                 btn.onclick = () => viewColumn(colName);
                 cbList.appendChild(btn);
             });
@@ -920,7 +937,7 @@
                     data.suggestions.forEach(suggestion => {
                         const btn = document.createElement('button');
                         btn.className = "text-sm bg-white/80 hover:bg-white dark:bg-[#161332]/50 dark:hover:bg-[#161332] text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-inter font-medium";
-                        btn.innerHTML = `<span class="opacity-50 group-hover:opacity-100 transition-opacity transform group-hover:scale-110 group-hover:text-amber-500">✦</span> <span class="leading-relaxed">${suggestion}</span>`;
+                        btn.innerHTML = `<span class="opacity-50 group-hover:opacity-100 transition-opacity transform group-hover:scale-110 group-hover:text-amber-500">✦</span> <span class="leading-relaxed">${escapeHtml(suggestion)}</span>`;
                         btn.onclick = () => { document.getElementById('promptInput').value = suggestion; };
                         list.appendChild(btn);
                     });
@@ -1135,7 +1152,7 @@
             const text = chatInput.value.trim();
             if(!text) return;
             
-            chatLog.innerHTML += `<div class="self-end bg-indigo-700 text-white p-5 rounded-2xl rounded-tr-none max-w-[80%] text-base shadow-lg animate-fade-in-up font-inter font-medium">${text}</div>`;
+            chatLog.innerHTML += `<div class="self-end bg-indigo-700 text-white p-5 rounded-2xl rounded-tr-none max-w-[80%] text-base shadow-lg animate-fade-in-up font-inter font-medium">${escapeHtml(text)}</div>`;
             chatInput.value = '';
             chatLog.scrollTop = chatLog.scrollHeight;
             
@@ -1185,7 +1202,8 @@
                             chatLog.appendChild(bubbleEl);
                         }
                         accumulated += delta;
-                        bubbleEl.innerHTML = accumulated.replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800 dark:text-indigo-300 font-bold">$1</strong>');
+                        // Escape first (LLM output is untrusted), then apply **bold** formatting.
+                        bubbleEl.innerHTML = escapeHtml(accumulated).replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800 dark:text-indigo-300 font-bold">$1</strong>');
                         chatLog.scrollTop = chatLog.scrollHeight;
                     },
                     onDone: () => {

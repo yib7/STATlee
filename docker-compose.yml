@@ -1,14 +1,15 @@
-version: '3.8'
-
+# Compose v2 no longer needs the top-level `version` key.
 services:
   codecaster-web:
     build: .
     ports:
       - "5000:5000"
+    # Values are interpolated from your shell or the project's .env file.
     environment:
-      # This pulls the key from your host machine's environment and gives it to the container
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
+      - PASSWORD=${PASSWORD:-}
     volumes:
-      # Optional: This syncs your local folder to the container so you don't 
-      # have to rebuild the image every time you tweak an HTML file
+      # DEV ONLY: live-syncs your local code into the container so you don't
+      # have to rebuild on every edit. Remove this for a production-like run.
       - .:/app
