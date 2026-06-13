@@ -183,7 +183,7 @@
                 <h2 id="historyTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Analysis History</h2>
                 <button data-close-modal="historyModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close history">&times;</button>
             </div>
-            <div id="historyList" class="flex-1 overflow-y-auto"></div>
+            <div id="historyList" class="flex-1 min-h-0 overflow-y-auto"></div>
         </div>
     </div>
 
@@ -197,7 +197,7 @@
                 </div>
                 <button data-close-modal="catalogModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close catalog">&times;</button>
             </div>
-            <div id="catalogList" class="flex-1 overflow-y-auto px-6 pb-6"></div>
+            <div id="catalogList" class="flex-1 min-h-0 overflow-y-auto px-6 pb-6"></div>
         </div>
     </div>
 
@@ -239,7 +239,7 @@
                 </div>
             </div>
 
-            <div class="p-6 flex-1 overflow-y-auto space-y-8">
+            <div class="p-6 flex-1 min-h-0 overflow-y-auto space-y-8">
 
                 <!-- Upload Section -->
                 <div class="animate-fade-in-up" style="animation-delay: 0.2s;">
@@ -413,7 +413,7 @@
                     <!-- DATA VIEWER TAB -->
                     <div id="contentData" class="tab-content h-full p-8 overflow-auto hidden animate-fade-in-up">
                         <div class="flex flex-col h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden">
-                            <div id="tableScrollContainer" class="flex-1 overflow-auto">
+                            <div id="tableScrollContainer" class="flex-1 min-h-0 overflow-auto">
                                 <table id="dataTable" class="min-w-full text-base text-left">
                                     <thead id="dataTableHead" class="text-xs font-mono text-slate-700 uppercase bg-slate-100/90 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-400 sticky top-0 shadow-sm z-10 tracking-widest border-b border-slate-300 dark:border-slate-700"></thead>
                                     <tbody id="dataTableBody" class="text-slate-900 dark:text-slate-300 font-mono text-sm"></tbody>
@@ -449,7 +449,7 @@
 
                     <!-- CONVERSE TAB -->
                     <div id="contentConverse" class="tab-content h-full flex flex-col hidden bg-transparent animate-fade-in-up">
-                        <div id="chatLog" class="flex-1 p-8 overflow-y-auto flex flex-col gap-6">
+                        <div id="chatLog" class="flex-1 min-h-0 p-8 overflow-y-auto flex flex-col gap-6">
                             <div class="self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-medium">
                                 Hello! Once you run some code, we can discuss the results here. Ask me anything about your data, the methodology, or the statistical output. Flip on <span class="font-bold">Guide me</span> below if you'd like help turning a hypothesis into a rigorous analysis prompt.
                             </div>
