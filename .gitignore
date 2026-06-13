@@ -17,8 +17,16 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+.ruff_cache/
+
+# App data
+instance/
+*.db
 
 # Editor / OS files
 .DS_Store
 .idea/
 .vscode/
+
+# Preserved pointer to the previous (corrupted) git metadata; see notes.
+.git.corrupt-backup

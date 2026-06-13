@@ -1,11 +1,19 @@
-Flask
-pandas
-Werkzeug
-google-genai
-statsmodels
-matplotlib
-seaborn
-python-dotenv
-gunicorn
-fpdf
-PyPDF2
+# Pinned direct dependencies (roadmap 2.2). For a fully-resolved lockfile,
+# compile with pip-tools: `pip-compile requirements.in`.
+Flask==3.1.3
+Werkzeug==3.1.8
+pandas==3.0.1
+google-genai==1.56.0
+anthropic==0.102.0
+statsmodels==0.14.6
+matplotlib==3.10.8
+seaborn==0.13.2
+python-dotenv==1.2.2
+gunicorn==26.0.0
+fpdf2==2.8.7
+pypdf==6.11.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-Limiter==4.1.1
+openpyxl==3.1.5
+pyreadstat==1.3.5

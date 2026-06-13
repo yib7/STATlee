@@ -1,0 +1,178 @@
+"""Dataset routes: upload/normalize (5.1), paging (5.8), cached codebook &
+suggestions (5.6/4.5), conversational wrangling + version control (5.16),
+project export (5.3), reset (4.6)."""
+import io
+import zipfile
+
+from conftest import SAMPLE_CSV, csrf_token, post_json, upload_csv
+
+
+def test_upload_accepts_csv(client):
+    resp = upload_csv(client, SAMPLE_CSV)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['filename'] == 'test.csv'
+    assert 'age' in body['profile']['headers']
+    assert body['sha256']
+
+
+def test_upload_rejects_unsupported_format(client):
+    token = csrf_token(client)
+    data = {'file': (io.BytesIO(b'nope'), 'evil.exe')}
+    resp = client.post('/upload', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+    assert resp.status_code == 400
+    assert 'Supported' in resp.get_json()['error']
+
+
+def test_upload_tsv_is_normalized(client):
+    token = csrf_token(client)
+    tsv = "a\tb\n1\t2\n3\t4\n"
+    data = {'file': (io.BytesIO(tsv.encode()), 'd.tsv')}
+    resp = client.post('/upload', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+    assert resp.status_code == 200
+    assert resp.get_json()['filename'] == 'd.csv'   # converted to canonical CSV
+
+
+def test_data_page_pagination(client):
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'per_page': 2, 'page': 1})
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['total_rows'] == 4
+    assert body['total_pages'] == 2
+    assert len(body['data']) == 2
+
+
+def test_data_page_filter(client):
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'filters': {'group': 'B'}})
+    body = resp.get_json()
+    assert body['total_rows'] == 2
+    assert all(r['group'] == 'B' for r in body['data'])
+
+
+def test_classify_variables_uses_llm_and_caches(client, fake_llm):
+    fake_llm.set('classify', '{"age": "Continuous", "group": "Nominal"}')
+    upload_csv(client, SAMPLE_CSV)
+
+    first = post_json(client, '/classify_variables', {'filename': 'test.csv'})
+    body = first.get_json()
+    assert body['status'] == 'success'
+    assert body['codebook']['age'] == 'Continuous'
+
+    # Second call hits the per-hash cache (5.6) — no extra classify LLM call.
+    calls_before = sum(1 for c in fake_llm.calls if c[1] == 'classify')
+    second = post_json(client, '/classify_variables', {'filename': 'test.csv'})
+    assert second.get_json().get('cached') is True
+    calls_after = sum(1 for c in fake_llm.calls if c[1] == 'classify')
+    assert calls_after == calls_before
+
+
+def test_suggest_returns_three_and_reroll_bypasses_cache(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    first = post_json(client, '/suggest', {'filename': 'test.csv'})
+    assert len(first.get_json()['suggestions']) == 3
+
+    # Reroll (previous provided) must not be served from cache (4.5).
+    before = sum(1 for c in fake_llm.calls if c[1] == 'suggest')
+    rerolled = post_json(client, '/suggest',
+                         {'filename': 'test.csv', 'previous': ['Suggestion 1']})
+    assert rerolled.get_json().get('cached') is not True
+    after = sum(1 for c in fake_llm.calls if c[1] == 'suggest')
+    assert after == before + 1
+
+
+def test_wrangle_creates_new_version(client, fake_llm):
+    # Fake wrangle plan drops missing rows; SAMPLE_CSV has 2 rows with NaNs.
+    fake_llm.set('wrangle', '{"code": "df = df.dropna()", '
+                            '"summary": "Dropped missing rows", "error": null}')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/wrangle',
+                     {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['changelog']['active'] == 2
+    assert body['changelog']['can_undo'] is True
+
+    # The active version now reflects the transform (NaN rows removed).
+    page = post_json(client, '/data_page', {'filename': 'test.csv'}).get_json()
+    assert page['total_rows'] == 2
+
+
+def test_wrangle_blocked_by_moderation(client, fake_llm):
+    fake_llm.block('Off-topic')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/wrangle',
+                     {'filename': 'test.csv', 'instruction': 'write a poem'})
+    assert resp.status_code == 403
+
+
+def test_version_control_undo_redo_over_http(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+
+    undo = post_json(client, '/version_control',
+                     {'filename': 'test.csv', 'direction': 'undo'})
+    assert undo.get_json()['changelog']['active'] == 1
+
+    redo = post_json(client, '/version_control',
+                     {'filename': 'test.csv', 'direction': 'redo'})
+    assert redo.get_json()['changelog']['active'] == 2
+
+
+def test_version_control_validates_direction(client):
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/version_control',
+                     {'filename': 'test.csv', 'direction': 'sideways'})
+    assert resp.status_code == 400
+
+
+def test_export_bundles_zip(client):
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/export', {
+        'filename': 'test.csv', 'language': 'Python',
+        'code': "print('hi')",
+        'history': [{'role': 'user', 'text': 'analyze it'}],
+        'interpretation': 'It works.',
+    })
+    assert resp.status_code == 200
+    assert resp.mimetype == 'application/zip'
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    names = zf.namelist()
+    assert 'script.py' in names
+    assert 'report.md' in names
+    assert any(n.startswith('data/') for n in names)
+
+
+def test_reset_clears_workspace(client):
+    upload_csv(client, SAMPLE_CSV)
+    assert post_json(client, '/reset', {}).get_json()['status'] == 'success'
+    # After reset the dataset is gone.
+    resp = post_json(client, '/data_page', {'filename': 'test.csv'})
+    assert resp.status_code == 400
+
+
+def test_extract_pdf_codebook_survey_mode(client, fake_llm):
+    """Survey→codebook branch (5.13): a TXT 'survey' yields an inferred map."""
+    fake_llm.set('survey_extract', '{"age": "Q1 age in years"}')
+    token = csrf_token(client)
+    # Upload a TXT which the route converts to a PDF artifact.
+    data = {'file': (io.BytesIO(b'Q1. What is your age?'), 'survey.txt')}
+    up = client.post('/upload_pdf', data=data,
+                     content_type='multipart/form-data',
+                     headers={'X-CSRF-Token': token})
+    assert up.status_code == 200
+    pdf_name = up.get_json()['filename']
+
+    resp = post_json(client, '/extract_pdf_codebook',
+                     {'filename': pdf_name, 'mode': 'survey', 'headers': ['age']})
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['mapping']['age'].startswith('Q1')

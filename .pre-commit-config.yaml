@@ -1,0 +1,24 @@
+# Pre-commit hooks (roadmap 2.3). Install with:
+#   pip install pre-commit && pre-commit install
+# Run on the whole repo once with:
+#   pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
+    hooks:
+      # Lint (with autofix). Mirrors the CI `ruff check` gate.
+      - id: ruff
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^static/vendor/
+      - id: end-of-file-fixer
+        exclude: ^static/vendor/
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict
+      - id: debug-statements

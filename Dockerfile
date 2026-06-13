@@ -1,31 +1,29 @@
-# 1. Use an official, lightweight Python image as our base OS
+# Web application image. Untrusted analysis code should run in the separate
+# runner image (runner.Dockerfile) via SANDBOX_MODE=docker; the R/Python
+# stack here covers SANDBOX_MODE=subprocess deployments.
 FROM python:3.12-slim
 
-# 2. Install R and necessary system libraries
-# We pre-install R, dplyr, ggplot2, and MASS so the container is instantly ready
-RUN apt-get update && apt-get install -y \
+# R toolchain for R-language analyses (subprocess sandbox mode)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     r-base \
     r-cran-dplyr \
     r-cran-ggplot2 \
     r-cran-mass \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Set the working directory inside the container
 WORKDIR /app
 
-# 4. Copy the requirements file and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Copy the rest of your application code (app.py, templates folder, etc.)
 COPY . .
 
-# 6. Expose the port Flask runs on
+ENV APP_ENV=production
 EXPOSE 5000
 
-# 7. Define environment variables to tell Flask how to run
-ENV FLASK_APP=app.py
-ENV FLASK_RUN_HOST=0.0.0.0
+# Hit /health on whatever port the host injected (1.2)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+  CMD ["python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','5000')+'/health')"]
 
-# 8. The command to start the server when the container launches
-CMD ["flask", "run"]
+# Production WSGI server honoring $PORT, threaded workers for SSE (1.2)
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 8 --timeout 120 --graceful-timeout 30 app:app"]

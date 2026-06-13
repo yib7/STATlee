@@ -6,10 +6,19 @@ services:
       - "5000:5000"
     # Values are interpolated from your shell or the project's .env file.
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
       - PASSWORD=${PASSWORD:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DRAFT_PROVIDER=${DRAFT_PROVIDER:-gemini}
+      - SANDBOX_MODE=${SANDBOX_MODE:-subprocess}
+      - REQUIRE_LOGIN=${REQUIRE_LOGIN:-false}
+      - ACCOUNTS_ENABLED=${ACCOUNTS_ENABLED:-true}
     volumes:
       # DEV ONLY: live-syncs your local code into the container so you don't
       # have to rebuild on every edit. Remove this for a production-like run.
       - .:/app
+      # For SANDBOX_MODE=docker (sibling containers), also mount the socket:
+      # - /var/run/docker.sock:/var/run/docker.sock

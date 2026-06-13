@@ -1,0 +1,32 @@
+[project]
+name = "codecaster"
+version = "1.0.0"
+description = "AI-assisted social-science data analysis sandbox"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# Make the project root importable so tests can `import app`, `import storage`,
+# and load the fake-LLM conftest before collection (roadmap 2.1).
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["static/vendor", "__pycache__"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, comprehensions, perf-lint.
+select = ["E", "F", "I", "B", "UP", "C4", "PERF"]
+ignore = [
+    "E501",   # line length is handled by the formatter, not enforced hard
+    "B008",   # Flask/route default-arg patterns
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately import after setting env vars, and reuse fixture names.
+"tests/*" = ["E402", "F811"]

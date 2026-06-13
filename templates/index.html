@@ -3,1241 +3,515 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>CodeCaster | Social Science AI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Built, purged Tailwind (3.2) + vendored, pinned libraries -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/cm-material-darker.min.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+
+    <script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/purify.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cm-python.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cm-r.min.js') }}"></script>
+
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        display: ['Syne', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    animation: {
-                        'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        'blob': 'blob 10s infinite',
-                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                    },
-                    keyframes: {
-                        fadeInUp: {
-                            '0%': { opacity: 0, transform: 'translateY(15px)' },
-                            '100%': { opacity: 1, transform: 'translateY(0)' },
-                        },
-                        blob: {
-                            '0%': { transform: 'translate(0px, 0px) scale(1)' },
-                            '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
-                            '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
-                            '100%': { transform: 'translate(0px, 0px) scale(1)' },
-                        }
-                    }
-                }
-            }
-        }
-        
+        window.CC_BOOT = { accounts: {{ 'true' if accounts_enabled else 'false' }} };
         if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
         } else {
             document.documentElement.classList.remove('dark');
         }
     </script>
-    <!-- Modern Font Stack -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@500;600;700;800&display=swap" rel="stylesheet">
-    
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        
-        /* Sleek scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .dark ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); }
-        .dark ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.6); }
-
-        .markdown-body strong { color: #4f46e5; }
-        .dark .markdown-body strong { color: #a5b4fc; }
-        .markdown-body ul { list-style-type: none; padding-left: 0; margin-top: 1rem; margin-bottom: 1rem; }
-        .markdown-body ul li { position: relative; padding-left: 1.5rem; margin-bottom: 0.5rem; }
-        .markdown-body ul li::before { content: '→'; position: absolute; left: 0; color: #6366f1; font-weight: bold; }
-        
-        /* Glass effect utility */
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-        }
-        .dark .glass-panel {
-            background: rgba(15, 12, 41, 0.85);
-        }
-    </style>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-[#0b0914] dark:text-slate-200 h-screen flex overflow-hidden relative transition-colors duration-500"> 
-    
+<body class="bg-slate-50 text-slate-900 dark:bg-[#0b0914] dark:text-slate-200 h-screen flex flex-col overflow-hidden relative transition-colors duration-500">
+
     <!-- Ambient Animated Background Blobs -->
     <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-300/40 dark:bg-indigo-900/30 blur-[120px] pointer-events-none z-[-1] animate-blob transition-colors duration-700"></div>
     <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[50%] rounded-full bg-purple-300/40 dark:bg-purple-900/20 blur-[120px] pointer-events-none z-[-1] animate-blob transition-colors duration-700" style="animation-delay: 2s"></div>
 
-    <!-- Auth Overlay -->
+    <div id="toastArea" aria-live="polite"></div>
+
+    <!-- Legacy master-password overlay -->
     <div id="authOverlay" class="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xl flex items-center justify-center transition-opacity duration-500 hidden">
         <div class="bg-white/90 dark:bg-[#120f26]/90 backdrop-blur-md p-10 rounded-2xl shadow-2xl max-w-md w-full mx-4 border border-white/20 dark:border-slate-700/50 text-center transform transition-all animate-fade-in-up">
             <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/30 text-white">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
             </div>
             <h2 class="text-3xl font-display font-bold text-slate-800 dark:text-white mb-2 tracking-tight">System Locked</h2>
             <p class="text-base font-mono text-slate-600 dark:text-slate-400 mb-8 uppercase tracking-widest">Master Password Required</p>
-            
-            <input type="password" id="authPassword" class="w-full bg-slate-100/50 border border-slate-400 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 dark:bg-black/40 dark:border-slate-700 rounded-xl py-4 px-4 dark:text-white mb-6 text-center tracking-[0.3em] text-xl outline-none transition-all" placeholder="••••••••">
-            
-            <button id="authBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/20 transition-all duration-300">
-                Unlock System
-            </button>
+            <input type="password" id="authPassword" aria-label="Master password" class="w-full bg-slate-100/50 border border-slate-400 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 dark:bg-black/40 dark:border-slate-700 rounded-xl py-4 px-4 dark:text-white mb-6 text-center tracking-[0.3em] text-xl outline-none transition-all" placeholder="••••••••">
+            <button id="authBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/20 transition-all duration-300">Unlock System</button>
             <p id="authError" class="text-red-600 dark:text-red-400 text-sm mt-4 hidden font-medium animate-pulse">Incorrect password. Access denied.</p>
         </div>
     </div>
 
-    <!-- Codebook Prompt Modal -->
-    <div id="codebookPromptOverlay" class="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-xl flex items-center justify-center transition-opacity duration-500 hidden">
-        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-10 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-white/20 dark:border-slate-700/50 text-center transform transition-all animate-fade-in-up">
+    <!-- Codebook decision tree (5.13): attach codebook → or generate from survey -->
+    <div id="codebookPromptOverlay" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="codebookPromptTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-10 rounded-2xl shadow-2xl max-w-lg w-full border border-white/20 dark:border-slate-700/50 text-center transform transition-all animate-fade-in-up">
             <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/30 text-white">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             </div>
-            <h2 class="text-2xl font-display font-bold text-slate-800 dark:text-white mb-3 tracking-tight">Attach a Codebook?</h2>
-            <p class="text-sm text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-                Optionally upload a <span class="text-indigo-700 dark:text-indigo-400 font-semibold">PDF or TXT codebook</span> alongside your dataset. The added context improves the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">quality of variable classification, analysis suggestions, and generated code</span>.
-            </p>
 
-            <div class="flex flex-col gap-3">
-                <button id="codebookYesBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 flex justify-center items-center gap-2">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    Upload Codebook
-                </button>
-                <button id="codebookSkipBtn" class="w-full bg-transparent border border-slate-400 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-display font-medium py-3 px-4 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all duration-300">
-                    Skip — proceed without codebook
-                </button>
+            <div id="codebookStepAsk">
+                <h2 id="codebookPromptTitle" class="text-2xl font-display font-bold text-slate-800 dark:text-white mb-3 tracking-tight">Attach a Codebook?</h2>
+                <p class="text-sm text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
+                    Optionally upload a <span class="text-indigo-700 dark:text-indigo-400 font-semibold">PDF or TXT codebook</span> alongside your dataset. The added context improves the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">quality of variable classification, analysis suggestions, and generated code</span>.
+                </p>
+                <div class="flex flex-col gap-3">
+                    <button id="codebookYesBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 flex justify-center items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Upload Codebook
+                    </button>
+                    <button id="codebookNoBtn" class="w-full bg-transparent border border-slate-400 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-display font-medium py-3 px-4 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all duration-300">
+                        I don't have a codebook
+                    </button>
+                </div>
+            </div>
+
+            <div id="codebookStepSurvey" class="hidden">
+                <h2 class="text-2xl font-display font-bold text-slate-800 dark:text-white mb-3 tracking-tight">Generate one from your survey?</h2>
+                <p class="text-sm text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
+                    If you have the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">survey questionnaire</span> the data came from, upload it and CodeCaster will infer variable descriptions, scales, and value labels from the questions themselves.
+                </p>
+                <div class="flex flex-col gap-3">
+                    <button id="surveyYesBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 flex justify-center items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Upload Survey Questionnaire
+                    </button>
+                    <button id="surveySkipBtn" class="w-full bg-transparent border border-slate-400 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-display font-medium py-3 px-4 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all duration-300">
+                        Skip — proceed without one
+                    </button>
+                </div>
             </div>
 
             <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-6 font-mono uppercase tracking-widest">Max 50 pages &bull; PDF or TXT</p>
         </div>
     </div>
 
-    <!-- Left Sidebar -->
-    <div id="leftSidebar" style="width: 33.333%;" class="glass-panel shrink-0 min-w-[320px] border-r border-slate-200/60 dark:border-slate-700/30 flex flex-col shadow-2xl z-10 transition-colors duration-500">
-        
-        <!-- Premium Header -->
-        <div class="p-6 border-b border-slate-200/60 dark:border-slate-700/30 flex items-center justify-between">
-            <div class="animate-fade-in-up" style="animation-delay: 0.1s;">
-                <div class="flex items-center gap-3 mb-1">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 text-white">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                    </div>
-                    <h1 class="text-2xl font-bold font-display bg-gradient-to-r from-indigo-700 to-purple-700 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent tracking-tight">CodeCaster</h1>
-                </div>
-                <p class="text-xs text-slate-600 dark:text-slate-400 font-mono tracking-[0.2em] uppercase ml-[44px] font-medium">Proactive Data Assistant</p>
+    <!-- Account modal (7.1) -->
+    <div id="accountModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-md w-full border border-white/20 dark:border-slate-700/50 animate-fade-in-up">
+            <div class="flex justify-between items-center mb-6">
+                <h2 id="accountTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Your Account</h2>
+                <button data-close-modal="accountModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close account dialog">&times;</button>
             </div>
-            
-            <div class="flex items-center gap-4 animate-fade-in-up" style="animation-delay: 0.1s;">
-                <button onclick="toggleTheme()" class="text-slate-500 hover:text-indigo-700 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors focus:outline-none p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800/50" title="Toggle Theme">
-                    <svg id="themeIconSun" class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                    <svg id="themeIconMoon" class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-                </button>
-                <div class="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" title="System Online"></div>
-            </div>
-        </div>
-
-        <div class="p-6 flex-1 overflow-y-auto space-y-8">
-            
-            <!-- Upload Section -->
-            <div class="animate-fade-in-up" style="animation-delay: 0.2s;">
-                <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider">1. Upload Dataset (CSV)</label>
-                <div class="relative border-2 border-dashed border-slate-400 dark:border-slate-700 rounded-xl p-6 hover:border-indigo-600 dark:hover:border-indigo-500 transition-colors group bg-white/50 dark:bg-black/20 text-center">
-                    <input type="file" id="fileInput" accept=".csv" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
-                    <div class="flex flex-col items-center gap-2 text-slate-600 dark:text-slate-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                        <span class="text-base font-medium">Click to upload or drag & drop</span>
-                    </div>
-                </div>
-                <p id="uploadStatus" class="text-sm font-mono mt-3 hidden"></p>
-
-                <!-- Hidden PDF input — triggered by the codebook prompt modal after CSV upload -->
-                <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden"/>
-                <p id="pdfUploadStatus" class="text-sm font-mono mt-2 hidden"></p>
-            </div>
-
-            <!-- Codebook -->
-            <div id="codebookContainer" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 backdrop-blur-sm transition-all duration-500 animate-fade-in-up">
-                <button id="codebookToggleBtn" onclick="toggleCodebook()" class="flex items-center justify-between w-full gap-2 text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-4 uppercase tracking-wider group focus:outline-none">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                        Intelligent Codebook
-                    </span>
-                    <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors normal-case tracking-normal">
-                        <span id="codebookToggleLabel">Hide</span>
-                        <svg id="codebookChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
-                    </span>
-                </button>
-                <div id="codebookList" class="flex flex-col gap-2"></div>
-            </div>
-
-            <!-- Configuration -->
-            <div class="animate-fade-in-up" style="animation-delay: 0.3s;">
-                <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider">2. Select Language</label>
-                <div class="relative">
-                    <select id="languageSelect" class="w-full appearance-none bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 outline-none transition-all cursor-pointer font-mono text-base font-semibold">
-                        <option value="Python">Python</option>
-                        <option value="R">R</option>
-                    </select>
-                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-600">
-                        <svg class="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                    </div>
+            <div id="accountLoginItem">
+                <p class="text-xs text-slate-600 dark:text-slate-400 mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous sandbox use stays available — nothing is stored without an account.</p>
+                <label class="block text-xs font-display font-bold uppercase tracking-wider mb-1.5 text-slate-700 dark:text-slate-300" for="accEmail">Email</label>
+                <input type="email" id="accEmail" autocomplete="email" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-indigo-600 text-base" placeholder="you@university.edu">
+                <label class="block text-xs font-display font-bold uppercase tracking-wider mb-1.5 text-slate-700 dark:text-slate-300" for="accPassword">Password <span class="font-normal normal-case tracking-normal opacity-70">(8+ characters)</span></label>
+                <input type="password" id="accPassword" autocomplete="current-password" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 mb-5 outline-none focus:ring-2 focus:ring-indigo-600 text-base" placeholder="••••••••">
+                <p id="accError" class="text-red-600 dark:text-red-400 text-sm mb-4 hidden font-medium"></p>
+                <div class="flex gap-3">
+                    <button id="accLoginBtn" class="flex-1 bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 transition-all">Sign in</button>
+                    <button id="accRegisterBtn" class="flex-1 bg-transparent border border-slate-400 dark:border-slate-700 font-display font-bold py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Create account</button>
                 </div>
             </div>
-
-            <!-- Suggestions -->
-            <div id="suggestionsContainer" class="hidden animate-fade-in-up">
-                <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider">Suggested Analysis</label>
-                <div id="suggestionsList" class="flex flex-col gap-2"></div>
-            </div>
-
-            <!-- Prompt Area -->
-            <div class="animate-fade-in-up" style="animation-delay: 0.4s;">
-                <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider">3. What do you want to analyze?</label>
-                <textarea id="promptInput" rows="5" class="w-full bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 placeholder-slate-500 dark:placeholder-slate-400 outline-none transition-all resize-none shadow-inner text-base" placeholder="e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals..."></textarea>
-                <p class="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
-                    <span class="font-bold text-indigo-700 dark:text-indigo-400">Pro Tip:</span> Specificity is integral to generating high-quality code! Explicitly state your desired analysis, statistical tests, plots, and <span class="underline decoration-indigo-500/50">exact column labels</span>.
-                </p>
-            </div>
-
-            <!-- Action Button -->
-            <div class="animate-fade-in-up pb-8" style="animation-delay: 0.5s;">
-                <button id="generateBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-base">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                    Generate Analysis
-                </button>
-                
-                <div id="loading" class="hidden mt-4 text-center text-sm font-mono font-bold text-indigo-700 dark:text-indigo-400 flex justify-center items-center gap-2">
-                    <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    <span class="animate-pulse uppercase tracking-wider">Compiling Script...</span>
-                </div>
+            <div id="accountLogoutItem" class="hidden">
+                <p class="text-sm text-slate-700 dark:text-slate-300 mb-5">You're signed in. Your analyses are saved to your account.</p>
+                <button id="accLogoutBtn" class="w-full bg-transparent border border-slate-400 dark:border-slate-700 font-display font-bold py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Sign out</button>
             </div>
         </div>
     </div>
 
-    <!-- Resizer -->
-    <div id="resizer" class="w-1 cursor-col-resize bg-transparent hover:bg-indigo-500/50 active:bg-indigo-500 z-50 shrink-0 transition-colors duration-150"></div>
-
-    <!-- Right Content Area -->
-    <div id="rightContent" class="flex-1 min-w-0 bg-white/40 dark:bg-black/20 backdrop-blur-sm flex flex-col relative z-0 transition-colors duration-500">
-        
-        <!-- Modern Tabs -->
-        <div class="px-6 pt-4 bg-transparent border-b border-slate-300 dark:border-slate-800/60 flex justify-between items-end flex-wrap">
-            <div class="flex space-x-6 overflow-x-auto">
-                <button id="tabGenerate" class="tab-btn active-tab pb-3 font-display font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('generate')">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-                    Source Code
-                </button>
-                <button id="tabData" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('data')">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-                    Data Viewer
-                </button>
-                <button id="tabResults" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('results')">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                    Analysis Results
-                </button>
-                <button id="tabConverse" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('converse')">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-                    Converse
-                </button>
-                <button id="tabPdf" style="display: none;" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
-                    <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    Codebook Viewer
-                </button>
+    <!-- Issue report modal (6.3) -->
+    <div id="issueModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="issueTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-lg w-full border border-white/20 dark:border-slate-700/50 animate-fade-in-up">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="issueTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Report an Issue</h2>
+                <button data-close-modal="issueModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close issue dialog">&times;</button>
             </div>
-            <button id="copyBtn" class="mb-2 hover:bg-slate-300 dark:hover:bg-slate-700 transition-all hidden flex items-center gap-2 bg-slate-200 py-1.5 px-4 rounded-lg border border-slate-400 text-slate-800 font-bold dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 text-sm font-mono uppercase tracking-wider hover:shadow-md">
-                Copy Code
-            </button>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">Describe what went wrong. The active script, terminal output, and recent console errors are attached automatically so it can be fixed fast. Your dataset is <span class="font-bold">not</span> included.</p>
+            <textarea id="issueDescription" rows="5" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-indigo-600 resize-none text-base" placeholder="What happened? What did you expect?"></textarea>
+            <button id="issueSubmitBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-3 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 transition-all">Submit report</button>
         </div>
+    </div>
 
-        <div class="flex-1 overflow-hidden relative">
-            
-            <!-- CODE GENERATION TAB -->
-            <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto block animate-fade-in-up">
-                <!-- macOS Style Code Window -->
-                <div class="bg-[#1e1e1e] dark:bg-[#0d0d12] rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[70%]">
-                    <div class="bg-[#2d2d2d] dark:bg-[#16161e] px-4 py-3 flex items-center gap-2 border-b border-black/50">
-                        <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
-                        <div class="w-3 h-3 rounded-full bg-amber-500/80"></div>
-                        <div class="w-3 h-3 rounded-full bg-emerald-500/80"></div>
-                        <div class="ml-2 text-sm font-mono text-slate-400">script.py</div>
+    <!-- Report builder modal (5.17) -->
+    <div id="reportModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-white/20 dark:border-slate-700/50 animate-fade-in-up">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="reportTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">AI Report Builder</h2>
+                <button data-close-modal="reportModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close report builder">&times;</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div class="md:col-span-3">
+                    <label class="block text-[10px] font-display font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300" for="reportContext">Background / context</label>
+                    <textarea id="reportContext" rows="2" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-2 px-3 outline-none focus:ring-2 focus:ring-indigo-600 resize-none text-sm" placeholder="e.g., Term paper on income and turnout using the 2024 ANES pilot..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-display font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300" for="reportLength">Length</label>
+                    <select id="reportLength" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
+                        <option value="brief (roughly 250 words)">Brief</option>
+                        <option value="medium (roughly 500-800 words)" selected>Medium</option>
+                        <option value="long (roughly 1200-1500 words)">Long</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-display font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300" for="reportTone">Style</label>
+                    <select id="reportTone" class="w-full bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
+                        <option value="academic" selected>Academic</option>
+                        <option value="executive summary">Executive summary</option>
+                        <option value="plain-language explainer">Plain language</option>
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button id="reportGenerateBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-2.5 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 transition-all text-sm">Generate Report</button>
+                </div>
+            </div>
+            <div class="flex-1 min-h-0 flex flex-col border border-slate-300 dark:border-slate-700/60 rounded-xl overflow-hidden">
+                <textarea id="reportEditor" class="flex-1 min-h-[260px] w-full bg-white/90 dark:bg-[#0f0c29]/90 p-4 font-mono text-sm outline-none resize-none" placeholder="The generated report appears here as editable Markdown. Tweak it by hand, or select a passage and click 'Revise selection' for a targeted AI edit." aria-label="Report markdown editor"></textarea>
+                <div id="reportPreview" class="flex-1 min-h-[260px] overflow-y-auto p-5 markdown-body text-base hidden bg-white/90 dark:bg-[#0f0c29]/90"></div>
+            </div>
+            <div class="flex gap-2 mt-3 justify-end">
+                <button id="reportPreviewBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-400 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Preview</button>
+                <button id="reportReviseBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-400 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Revise selection</button>
+                <button id="reportDownloadBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider bg-indigo-700 text-white rounded-lg hover:bg-indigo-600 transition-all">Download .md</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History modal (5.7) -->
+    <div id="historyModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md rounded-2xl shadow-2xl max-w-xl w-full max-h-[80vh] flex flex-col border border-white/20 dark:border-slate-700/50 animate-fade-in-up overflow-hidden">
+            <div class="flex justify-between items-center p-6 pb-3">
+                <h2 id="historyTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Analysis History</h2>
+                <button data-close-modal="historyModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close history">&times;</button>
+            </div>
+            <div id="historyList" class="flex-1 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <!-- Analysis catalog modal (5.14) -->
+    <div id="catalogModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="catalogTitle">
+        <div class="bg-white/95 dark:bg-[#120f26]/95 backdrop-blur-md rounded-2xl shadow-2xl max-w-xl w-full max-h-[85vh] flex flex-col border border-white/20 dark:border-slate-700/50 animate-fade-in-up overflow-hidden">
+            <div class="flex justify-between items-center p-6 pb-2">
+                <div>
+                    <h2 id="catalogTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Analysis Catalog</h2>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Pick a method — CodeCaster drafts a prompt tailored to <span class="font-bold">your</span> columns.</p>
+                </div>
+                <button data-close-modal="catalogModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close catalog">&times;</button>
+            </div>
+            <div id="catalogList" class="flex-1 overflow-y-auto px-6 pb-6"></div>
+        </div>
+    </div>
+
+    <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
+    <div class="flex flex-1 min-h-0 relative">
+
+        <!-- Left Sidebar -->
+        <div id="leftSidebar" style="width: 33.333%;" class="glass-panel shrink-0 min-w-[320px] border-r border-slate-200/60 dark:border-slate-700/30 flex flex-col shadow-2xl z-10 transition-colors duration-500">
+
+            <!-- Premium Header -->
+            <div class="p-6 pb-4 border-b border-slate-200/60 dark:border-slate-700/30">
+                <div class="flex items-center justify-between">
+                    <div class="animate-fade-in-up" style="animation-delay: 0.1s;">
+                        <div class="flex items-center gap-3 mb-1">
+                            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="CodeCaster logo" class="w-8 h-8 rounded-lg shadow-lg shadow-indigo-500/30">
+                            <h1 class="text-2xl font-bold font-display bg-gradient-to-r from-indigo-700 to-purple-700 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent tracking-tight">CodeCaster</h1>
+                        </div>
+                        <p class="text-xs text-slate-600 dark:text-slate-400 font-mono tracking-[0.2em] uppercase ml-[44px] font-medium">Proactive Data Assistant</p>
                     </div>
-                    <div class="p-6 overflow-auto flex-1">
-                        <pre id="codeContainer" class="block bg-transparent"><code id="codeOutput" class="text-[#a6accd] font-mono text-base leading-loose tracking-wide">// System ready. Upload a dataset to begin...</code></pre>
+                    <div class="flex items-center gap-3 animate-fade-in-up" style="animation-delay: 0.1s;">
+                        <span id="accountLabel" class="hidden text-[10px] font-mono text-slate-600 dark:text-slate-400 max-w-[110px] truncate"></span>
+                        <button onclick="toggleTheme()" class="text-slate-500 hover:text-indigo-700 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors focus:outline-none p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800/50" title="Toggle Theme" aria-label="Toggle color theme">
+                            <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                            <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                        </button>
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" title="System Online" role="status" aria-label="System online"></div>
                     </div>
                 </div>
-                
-                <div id="runSection" class="mt-8 flex justify-end hidden animate-fade-in-up">
-                    <button id="runBtn" class="bg-indigo-700 hover:bg-indigo-600 text-white font-display font-bold py-3 px-6 rounded-xl transition-all flex items-center gap-2 text-base shadow-[0_0_15px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] transform hover:-translate-y-1">
-                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
-                        Execute Script Locally
+
+                <!-- Workspace toolbar -->
+                <div class="flex flex-wrap gap-1.5 mt-4 animate-fade-in-up" style="animation-delay: 0.15s;">
+                    <button id="resetBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Start over with a clean workspace" aria-label="New analysis — reset everything">⟲ New</button>
+                    <button id="historyBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Past analyses" aria-label="Open analysis history">History</button>
+                    <button id="catalogBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Browse statistical tests and plots" aria-label="Open analysis catalog">Catalog</button>
+                    <button id="reportBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Build a written report from your results" aria-label="Open report builder">Report</button>
+                    <button id="exportBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Download data + script + plots + report as a zip" aria-label="Download project archive">⤓ Export</button>
+                    <button id="issueBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Report a problem" aria-label="Report an issue">Support</button>
+                    <button id="accountBtn" class="px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 transition-all" title="Sign in to keep your work" aria-label="Account">Account</button>
+                </div>
+            </div>
+
+            <div class="p-6 flex-1 overflow-y-auto space-y-8">
+
+                <!-- Upload Section -->
+                <div class="animate-fade-in-up" style="animation-delay: 0.2s;">
+                    <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="fileInput">1. Upload Dataset</label>
+                    <div class="relative border-2 border-dashed border-slate-400 dark:border-slate-700 rounded-xl p-6 hover:border-indigo-600 dark:hover:border-indigo-500 transition-colors group bg-white/50 dark:bg-black/20 text-center">
+                        <input type="file" id="fileInput" accept=".csv,.tsv,.xlsx,.xls,.dta,.sav" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" aria-label="Upload dataset file"/>
+                        <div class="flex flex-col items-center gap-2 text-slate-600 dark:text-slate-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            <span class="text-base font-medium">Click to upload or drag &amp; drop</span>
+                            <span class="text-[10px] font-mono uppercase tracking-widest opacity-70">CSV · TSV · Excel · Stata · SPSS</span>
+                        </div>
+                    </div>
+
+                    <!-- Persistent pipeline checklist (4.4) -->
+                    <div id="pipelineChecklist" class="hidden mt-3 flex flex-col gap-0.5" aria-live="polite"></div>
+
+                    <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden" aria-hidden="true"/>
+                </div>
+
+                <!-- Intelligent Codebook -->
+                <div id="codebookContainer" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 backdrop-blur-sm transition-all duration-500 animate-fade-in-up">
+                    <div class="flex items-center justify-between w-full gap-2 mb-4">
+                        <button id="codebookToggleBtn" onclick="toggleCodebook()" class="flex items-center gap-2 text-sm font-display font-bold text-slate-900 dark:text-slate-300 uppercase tracking-wider group focus:outline-none" aria-label="Toggle codebook visibility">
+                            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                            Intelligent Codebook
+                            <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors normal-case tracking-normal">
+                                <span id="codebookToggleLabel">Hide</span>
+                                <svg id="codebookChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
+                            </span>
+                        </button>
+                        <button id="codebookPopoutBtn" class="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline shrink-0" title="Float the codebook so it stays visible on any tab" aria-label="Pop out codebook">Pop out ↗</button>
+                    </div>
+                    <div id="codebookList" class="flex flex-col gap-2"></div>
+                </div>
+
+                <!-- Data cleaning + changelog (5.16) -->
+                <div id="changelogPanel" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 backdrop-blur-sm animate-fade-in-up">
+                    <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="wrangleInput">Data Cleaning</label>
+                    <div class="flex gap-2 mb-3">
+                        <input type="text" id="wrangleInput" class="flex-1 bg-white/80 border border-slate-400 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-600" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
+                        <button id="wrangleApplyBtn" class="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-all" aria-label="Apply transformation">Apply</button>
+                    </div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Changelog</span>
+                        <div class="flex gap-1.5">
+                            <button id="undoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all" aria-label="Undo last data change">↶ Undo</button>
+                            <button id="redoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all" aria-label="Redo data change">↷ Redo</button>
+                        </div>
+                    </div>
+                    <div id="changelogList" class="flex flex-col gap-1 max-h-40 overflow-y-auto"></div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="animate-fade-in-up" style="animation-delay: 0.3s;">
+                    <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="languageSelect">2. Select Language</label>
+                    <div class="relative">
+                        <select id="languageSelect" class="w-full appearance-none bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 outline-none transition-all cursor-pointer font-mono text-base font-semibold">
+                            <option value="Python">Python</option>
+                            <option value="R">R</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-600">
+                            <svg class="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggestions (+ reroll 4.5) -->
+                <div id="suggestionsContainer" class="hidden animate-fade-in-up">
+                    <div class="flex items-center justify-between mb-3">
+                        <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 uppercase tracking-wider">Suggested Analysis</label>
+                        <button id="rerollBtn" class="p-1.5 rounded-lg text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-800/50 transition-all" title="Get different suggestions" aria-label="Reroll suggestions">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        </button>
+                    </div>
+                    <div id="suggestionsList" class="flex flex-col gap-2"></div>
+                </div>
+
+                <!-- Prompt Area -->
+                <div class="animate-fade-in-up" style="animation-delay: 0.4s;">
+                    <label class="block text-sm font-display font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="promptInput">3. What do you want to analyze?</label>
+                    <textarea id="promptInput" rows="5" class="w-full bg-white/80 border border-slate-400 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 dark:bg-[#161332]/80 dark:border-slate-700 rounded-xl py-3 px-4 dark:text-slate-200 placeholder-slate-500 dark:placeholder-slate-400 outline-none transition-all resize-none shadow-inner text-base" placeholder="e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals..."></textarea>
+                    <p class="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                        <span class="font-bold text-indigo-700 dark:text-indigo-400">Pro Tip:</span> Specificity is integral to generating high-quality code! Explicitly state your desired analysis, statistical tests, plots, and <span class="underline decoration-indigo-500/50">exact column labels</span>.
+                    </p>
+                    <div id="refineWrap" class="hidden mt-3 flex items-center gap-2">
+                        <input type="checkbox" id="refineToggle" checked class="w-4 h-4 accent-indigo-600 cursor-pointer">
+                        <label for="refineToggle" class="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer" title="When on, follow-up requests modify the current script instead of regenerating from scratch">Refine current script (keep my edits, apply changes on top)</label>
+                    </div>
+                </div>
+
+                <!-- Action Button -->
+                <div class="animate-fade-in-up pb-8" style="animation-delay: 0.5s;">
+                    <button id="generateBtn" class="w-full bg-slate-900 text-white dark:bg-indigo-600 font-display font-bold py-4 px-4 rounded-xl hover:bg-slate-800 dark:hover:bg-indigo-500 hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-base">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Generate Analysis
+                    </button>
+                    <div id="loading" class="hidden mt-4 text-center text-sm font-mono font-bold text-indigo-700 dark:text-indigo-400 flex justify-center items-center gap-2">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span class="animate-pulse uppercase tracking-wider">Compiling Script...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resizer -->
+        <div id="resizer" class="w-1 cursor-col-resize bg-transparent hover:bg-indigo-500/50 active:bg-indigo-500 z-50 shrink-0 transition-colors duration-150" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize sidebar (arrow keys)"></div>
+
+        <!-- Right Content Area -->
+        <div id="rightContent" class="flex-1 min-w-0 bg-white/40 dark:bg-black/20 backdrop-blur-sm flex flex-col relative z-0 transition-colors duration-500">
+
+            <!-- Tabs + workspace controls -->
+            <div class="px-6 pt-4 bg-transparent border-b border-slate-300 dark:border-slate-800/60 flex justify-between items-end flex-wrap gap-2">
+                <div class="flex space-x-6 overflow-x-auto" role="tablist" aria-label="Workspace views">
+                    <button id="tabGenerate" role="tab" class="tab-btn active-tab pb-3 font-display font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('generate')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                        Source Code
+                    </button>
+                    <button id="tabData" role="tab" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('data')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                        Data Viewer
+                    </button>
+                    <button id="tabResults" role="tab" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('results')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Analysis Results
+                    </button>
+                    <button id="tabConverse" role="tab" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('converse')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                        Converse
+                    </button>
+                    <button id="tabPdf" role="tab" style="display: none;" class="tab-btn pb-3 font-display font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
+                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        Codebook Viewer
+                    </button>
+                </div>
+                <div class="flex items-center gap-2 mb-2">
+                    <span id="usageBadge" class="hidden text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 px-2 py-1 rounded-md bg-slate-200/60 dark:bg-slate-800/60" title="Session LLM usage"></span>
+                    <button id="splitBtn" aria-pressed="false" class="hover:bg-slate-300 dark:hover:bg-slate-700 transition-all flex items-center gap-2 bg-slate-200 py-1.5 px-3 rounded-lg border border-slate-400 text-slate-800 font-bold dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 text-sm font-mono uppercase tracking-wider hover:shadow-md" title="View two panels side by side" aria-label="Toggle split view">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v16m6-16v16M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path></svg>
+                        Split
+                    </button>
+                    <button id="copyBtn" class="hover:bg-slate-300 dark:hover:bg-slate-700 transition-all hidden flex items-center gap-2 bg-slate-200 py-1.5 px-4 rounded-lg border border-slate-400 text-slate-800 font-bold dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 text-sm font-mono uppercase tracking-wider hover:shadow-md" aria-label="Copy generated code">
+                        Copy Code
                     </button>
                 </div>
             </div>
 
-            <!-- DATA VIEWER TAB -->
-            <div id="contentData" class="tab-content h-full p-8 overflow-auto hidden animate-fade-in-up">
-                <div class="flex flex-col h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden">
-                    <div id="tableScrollContainer" class="flex-1 overflow-auto">
-                        <table id="dataTable" class="min-w-full text-base text-left">
-                            <thead id="dataTableHead" class="text-xs font-mono text-slate-700 uppercase bg-slate-100/90 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-400 sticky top-0 shadow-sm z-10 tracking-widest border-b border-slate-300 dark:border-slate-700"></thead>
-                            <tbody id="dataTableBody" class="text-slate-900 dark:text-slate-300 font-mono text-sm"></tbody>
-                        </table>
-                    </div>
-                    
-                    <div id="paginationFooter" class="hidden bg-slate-100/90 dark:bg-[#161332]/90 border-t border-slate-300 dark:border-slate-800/60 p-4 flex justify-between items-center text-sm transition-colors duration-300">
-                        <span id="pageInfo" class="text-slate-700 dark:text-slate-400 font-mono text-sm font-bold uppercase tracking-wider">Page 1 of 1</span>
-                        <div class="flex gap-2">
-                            <button id="prevPageBtn" class="px-4 py-2 bg-white font-mono text-xs font-bold uppercase tracking-wider border border-slate-400 text-slate-800 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#1e1b4b] dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-all shadow-sm hover:shadow-md" onclick="changePage(-1)" disabled>Prev</button>
-                            <button id="nextPageBtn" class="px-4 py-2 bg-white font-mono text-xs font-bold uppercase tracking-wider border border-slate-400 text-slate-800 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#1e1b4b] dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-all shadow-sm hover:shadow-md" onclick="changePage(1)" disabled>Next</button>
+            <!-- Pane area (6.1) -->
+            <div id="paneArea" class="flex-1 overflow-hidden relative flex min-h-0">
+                <div id="paneA" class="pane flex-1">
+
+                    <!-- CODE GENERATION TAB -->
+                    <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto block animate-fade-in-up">
+                        <div class="bg-[#1e1e1e] dark:bg-[#0d0d12] rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[70%]">
+                            <div class="bg-[#2d2d2d] dark:bg-[#16161e] px-4 py-3 flex items-center gap-2 border-b border-black/50">
+                                <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                                <div class="w-3 h-3 rounded-full bg-amber-500/80"></div>
+                                <div class="w-3 h-3 rounded-full bg-emerald-500/80"></div>
+                                <div class="ml-2 text-sm font-mono text-slate-400"><span id="scriptFilename">script.py</span> <span class="opacity-60 text-xs">· editable</span></div>
+                                <div id="genPhase" class="hidden ml-auto text-xs font-mono font-bold text-indigo-400 flex items-center gap-2"></div>
+                            </div>
+                            <div class="cm-wrap overflow-auto flex-1" id="codeEditorHost"></div>
+                        </div>
+                        <div id="runSection" class="mt-8 flex justify-end hidden animate-fade-in-up">
+                            <button id="runBtn" class="bg-indigo-700 hover:bg-indigo-600 text-white font-display font-bold py-3 px-6 rounded-xl transition-all flex items-center gap-2 text-base shadow-[0_0_15px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] transform hover:-translate-y-1">
+                                <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                                Execute Script Locally
+                            </button>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- RESULTS TAB -->
-            <div id="contentResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6 animate-fade-in-up">
-                
-                <div class="bg-[#1e1e1e] dark:bg-[#0d0d12] border border-slate-700 rounded-xl p-5 shadow-2xl flex flex-col">
-                    <h3 class="text-xs font-mono uppercase text-slate-400 font-bold mb-3 tracking-widest flex items-center gap-2">
-                        <svg class="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
-                        Terminal Output
-                    </h3>
-                    <pre id="runOutput" class="text-[#a6accd] font-mono text-sm whitespace-pre-wrap leading-relaxed">Awaiting code execution...</pre>
-                </div>
-
-                <div class="bg-white/90 border border-slate-300 dark:bg-[#161332]/80 backdrop-blur-md dark:border-slate-700/50 rounded-xl p-8 flex-1 shadow-xl">
-                    <h3 class="text-sm font-display uppercase text-indigo-700 dark:text-indigo-400 font-bold mb-6 tracking-widest flex items-center gap-2 border-b border-slate-300 dark:border-slate-800 pb-4">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> 
-                        AI Interpretation
-                    </h3>
-                    <div id="interpretationOutput" class="text-slate-900 dark:text-slate-300 text-base leading-relaxed markdown-body font-inter">Run a script to generate a statistical interpretation.</div>
-                </div>
-            </div>
-
-            <!-- CONVERSE TAB -->
-            <div id="contentConverse" class="tab-content h-full flex flex-col hidden bg-transparent animate-fade-in-up">
-                <div id="chatLog" class="flex-1 p-8 overflow-y-auto flex flex-col gap-6">
-                    <div class="self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-inter font-medium">
-                        Hello! Once you run some code, we can discuss the results here. Ask me anything about your data, the methodology, or the statistical output.
+                    <!-- DATA VIEWER TAB -->
+                    <div id="contentData" class="tab-content h-full p-8 overflow-auto hidden animate-fade-in-up">
+                        <div class="flex flex-col h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden">
+                            <div id="tableScrollContainer" class="flex-1 overflow-auto">
+                                <table id="dataTable" class="min-w-full text-base text-left">
+                                    <thead id="dataTableHead" class="text-xs font-mono text-slate-700 uppercase bg-slate-100/90 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-400 sticky top-0 shadow-sm z-10 tracking-widest border-b border-slate-300 dark:border-slate-700"></thead>
+                                    <tbody id="dataTableBody" class="text-slate-900 dark:text-slate-300 font-mono text-sm"></tbody>
+                                </table>
+                            </div>
+                            <div id="paginationFooter" class="hidden bg-slate-100/90 dark:bg-[#161332]/90 border-t border-slate-300 dark:border-slate-800/60 p-4 flex justify-between items-center text-sm transition-colors duration-300">
+                                <span id="pageInfo" class="text-slate-700 dark:text-slate-400 font-mono text-sm font-bold uppercase tracking-wider">Page 1 of 1</span>
+                                <div class="flex gap-2">
+                                    <button id="prevPageBtn" class="px-4 py-2 bg-white font-mono text-xs font-bold uppercase tracking-wider border border-slate-400 text-slate-800 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#1e1b4b] dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-all shadow-sm hover:shadow-md" onclick="changePage(-1)" disabled aria-label="Previous page">Prev</button>
+                                    <button id="nextPageBtn" class="px-4 py-2 bg-white font-mono text-xs font-bold uppercase tracking-wider border border-slate-400 text-slate-800 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-[#1e1b4b] dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-all shadow-sm hover:shadow-md" onclick="changePage(1)" disabled aria-label="Next page">Next</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="p-6 border-t border-slate-300 dark:border-slate-800/60 bg-white/50 dark:bg-black/20 backdrop-blur-lg">
-                    <div class="flex gap-3 relative max-w-4xl mx-auto">
-                        <input type="text" id="chatInput" class="flex-1 bg-white/90 border border-slate-400 rounded-xl py-4 px-5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 dark:bg-[#161332]/80 dark:border-slate-700 dark:text-slate-200 shadow-inner text-base transition-all font-medium" placeholder="Ask a follow-up question...">
-                        <button id="chatSend" class="absolute right-2 top-2 bottom-2 bg-indigo-700 hover:bg-indigo-600 text-white px-6 rounded-lg transition-all shadow-md flex items-center justify-center hover:-translate-y-0.5">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                        </button>
+
+                    <!-- RESULTS TAB -->
+                    <div id="contentResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6 animate-fade-in-up">
+                        <div class="bg-[#1e1e1e] dark:bg-[#0d0d12] border border-slate-700 rounded-xl p-5 shadow-2xl flex flex-col">
+                            <h3 class="text-xs font-mono uppercase text-slate-400 font-bold mb-3 tracking-widest flex items-center gap-2">
+                                <svg class="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                                Terminal Output
+                            </h3>
+                            <pre id="runOutput" class="text-[#a6accd] font-mono text-sm whitespace-pre-wrap leading-relaxed">Awaiting code execution...</pre>
+                        </div>
+                        <div class="bg-white/90 border border-slate-300 dark:bg-[#161332]/80 backdrop-blur-md dark:border-slate-700/50 rounded-xl p-8 flex-1 shadow-xl">
+                            <h3 class="text-sm font-display uppercase text-indigo-700 dark:text-indigo-400 font-bold mb-6 tracking-widest flex items-center gap-2 border-b border-slate-300 dark:border-slate-800 pb-4">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                AI Interpretation
+                            </h3>
+                            <div id="interpretationOutput" class="text-slate-900 dark:text-slate-300 text-base leading-relaxed markdown-body">Run a script to generate a statistical interpretation.</div>
+                        </div>
                     </div>
+
+                    <!-- CONVERSE TAB -->
+                    <div id="contentConverse" class="tab-content h-full flex flex-col hidden bg-transparent animate-fade-in-up">
+                        <div id="chatLog" class="flex-1 p-8 overflow-y-auto flex flex-col gap-6">
+                            <div class="self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-medium">
+                                Hello! Once you run some code, we can discuss the results here. Ask me anything about your data, the methodology, or the statistical output. Flip on <span class="font-bold">Guide me</span> below if you'd like help turning a hypothesis into a rigorous analysis prompt.
+                            </div>
+                        </div>
+                        <div class="p-6 border-t border-slate-300 dark:border-slate-800/60 bg-white/50 dark:bg-black/20 backdrop-blur-lg">
+                            <div class="flex gap-3 relative max-w-4xl mx-auto">
+                                <input type="text" id="chatInput" class="flex-1 bg-white/90 border border-slate-400 rounded-xl py-4 px-5 pr-16 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 dark:bg-[#161332]/80 dark:border-slate-700 dark:text-slate-200 shadow-inner text-base transition-all font-medium" placeholder="Ask a follow-up question..." aria-label="Ask a follow-up question">
+                                <button id="chatSend" class="absolute right-2 top-2 bottom-2 bg-indigo-700 hover:bg-indigo-600 text-white px-6 rounded-lg transition-all shadow-md flex items-center justify-center hover:-translate-y-0.5" aria-label="Send message">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                                </button>
+                            </div>
+                            <div class="max-w-4xl mx-auto mt-2.5 flex items-center gap-2">
+                                <input type="checkbox" id="guideToggle" class="w-3.5 h-3.5 accent-indigo-600 cursor-pointer">
+                                <label for="guideToggle" class="text-xs text-slate-600 dark:text-slate-400 font-medium cursor-pointer" title="Hypothesis coach: helps you formulate a rigorous analysis prompt from a hunch">Guide me — help me shape a hypothesis into an analysis</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PDF VIEWER TAB -->
+                    <div id="contentPdf" class="tab-content h-full p-8 overflow-hidden hidden animate-fade-in-up">
+                        <div class="w-full h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden flex flex-col">
+                            <div class="bg-slate-100/90 dark:bg-[#161332]/90 border-b border-slate-300 dark:border-slate-800/60 p-4 flex justify-between items-center z-10 shadow-sm">
+                                <h3 class="text-sm font-mono uppercase text-slate-700 dark:text-slate-400 font-bold tracking-widest flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
+                                    Codebook Reference
+                                </h3>
+                            </div>
+                            <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white" src="" title="Uploaded codebook document"></iframe>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div id="paneDivider" class="hidden" role="separator" aria-orientation="vertical" aria-label="Resize panes"></div>
+
+                <div id="paneB" class="pane hidden flex-1 border-l border-slate-300 dark:border-slate-800/60">
+                    <div class="px-4 py-2 flex items-center justify-between border-b border-slate-300 dark:border-slate-800/60 bg-white/40 dark:bg-black/20">
+                        <select id="paneBSelect" class="bg-transparent text-xs font-mono font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 outline-none cursor-pointer" aria-label="Choose what this pane shows">
+                            <option value="generate">Source Code</option>
+                            <option value="data">Data Viewer</option>
+                            <option value="results">Analysis Results</option>
+                            <option value="converse">Converse</option>
+                            <option value="pdf">Codebook Viewer</option>
+                        </select>
+                        <button id="paneBClose" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-lg leading-none px-1" aria-label="Close split pane">&times;</button>
+                    </div>
+                    <div id="paneBContent" class="flex-1 min-h-0 relative overflow-hidden"></div>
                 </div>
             </div>
-
-            <!-- PDF VIEWER TAB (NEW) -->
-            <div id="contentPdf" class="tab-content h-full p-8 overflow-hidden hidden animate-fade-in-up">
-                <div class="w-full h-full bg-white/80 dark:bg-[#120f26]/80 backdrop-blur-md rounded-xl border border-slate-300 dark:border-slate-800/60 shadow-xl overflow-hidden flex flex-col">
-                    <div class="bg-slate-100/90 dark:bg-[#161332]/90 border-b border-slate-300 dark:border-slate-800/60 p-4 flex justify-between items-center z-10 shadow-sm">
-                        <h3 class="text-sm font-mono uppercase text-slate-700 dark:text-slate-400 font-bold tracking-widest flex items-center gap-2">
-                            <svg class="w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
-                            Codebook Reference
-                        </h3>
-                    </div>
-                    <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white" src=""></iframe>
-                </div>
-            </div>
-
         </div>
     </div>
 
-    <!-- Minimal Footer -->
-    <div class="fixed bottom-0 left-0 w-full bg-white/50 dark:bg-black/50 backdrop-blur-md border-t border-slate-300 dark:border-white/5 text-center py-2 z-50 transition-colors duration-500">
-        <p class="text-xs text-slate-700 font-bold dark:text-slate-500 uppercase tracking-[0.2em] font-mono">Sandbox Environment • Data not stored</p>
-    </div>
-
-    <script>
-        // --- Authentication Logic ---
-        async function checkAuth() {
-            try {
-                const res = await fetch('/check_auth');
-                if (!res.ok) {
-                    document.getElementById('authOverlay').classList.remove('hidden');
-                }
-            } catch (e) {
-                console.error("Auth check failed:", e);
-            }
-        }
-        checkAuth();
-
-        document.getElementById('authBtn').addEventListener('click', async () => {
-            const pwd = document.getElementById('authPassword').value;
-            const btn = document.getElementById('authBtn');
-            const errorEl = document.getElementById('authError');
-            
-            btn.disabled = true;
-            btn.innerHTML = '<span class="animate-pulse">Verifying...</span>';
-            errorEl.classList.add('hidden');
-            
-            try {
-                const res = await fetch('/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: pwd })
-                });
-                
-                if (res.ok) {
-                    document.getElementById('authOverlay').classList.add('opacity-0');
-                    setTimeout(() => {
-                        document.getElementById('authOverlay').classList.add('hidden');
-                    }, 500); 
-                } else {
-                    errorEl.classList.remove('hidden');
-                    document.getElementById('authPassword').value = '';
-                    document.getElementById('authPassword').focus();
-                }
-            } catch (e) {
-                errorEl.innerText = 'Network error connecting to server.';
-                errorEl.classList.remove('hidden');
-            } finally {
-                btn.disabled = false;
-                btn.innerText = 'Unlock System';
-            }
-        });
-
-        document.getElementById('authPassword').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') document.getElementById('authBtn').click();
-        });
-
-        // Resizer Logic
-        const resizer = document.getElementById('resizer');
-        const leftSidebar = document.getElementById('leftSidebar');
-        let isResizing = false;
-
-        resizer.addEventListener('mousedown', (e) => {
-            isResizing = true;
-            document.body.style.cursor = 'col-resize';
-            document.body.classList.add('select-none'); 
-            leftSidebar.style.transition = 'none'; 
-            e.preventDefault();
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!isResizing) return;
-            let newWidth = e.clientX;
-            if (newWidth < 320) newWidth = 320; 
-            if (newWidth > window.innerWidth * 0.5) newWidth = window.innerWidth * 0.5; 
-            leftSidebar.style.width = `${newWidth}px`;
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (isResizing) {
-                isResizing = false;
-                document.body.style.cursor = '';
-                document.body.classList.remove('select-none');
-                leftSidebar.style.transition = ''; 
-            }
-        });
-
-        // Theme Toggle Logic
-        function toggleTheme() {
-            document.documentElement.classList.toggle('dark');
-            const isDark = document.documentElement.classList.contains('dark');
-            localStorage.setItem('theme', isDark ? 'dark' : 'light');
-        }
-
-        let currentFilename = '';
-        let chatHistory = []; 
-        let converseHistory = [];
-        let currentCodebook = {};
-        let pdfMapping = {}; // NEW: Stores extracted PDF definitions
-        let latestInterpretation = "";
-        let currentCode = ''; 
-        
-        let globalHeaders = [];
-        let currentPage = 1;
-        let totalPages = 1;
-        let searchDebounceTimeout;
-
-        // --- SSE Streaming Helper ---
-        async function streamSSE(response, { onDelta, onDone, onError } = {}) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-
-                const events = buffer.split('\n\n');
-                buffer = events.pop();
-
-                for (const event of events) {
-                    if (!event.trim()) continue;
-                    const dataLine = event.split('\n').find(line => line.startsWith('data: '));
-                    if (!dataLine) continue;
-
-                    const payload = dataLine.slice(6); 
-                    let parsed;
-                    try {
-                        parsed = JSON.parse(payload);
-                    } catch (e) {
-                        console.error('Bad SSE payload:', payload, e);
-                        continue;
-                    }
-
-                    if (parsed.type === 'delta' && onDelta) onDelta(parsed.text || '');
-                    else if (parsed.type === 'done' && onDone) onDone(parsed);
-                    else if (parsed.type === 'error' && onError) onError(parsed.message || 'Stream error.');
-                }
-            }
-        }
-
-        // Escape user/data-controlled strings before injecting into innerHTML.
-        // CSV cell values, column headers, and LLM output are all untrusted.
-        function escapeHtml(value) {
-            if (value === null || value === undefined) return '';
-            return String(value)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        // UI Tabs Logic
-        function switchTab(tabName) {
-            ['Generate', 'Data', 'Results', 'Converse', 'Pdf'].forEach(name => {
-                const tab = document.getElementById(`tab${name}`);
-                if(tab) {
-                    tab.classList.remove('font-semibold', 'border-indigo-700', 'text-indigo-900', 'dark:border-indigo-400', 'dark:text-indigo-300');
-                    tab.classList.add('font-medium', 'border-transparent', 'text-slate-600', 'dark:text-slate-400');
-                }
-                const content = document.getElementById(`content${name}`);
-                if(content) content.classList.add('hidden');
-            });
-
-            const activeTab = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
-            const activeContent = document.getElementById(`content${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
-            
-            if(activeTab && activeContent) {
-                activeTab.classList.remove('font-medium', 'border-transparent', 'text-slate-600', 'dark:text-slate-400');
-                activeTab.classList.add('font-semibold', 'border-indigo-700', 'text-indigo-900', 'dark:border-indigo-400', 'dark:text-indigo-300');
-                activeContent.classList.remove('hidden');
-                
-                // Keep Pdf Tab flex if it was opened
-                if(tabName === 'pdf') {
-                    activeTab.style.display = 'flex';
-                }
-            }
-            
-            document.getElementById('copyBtn').style.display = (tabName === 'generate' && currentCode.length > 0) ? 'flex' : 'none';
-        }
-
-        // Table Logic
-        async function fetchDataPage(page) {
-            if(!currentFilename) return;
-            
-            const filters = {};
-            document.querySelectorAll('.col-search-input').forEach(input => {
-                if(input.value.trim() !== '') {
-                    filters[input.dataset.col] = input.value.trim();
-                }
-            });
-
-            try {
-                const res = await fetch('/data_page', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        filename: currentFilename, 
-                        page: page, 
-                        per_page: 100, 
-                        filters: filters 
-                    })
-                });
-                const data = await res.json();
-                
-                if(data.status === 'success') {
-                    currentPage = data.current_page;
-                    totalPages = data.total_pages;
-                    
-                    renderTableBody(globalHeaders, data.data);
-                    
-                    document.getElementById('paginationFooter').classList.remove('hidden');
-                    document.getElementById('pageInfo').innerText = `Page ${currentPage} of ${totalPages} (${data.total_rows} matching rows)`;
-                    document.getElementById('prevPageBtn').disabled = currentPage <= 1;
-                    document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
-                }
-            } catch(e) { console.error("Error fetching page data:", e); }
-        }
-
-        function changePage(delta) {
-            const newPage = currentPage + delta;
-            if(newPage >= 1 && newPage <= totalPages) {
-                fetchDataPage(newPage);
-            }
-        }
-
-        function renderTableHeaders(headers) {
-            const thead = document.getElementById('dataTableHead');
-            let headHTML = '<tr>';
-            
-            headers.forEach(h => {
-                const safeH = escapeHtml(h);
-                headHTML += `
-                <th class="px-4 py-3 whitespace-nowrap align-top transition-colors duration-300">
-                    <div class="mb-2 text-indigo-900 dark:text-indigo-300 font-bold text-sm">${safeH}</div>
-                    <input type="text" data-col="${safeH}" placeholder="Filter..." class="col-search-input w-full min-w-[120px] normal-case bg-white/90 dark:bg-black/40 border border-slate-400 dark:border-slate-700/50 rounded-lg px-2 py-1.5 text-slate-900 dark:text-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 transition-all font-mono text-xs font-semibold">
-                </th>`;
-            });
-            headHTML += '</tr>';
-            thead.innerHTML = headHTML;
-
-            document.querySelectorAll('.col-search-input').forEach(input => {
-                input.addEventListener('keyup', () => {
-                    clearTimeout(searchDebounceTimeout);
-                    searchDebounceTimeout = setTimeout(() => {
-                        fetchDataPage(1); 
-                    }, 400); 
-                });
-            });
-        }
-
-        function renderTableBody(headers, dataList) {
-            const tbody = document.getElementById('dataTableBody');
-            let bodyHTML = '';
-            
-            if(!dataList || dataList.length === 0) {
-                bodyHTML = `<tr><td colspan="${headers.length}" class="px-4 py-12 text-center text-slate-500 italic">No matching results found.</td></tr>`;
-            } else {
-                dataList.forEach(row => {
-                    bodyHTML += '<tr class="border-b border-slate-100/50 dark:border-slate-800/30 hover:bg-slate-50/50 dark:hover:bg-indigo-900/10 transition-colors">';
-                    headers.forEach(h => {
-                        const cell = escapeHtml(row[h]);
-                        bodyHTML += `<td class="px-4 py-3 whitespace-nowrap max-w-xs truncate" title="${cell}">${cell}</td>`;
-                    });
-                    bodyHTML += '</tr>';
-                });
-            }
-            tbody.innerHTML = bodyHTML;
-        }
-
-        function viewColumn(colName) {
-            switchTab('data'); 
-            
-            const colIndex = globalHeaders.indexOf(colName);
-            if(colIndex === -1) return;
-
-            const table = document.getElementById('dataTable');
-            const rows = table.rows;
-
-            for(let i = 0; i < rows.length; i++) {
-                for(let j = 0; j < rows[i].cells.length; j++) {
-                    rows[i].cells[j].classList.remove('bg-indigo-50', 'dark:bg-indigo-900/20');
-                }
-            }
-
-            for(let i = 0; i < rows.length; i++) {
-                if(rows[i].cells[colIndex]) {
-                    rows[i].cells[colIndex].classList.add('bg-indigo-50', 'dark:bg-indigo-900/20');
-                    if(i === 0) {
-                         setTimeout(() => {
-                             const container = document.getElementById('tableScrollContainer');
-                             const cell = rows[i].cells[colIndex];
-                             
-                             if (container && cell) {
-                                 const scrollPos = cell.offsetLeft - (container.clientWidth / 2) + (cell.clientWidth / 2);
-                                 container.scrollTo({ left: scrollPos, behavior: 'smooth' });
-                             }
-                             
-                             const searchInput = cell.querySelector('input');
-                             if(searchInput) searchInput.focus({ preventScroll: true });
-                         }, 50);
-                    }
-                }
-            }
-        }
-
-        // Toggle Intelligent Codebook visibility
-        let codebookVisible = true;
-        function toggleCodebook() {
-            const list = document.getElementById('codebookList');
-            const label = document.getElementById('codebookToggleLabel');
-            const chevron = document.getElementById('codebookChevron');
-            codebookVisible = !codebookVisible;
-            if (codebookVisible) {
-                list.style.display = '';
-                label.textContent = 'Hide';
-                chevron.style.transform = 'rotate(0deg)';
-            } else {
-                list.style.display = 'none';
-                label.textContent = 'Show';
-                chevron.style.transform = 'rotate(180deg)';
-            }
-        }
-
-        // Render Intelligent Codebook UI
-        function renderCodebookUI() {
-            const cbContainer = document.getElementById('codebookContainer');
-            const cbList = document.getElementById('codebookList');
-            cbList.innerHTML = '';
-            
-            if (!currentCodebook || Object.keys(currentCodebook).length === 0) return;
-
-            // Use globalHeaders to preserve CSV column order; fall back to object keys for any extras
-            const orderedKeys = globalHeaders && globalHeaders.length > 0
-                ? globalHeaders.filter(h => currentCodebook.hasOwnProperty(h))
-                : Object.keys(currentCodebook);
-
-            orderedKeys.forEach(colName => {
-                const classification = currentCodebook[colName];
-                const btn = document.createElement('div');
-                
-                let colorClasses = "bg-slate-200 text-slate-900 dark:bg-slate-700/50 dark:text-slate-200 border-slate-400 dark:border-slate-600";
-                if (classification === 'Continuous') {
-                    colorClasses = "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30";
-                } else if (classification === 'Nominal') {
-                    colorClasses = "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30";
-                } else if (classification === 'Ordinal') {
-                    colorClasses = "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30";
-                }
-
-                // Match dynamically extracted PDF definition
-                const colLower = colName.toLowerCase();
-                const matchedKey = Object.keys(pdfMapping).find(k => k.toLowerCase() === colLower);
-                let desc = matchedKey ? pdfMapping[matchedKey] : null;
-                const safeDesc = escapeHtml(desc);
-                const safeCol = escapeHtml(colName);
-                const safeClass = escapeHtml(classification);
-
-                let descHTML = desc ? `<div class="text-[11px] font-inter font-normal mt-1 text-slate-700 dark:text-slate-300 line-clamp-3 leading-snug w-full opacity-90 border-t border-slate-400/30 dark:border-slate-500/30 pt-1" title="${safeDesc}">${safeDesc}</div>` : '';
-
-                btn.className = `px-3 py-2 rounded-lg border text-left transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col items-start cursor-pointer group ${colorClasses}`;
-                btn.innerHTML = `<div class="flex justify-between w-full items-center gap-2"><span class="font-mono text-sm font-bold truncate max-w-[200px]" title="${safeCol}">${safeCol}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${safeClass}</span></div>${descHTML}`;
-                btn.onclick = () => viewColumn(colName);
-                cbList.appendChild(btn);
-            });
-            
-            // Always show the list on fresh render and reset toggle state
-            codebookVisible = true;
-            document.getElementById('codebookList').style.display = '';
-            const lbl = document.getElementById('codebookToggleLabel');
-            const chev = document.getElementById('codebookChevron');
-            if (lbl) lbl.textContent = 'Hide';
-            if (chev) chev.style.transform = 'rotate(0deg)';
-
-            cbContainer.classList.remove('hidden');
-        }
-
-        // Codebook prompt + post-upload pipeline state
-        let pendingFilename = null;
-
-        function showCodebookPrompt() {
-            document.getElementById('codebookPromptOverlay').classList.remove('hidden');
-        }
-        function hideCodebookPrompt() {
-            document.getElementById('codebookPromptOverlay').classList.add('hidden');
-        }
-
-        // Runs after the (optional) PDF parse completes, OR immediately if the
-        // user skips. Strict order: intelligent codebook first, then suggestions.
-        async function runPostUploadPipeline(filename) {
-            const uploadStatusEl = document.getElementById('uploadStatus');
-            uploadStatusEl.classList.remove('hidden');
-            uploadStatusEl.className = 'text-xs text-indigo-700 dark:text-amber-400 mt-3 font-mono font-bold animate-pulse uppercase tracking-wider';
-            uploadStatusEl.innerText = 'Populating intelligent codebook...';
-
-            await fetchCodebook(filename);
-
-            uploadStatusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-3 font-mono font-bold uppercase tracking-widest';
-            uploadStatusEl.innerText = 'Data loaded successfully.';
-
-            await fetchSuggestions(filename);
-        }
-
-        // CSV Upload
-        document.getElementById('fileInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const statusEl = document.getElementById('uploadStatus');
-            statusEl.classList.remove('hidden');
-            statusEl.className = 'text-sm text-indigo-700 dark:text-amber-400 mt-3 font-mono font-bold animate-pulse uppercase tracking-wider';
-            statusEl.innerText = "Please wait, profiling dataset variables. This might take a sec..";
-
-            const generateBtn = document.getElementById('generateBtn');
-            const promptInput = document.getElementById('promptInput');
-            generateBtn.disabled = true;
-            promptInput.placeholder = "Please wait, profiling dataset variables. This might take a sec..";
-
-            // Reset prior codebook/PDF state so a fresh upload starts clean
-            pdfMapping = {};
-            currentCodebook = {};
-            document.getElementById('codebookContainer').classList.add('hidden');
-            document.getElementById('codebookList').innerHTML = '';
-            document.getElementById('pdfUploadStatus').classList.add('hidden');
-
-            try {
-                const response = await fetch('/upload', { method: 'POST', body: formData });
-                const data = await response.json();
-                
-                if (response.ok && data.filename) {
-                    currentFilename = data.filename;
-                    chatHistory = []; 
-                    converseHistory = [];
-                    globalHeaders = data.profile.headers;
-                    
-                    renderTableHeaders(globalHeaders);
-                    await fetchDataPage(1);
-                    
-                    statusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-3 font-mono font-bold uppercase tracking-widest';
-                    statusEl.innerText = `Data loaded successfully.`;
-                    
-                    // Stash the filename and ask the user about the codebook BEFORE
-                    // running codebook classification / suggestions.
-                    pendingFilename = data.filename;
-                    showCodebookPrompt();
-                } else {
-                    statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-3 font-mono font-medium';
-                    statusEl.innerText = "Upload failed.";
-                }
-            } catch (err) {
-                statusEl.innerText = "Network Error.";
-            }
-        });
-
-        // Modal: "Upload Codebook" — trigger the (hidden) file picker.
-        // Modal stays open in case the user cancels the file picker, so they can still Skip.
-        document.getElementById('codebookYesBtn').addEventListener('click', () => {
-            document.getElementById('pdfInput').click();
-        });
-
-        // Modal: "Skip" — go straight to codebook classification, then suggestions.
-        document.getElementById('codebookSkipBtn').addEventListener('click', async () => {
-            hideCodebookPrompt();
-            if (pendingFilename) {
-                const fn = pendingFilename;
-                pendingFilename = null;
-                await runPostUploadPipeline(fn);
-            }
-        });
-
-        // PDF Upload — runs only when the user selects a file from the prompt modal.
-        // After parsing (success OR failure) we proceed to the codebook + suggestions pipeline.
-        document.getElementById('pdfInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            // The user picked a file — close the prompt modal
-            hideCodebookPrompt();
-
-            // Load local file into iframe immediately for UX
-            const fileURL = URL.createObjectURL(file);
-            document.getElementById('pdfViewerFrame').src = fileURL;
-            const pdfTabBtn = document.getElementById('tabPdf');
-            pdfTabBtn.style.display = 'flex';
-            switchTab('pdf');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const statusEl = document.getElementById('pdfUploadStatus');
-            statusEl.classList.remove('hidden');
-            statusEl.className = 'text-xs text-indigo-700 dark:text-amber-400 mt-2 font-mono font-bold animate-pulse uppercase tracking-wider';
-            statusEl.innerText = "Parsing documentation via LLM...";
-
-            try {
-                const response = await fetch('/upload_pdf', { method: 'POST', body: formData });
-                const data = await response.json();
-
-                if (response.ok && data.filename) {
-                    const extRes = await fetch('/extract_pdf_codebook', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ filename: data.filename })
-                    });
-                    const extData = await extRes.json();
-
-                    if (extData.status === 'success') {
-                        pdfMapping = extData.mapping;
-                        statusEl.className = 'text-xs text-emerald-700 dark:text-emerald-400 mt-2 font-mono font-bold uppercase tracking-widest';
-                        statusEl.innerText = `Codebook RAG linked successfully.`;
-                    } else {
-                        statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-2 font-mono font-medium';
-                        statusEl.innerText = "Failed to extract definitions.";
-                    }
-                } else {
-                    statusEl.className = 'text-xs text-red-600 dark:text-red-400 mt-2 font-mono font-medium';
-                    statusEl.innerText = data.error || "PDF Upload failed.";
-                }
-            } catch (err) {
-                statusEl.innerText = "Network Error.";
-            }
-
-            // PDF parse done (success or failure) — now run codebook → suggestions
-            if (pendingFilename) {
-                const fn = pendingFilename;
-                pendingFilename = null;
-                await runPostUploadPipeline(fn);
-            }
-        });
-
-        // Codebook
-        async function fetchCodebook(filename) {
-            try {
-                const res = await fetch('/classify_variables', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename })
-                });
-                const data = await res.json();
-                
-                if (data.codebook) {
-                    currentCodebook = data.codebook;
-                    renderCodebookUI();
-                    
-                    const generateBtn = document.getElementById('generateBtn');
-                    const promptInput = document.getElementById('promptInput');
-                    generateBtn.disabled = false;
-                    promptInput.placeholder = "e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals...";
-                }
-            } catch (err) { console.error("Codebook failed."); }
-        }
-
-        // Suggestions
-        async function fetchSuggestions(filename) {
-            const container = document.getElementById('suggestionsContainer');
-            const list = document.getElementById('suggestionsList');
-            container.classList.remove('hidden');
-            list.innerHTML = '<span class="text-xs text-indigo-700 font-mono animate-pulse tracking-widest uppercase font-bold">Reading data structure...</span>';
-
-            try {
-                const res = await fetch('/suggest', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename, codebook: currentCodebook, pdf_mapping: pdfMapping })
-                });
-                const data = await res.json();
-                if (data.suggestions) {
-                    list.innerHTML = ''; 
-                    data.suggestions.forEach(suggestion => {
-                        const btn = document.createElement('button');
-                        btn.className = "text-sm bg-white/80 hover:bg-white dark:bg-[#161332]/50 dark:hover:bg-[#161332] text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-inter font-medium";
-                        btn.innerHTML = `<span class="opacity-50 group-hover:opacity-100 transition-opacity transform group-hover:scale-110 group-hover:text-amber-500">✦</span> <span class="leading-relaxed">${escapeHtml(suggestion)}</span>`;
-                        btn.onclick = () => { document.getElementById('promptInput').value = suggestion; };
-                        list.appendChild(btn);
-                    });
-                }
-            } catch (err) { list.innerHTML = ''; }
-        }
-
-        // Generate Code
-        document.getElementById('generateBtn').addEventListener('click', async () => {
-            const prompt = document.getElementById('promptInput').value;
-            const language = document.getElementById('languageSelect').value;
-            if (!currentFilename || !prompt) return alert("Upload data and enter a prompt!");
-
-            document.getElementById('generateBtn').disabled = true;
-            document.getElementById('loading').classList.remove('hidden');
-            switchTab('generate'); 
-            
-            const codeOutput = document.getElementById('codeOutput');
-            codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide font-medium opacity-70';
-            codeOutput.innerText = "// Generating optimized code script...";
-            document.getElementById('runSection').classList.add('hidden');
-
-            // Merge definitions securely before sending to backend
-            const mergedCodebook = {};
-            Object.entries(currentCodebook).forEach(([col, classification]) => {
-                const colLower = col.toLowerCase();
-                const matchedKey = Object.keys(pdfMapping).find(k => k.toLowerCase() === colLower);
-                mergedCodebook[col] = {
-                    type: classification,
-                    description: matchedKey ? pdfMapping[matchedKey] : null
-                };
-            });
-
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        filename: currentFilename, 
-                        language, 
-                        prompt,
-                        history: chatHistory,
-                        codebook: mergedCodebook // Inject RAG knowledge here
-                    })
-                });
-
-                const contentType = response.headers.get('Content-Type') || '';
-
-                if (!contentType.includes('text/event-stream')) {
-                    const data = await response.json();
-                    codeOutput.innerText = "# Error: " + (data.error || "Unknown error.");
-                    codeOutput.className = 'text-red-600 dark:text-red-400 font-mono text-sm';
-                    return;
-                }
-
-                const scrollContainer = codeOutput.closest('.overflow-auto');
-                let firstChunk = true;
-                let streamError = null;
-                let finalCode = null;
-
-                await streamSSE(response, {
-                    onDelta: (text) => {
-                        if (firstChunk) {
-                            codeOutput.innerText = '';
-                            codeOutput.className = 'text-[#a6accd] font-mono text-base leading-loose tracking-wide';
-                            document.getElementById('loading').classList.add('hidden');
-                            firstChunk = false;
-                        }
-                        codeOutput.innerText += text;
-                        if (scrollContainer) {
-                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                        }
-                    },
-                    onDone: (data) => {
-                        finalCode = data.code;
-                    },
-                    onError: (msg) => {
-                        streamError = msg;
-                    }
-                });
-
-                if (streamError) {
-                    codeOutput.innerText = "# Error: " + streamError;
-                    codeOutput.className = 'text-red-600 dark:text-red-400 font-mono text-sm';
-                } else if (finalCode !== null) {
-                    currentCode = finalCode;
-                    codeOutput.innerText = finalCode;
-                    document.getElementById('copyBtn').style.display = 'flex';
-                    document.getElementById('runSection').classList.remove('hidden');
-
-                    chatHistory.push({role: 'user', text: prompt});
-                    chatHistory.push({role: 'model', text: finalCode});
-                }
-            } catch (err) {
-                codeOutput.innerText = "# Network error.";
-                codeOutput.className = 'text-red-600 dark:text-red-400 font-mono text-sm';
-            } finally {
-                document.getElementById('generateBtn').disabled = false;
-                document.getElementById('loading').classList.add('hidden');
-            }
-        });
-
-        // Execute
-        document.getElementById('runBtn').addEventListener('click', async () => {
-            const code = currentCode; 
-            const language = document.getElementById('languageSelect').value;
-            const runBtn = document.getElementById('runBtn');
-            const runOutput = document.getElementById('runOutput');
-            const interpretationOutput = document.getElementById('interpretationOutput');
-            
-            runBtn.disabled = true;
-            runBtn.innerHTML = '<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Running...';
-            
-            switchTab('results');
-            runOutput.innerText = "Executing script in local sandbox...";
-            interpretationOutput.innerHTML = '<span class="animate-pulse font-mono text-xs uppercase tracking-widest text-indigo-500">Awaiting output stream...</span>';
-
-            try {
-                const runResponse = await fetch('/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code, language })
-                });
-                const runData = await runResponse.json();
-                
-                if (runResponse.ok) {
-                    runOutput.innerText = runData.output || "Execution successful.";
-                    
-                    let plotHTML = '';
-                    if (runData.plot) {
-                        plotHTML = `
-                            <div class="mt-8 border-t border-slate-200 dark:border-slate-800 pt-6">
-                                <h3 class="text-[10px] font-mono uppercase text-slate-400 font-bold mb-4 tracking-widest">Generated Visualization</h3>
-                                <img src="data:image/png;base64,${runData.plot}" alt="Generated Plot" class="max-w-full rounded-xl border border-slate-200 shadow-xl dark:border-slate-700 bg-white">
-                            </div>
-                        `;
-                    }
-                    
-                    interpretationOutput.innerHTML = '<span class="animate-pulse font-mono text-xs uppercase tracking-widest text-indigo-500">Analyzing terminal results...</span>' + plotHTML;
-
-                    try {
-                        const interpResponse = await fetch('/interpret', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                output: runData.output || "",
-                                plot: runData.plot || null
-                            })
-                        });
-
-                        const interpContentType = interpResponse.headers.get('Content-Type') || '';
-
-                        if (!interpContentType.includes('text/event-stream')) {
-                            const interpData = await interpResponse.json();
-                            if (interpResponse.ok) {
-                                latestInterpretation = interpData.interpretation || "No interpretation generated.";
-                                interpretationOutput.innerHTML = marked.parse(latestInterpretation) + plotHTML;
-                            } else {
-                                interpretationOutput.innerHTML = "Error generating interpretation." + plotHTML;
-                            }
-                        } else {
-                            const scrollContainer = document.getElementById('contentResults');
-                            let accumulated = '';
-                            let firstChunk = true;
-                            let streamError = null;
-
-                            await streamSSE(interpResponse, {
-                                onDelta: (text) => {
-                                    if (firstChunk) {
-                                        interpretationOutput.innerHTML = '';
-                                        firstChunk = false;
-                                    }
-                                    accumulated += text;
-                                    interpretationOutput.innerHTML = marked.parse(accumulated) + plotHTML;
-                                    if (scrollContainer) {
-                                        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                                    }
-                                },
-                                onDone: () => {
-                                    latestInterpretation = accumulated;
-                                },
-                                onError: (msg) => {
-                                    streamError = msg;
-                                }
-                            });
-
-                            if (streamError) {
-                                interpretationOutput.innerHTML = "Error generating interpretation: " + streamError + plotHTML;
-                            }
-                        }
-                    } catch (err) {
-                        interpretationOutput.innerHTML = "Failed to connect to AI for interpretation." + plotHTML;
-                    }
-
-                } else {
-                    runOutput.innerText = "Error:\n" + (runData.error || "Unknown");
-                    interpretationOutput.innerHTML = "Cannot interpret due to execution failure.";
-                }
-            } catch (err) {
-                runOutput.innerText = "Connection failed.";
-            } finally {
-                runBtn.disabled = false;
-                runBtn.innerHTML = '<svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg> Execute Script Locally';
-            }
-        });
-
-        // Converse
-        const chatInput = document.getElementById('chatInput');
-        const chatLog = document.getElementById('chatLog');
-        
-        async function sendMessage() {
-            const text = chatInput.value.trim();
-            if(!text) return;
-            
-            chatLog.innerHTML += `<div class="self-end bg-indigo-700 text-white p-5 rounded-2xl rounded-tr-none max-w-[80%] text-base shadow-lg animate-fade-in-up font-inter font-medium">${escapeHtml(text)}</div>`;
-            chatInput.value = '';
-            chatLog.scrollTop = chatLog.scrollHeight;
-            
-            const typingId = 'typing-' + Date.now();
-            chatLog.innerHTML += `<div id="${typingId}" class="self-start bg-white/95 text-slate-700 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-400 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base flex gap-2 shadow-lg animate-fade-in-up"><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div><div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></div></div>`;
-            chatLog.scrollTop = chatLog.scrollHeight;
-
-            const removeTyping = () => {
-                const t = document.getElementById(typingId);
-                if (t) t.remove();
-            };
-
-            const bubbleClass = "self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed animate-fade-in-up font-inter font-medium";
-
-            try {
-                const res = await fetch('/converse', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: text,
-                        history: converseHistory,
-                        context: latestInterpretation || "No results generated yet.",
-                        code: currentCode
-                    })
-                });
-
-                const contentType = res.headers.get('Content-Type') || '';
-
-                if (!contentType.includes('text/event-stream')) {
-                    const data = await res.json();
-                    removeTyping();
-                    chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">${data.error || 'Error generating response.'}</div>`;
-                    chatLog.scrollTop = chatLog.scrollHeight;
-                    return;
-                }
-
-                let accumulated = '';
-                let bubbleEl = null;
-                let streamError = null;
-
-                await streamSSE(res, {
-                    onDelta: (delta) => {
-                        if (!bubbleEl) {
-                            removeTyping();
-                            bubbleEl = document.createElement('div');
-                            bubbleEl.className = bubbleClass;
-                            chatLog.appendChild(bubbleEl);
-                        }
-                        accumulated += delta;
-                        // Escape first (LLM output is untrusted), then apply **bold** formatting.
-                        bubbleEl.innerHTML = escapeHtml(accumulated).replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-800 dark:text-indigo-300 font-bold">$1</strong>');
-                        chatLog.scrollTop = chatLog.scrollHeight;
-                    },
-                    onDone: () => {
-                        if (accumulated) {
-                            converseHistory.push({role: 'user', text: text});
-                            converseHistory.push({role: 'model', text: accumulated});
-                        }
-                    },
-                    onError: (msg) => {
-                        streamError = msg;
-                    }
-                });
-
-                if (streamError) {
-                    removeTyping();
-                    chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">${streamError}</div>`;
-                }
-            } catch(e) {
-                removeTyping();
-                chatLog.innerHTML += `<div class="self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up">Connection error.</div>`;
-            }
-            chatLog.scrollTop = chatLog.scrollHeight;
-        }
-
-        document.getElementById('chatSend').addEventListener('click', sendMessage);
-        chatInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage(); });
-
-        document.getElementById('copyBtn').addEventListener('click', () => {
-            navigator.clipboard.writeText(currentCode);
-            const btn = document.getElementById('copyBtn');
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied!';
-            setTimeout(() => { btn.innerHTML = orig; }, 2000);
-        });
-    </script>
+    <!-- Footer — in normal flow so it can never cover the UI (4.1) -->
+    <footer class="w-full bg-white/50 dark:bg-black/50 backdrop-blur-md border-t border-slate-300 dark:border-white/5 text-center py-2 z-50 transition-colors duration-500 shrink-0">
+        <p class="text-xs text-slate-700 font-bold dark:text-slate-500 uppercase tracking-[0.2em] font-mono">Sandbox Environment • Anonymous data not stored</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/data.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/converse.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tools.js') }}"></script>
 </body>
 </html>
