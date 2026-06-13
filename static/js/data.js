@@ -47,7 +47,7 @@
             html += `
             <th class="px-4 py-3 whitespace-nowrap align-top transition-colors duration-300">
                 <div class="mb-2 text-indigo-900 dark:text-indigo-300 font-bold text-sm">${safeH}</div>
-                <input type="text" data-col="${safeH}" placeholder="Filter..." aria-label="Filter column ${safeH}" class="col-search-input w-full min-w-[120px] normal-case bg-white/90 dark:bg-black/40 border border-slate-400 dark:border-slate-700/50 rounded-lg px-2 py-1.5 text-slate-900 dark:text-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 transition-all font-mono text-xs font-semibold">
+                <input type="text" data-col="${safeH}" placeholder="Filter..." aria-label="Filter column ${safeH}" class="col-search-input w-full min-w-[120px] normal-case bg-white/90 dark:bg-black/40 border border-slate-300 dark:border-slate-700/50 rounded-lg px-2 py-1.5 text-slate-900 dark:text-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 transition-all font-mono text-xs font-semibold">
             </th>`;
         });
         thead.innerHTML = html + '</tr>';
@@ -150,7 +150,7 @@
                 list.innerHTML = '';
                 data.suggestions.forEach(suggestion => {
                     const btn = document.createElement('button');
-                    btn.className = 'text-sm bg-white/80 hover:bg-white dark:bg-[#161332]/50 dark:hover:bg-[#161332] text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-medium w-full';
+                    btn.className = 'text-sm bg-white/80 hover:bg-white dark:bg-surface-2/50 dark:hover:bg-surface-2 text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-medium w-full';
                     btn.innerHTML = `<span class="opacity-50 group-hover:opacity-100 transition-opacity transform group-hover:scale-110 group-hover:text-amber-500" aria-hidden="true">✦</span> <span class="leading-relaxed">${CC.escapeHtml(suggestion)}</span>`;
                     btn.onclick = () => { document.getElementById('promptInput').value = suggestion; };
                     list.appendChild(btn);

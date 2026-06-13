@@ -23,8 +23,8 @@ body { font-family: 'Inter', sans-serif; }
 /* Glass effect utility */
 .glass-panel {
     background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 .dark .glass-panel { background: rgba(15, 12, 41, 0.85); }
 
@@ -74,7 +74,20 @@ body { font-family: 'Inter', sans-serif; }
 .changelog-item.active-version { background: rgba(99, 102, 241, 0.12); font-weight: 700; }
 .changelog-item .v-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; opacity: 0.7; flex-shrink: 0; }
 
-/* Focus visibility (5.9) */
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+/* Focus visibility (5.9). Inputs/selects/textareas carry their own branded
+   `focus:ring-2`, so scope the global outline to the controls that don't —
+   avoids a doubled ring+outline indicator. */
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid #6366f1; outline-offset: 2px;
+}
+
+/* Respect reduced-motion: kill the infinite blob loop, pulses, entrance
+   slides, and long colour transitions for motion-sensitive users. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
 }

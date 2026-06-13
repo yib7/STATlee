@@ -10,6 +10,16 @@ module.exports = {
         display: ['Syne', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
+      // Dark-surface depth ramp (replaces eight ad-hoc near-black hexes).
+      // 0 = page bg, 1 = panels/modals, 2 = inputs/raised, 3 = code/terminal.
+      colors: {
+        surface: {
+          0: '#0b0914',
+          1: '#120f26',
+          2: '#161332',
+          3: '#0d0d12',
+        },
+      },
       animation: {
         'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         'blob': 'blob 10s infinite',

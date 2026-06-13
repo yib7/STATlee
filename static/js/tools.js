@@ -306,7 +306,7 @@
             wrap.appendChild(h);
             group.methods.forEach(m => {
                 const btn = document.createElement('button');
-                btn.className = 'w-full text-left px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700/50 bg-white/70 dark:bg-[#161332]/50 hover:border-indigo-400 dark:hover:border-indigo-500/50 hover:shadow-md transition-all mb-2';
+                btn.className = 'w-full text-left px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700/50 bg-white/70 dark:bg-surface-2/50 hover:border-indigo-400 dark:hover:border-indigo-500/50 hover:shadow-md transition-all mb-2';
                 btn.innerHTML =
                     `<div class="text-sm font-bold text-indigo-900 dark:text-indigo-300">${CC.escapeHtml(m.name)}</div>` +
                     `<div class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">${CC.escapeHtml(m.description)}</div>`;

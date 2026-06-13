@@ -57,9 +57,10 @@
             if (!el) return;
             el.dataset.state = state;
             const dot = el.querySelector('.step-dot');
-            if (state === 'done') dot.innerHTML = '✓';
-            else if (state === 'failed') dot.innerHTML = '✕';
-            else if (state === 'active') dot.innerHTML = '';
+            const CHECK = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>';
+            const CROSS = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+            if (state === 'done') dot.innerHTML = CHECK;
+            else if (state === 'failed') dot.innerHTML = CROSS;
             else dot.innerHTML = '';
             el.querySelector('.step-note').textContent = note ? ` — ${note}` : '';
         },
@@ -256,7 +257,7 @@
             if (classification === 'Continuous') {
                 colorClasses = 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30';
             } else if (classification === 'Nominal') {
-                colorClasses = 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30';
+                colorClasses = 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800/30';
             } else if (classification === 'Ordinal') {
                 colorClasses = 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30';
             }
@@ -293,7 +294,7 @@
         float.className = 'glass-panel border border-slate-300 dark:border-slate-700/60';
         float.innerHTML =
             '<div id="codebookFloatHandle" class="cursor-move flex items-center justify-between px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
-            '<span class="text-xs font-display font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300">Intelligent Codebook</span>' +
+            '<span class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300">Intelligent Codebook</span>' +
             '<button id="codebookDockBtn" class="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline" aria-label="Dock codebook back to sidebar">Dock</button>' +
             '</div><div class="float-body"></div>';
         document.body.appendChild(float);

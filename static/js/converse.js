@@ -3,7 +3,7 @@
 (function () {
     'use strict';
 
-    const BUBBLE_MODEL = 'self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-[#161332]/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-medium markdown-body';
+    const BUBBLE_MODEL = 'self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-surface-2/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-medium markdown-body';
     const BUBBLE_ERROR = 'self-start bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:border-red-900/50 dark:text-red-300 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base font-medium shadow-lg animate-fade-in-up';
 
     async function sendMessage() {
