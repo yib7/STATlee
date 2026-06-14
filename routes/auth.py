@@ -16,7 +16,7 @@ from extensions import db
 from models import AnalysisRun, User
 from routes import json_error
 
-logger = logging.getLogger('codecaster.auth')
+logger = logging.getLogger('statly.auth')
 
 bp = Blueprint('auth', __name__)
 
@@ -24,7 +24,7 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
 def _cfg():
-    return current_app.config['CODECASTER']
+    return current_app.config['STATLY']
 
 
 def is_authorized():

@@ -1,4 +1,4 @@
-"""CodeCaster application factory.
+"""Statly application factory.
 
 The old 940-line monolith now lives in focused modules (roadmap 3.1):
 config.py, storage.py, sandbox.py, llm.py, prompts.py, datatools.py,
@@ -45,7 +45,7 @@ def _setup_logging():
         handler.addFilter(RequestIdFilter())
 
 
-logger = logging.getLogger('codecaster')
+logger = logging.getLogger('statly')
 
 # Endpoints reachable without authorization (frontend loader, auth handshake).
 PUBLIC_ENDPOINTS = {
@@ -68,7 +68,7 @@ def create_app(config=None):
             app.wsgi_app, x_for=cfg.trust_proxy_hops,
             x_proto=cfg.trust_proxy_hops)
 
-    app.config['CODECASTER'] = cfg
+    app.config['STATLY'] = cfg
     app.config['MAX_CONTENT_LENGTH'] = cfg.max_upload_mb * 1024 * 1024
     app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root()
     app.config['SQLALCHEMY_DATABASE_URI'] = cfg.resolved_database_url(app.instance_path)
@@ -173,7 +173,7 @@ def create_app(config=None):
 
     for warning in cfg.warnings:
         logger.warning("config: %s", warning)
-    logger.info("CodeCaster ready (env=%s, sandbox=%s, storage=%s)",
+    logger.info("Statly ready (env=%s, sandbox=%s, storage=%s)",
                 cfg.env, cfg.sandbox_mode, cfg.storage_backend)
     return app
 
@@ -181,5 +181,5 @@ def create_app(config=None):
 app = create_app()
 
 if __name__ == '__main__':
-    port = app.config['CODECASTER'].port
+    port = app.config['STATLY'].port
     app.run(debug=False, host='0.0.0.0', port=port)

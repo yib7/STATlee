@@ -10,7 +10,7 @@ import prompts
 from extensions import db, limiter
 from routes import json_error, sse_event, sse_stream
 
-logger = logging.getLogger('codecaster.misc')
+logger = logging.getLogger('statly.misc')
 
 bp = Blueprint('misc', __name__)
 
@@ -18,12 +18,12 @@ _START_TIME = time.time()
 
 
 def _cfg():
-    return current_app.config['CODECASTER']
+    return current_app.config['STATLY']
 
 
 @bp.route('/')
 def index():
-    cfg = current_app.config['CODECASTER']
+    cfg = current_app.config['STATLY']
     return render_template(
         'index.html',
         csrf_token=session.get('csrf_token', ''),
@@ -76,7 +76,7 @@ def report_issue():
     db.session.commit()
     logger.warning("ISSUE REPORT #%s: %s", report.id, description[:300])
 
-    cfg = current_app.config['CODECASTER']
+    cfg = current_app.config['STATLY']
     if cfg.smtp_host and cfg.issue_report_to:
         try:
             _email_report(cfg, report)
@@ -91,8 +91,8 @@ def _email_report(cfg, report):
     from email.message import EmailMessage
 
     msg = EmailMessage()
-    msg['Subject'] = f'[CodeCaster] Issue report #{report.id}'
-    msg['From'] = cfg.smtp_user or 'codecaster@localhost'
+    msg['Subject'] = f'[Statly] Issue report #{report.id}'
+    msg['From'] = cfg.smtp_user or 'statly@localhost'
     msg['To'] = cfg.issue_report_to
     msg.set_content(
         f"Description:\n{report.description}\n\n"

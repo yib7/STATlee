@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>CodeCaster | Social Science AI</title>
+    <title>Statly | Social Science AI</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
+    <meta name="description" content="Statly turns data questions into answers in plain English — upload your data, describe the analysis, and get runnable statistics, charts, and interpretation. Built for social scientists, no coding required.">
+    <meta name="theme-color" content="#6366f1">
+    <meta property="og:title" content="Statly — turn data questions into answers, in plain English">
+    <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; Statly writes, runs, and interprets the statistics for you.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ url_for('static', filename='images/wordmark.svg') }}">
 
     <!-- Built, purged Tailwind (3.2) + vendored, pinned libraries -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
@@ -76,7 +83,7 @@
             <div id="codebookStepSurvey" class="hidden">
                 <h2 class="text-2xl font-display font-bold text-slate-800 dark:text-white mb-3 tracking-tight">Generate one from your survey?</h2>
                 <p class="text-sm text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-                    If you have the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">survey questionnaire</span> the data came from, upload it and CodeCaster will infer variable descriptions, scales, and value labels from the questions themselves.
+                    If you have the <span class="text-indigo-700 dark:text-indigo-400 font-semibold">survey questionnaire</span> the data came from, upload it and Statly will infer variable descriptions, scales, and value labels from the questions themselves.
                 </p>
                 <div class="flex flex-col gap-3">
                     <button id="surveyYesBtn" class="w-full btn-primary py-3 px-4 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/20 flex justify-center items-center gap-2">
@@ -193,7 +200,7 @@
             <div class="flex justify-between items-center p-6 pb-2">
                 <div>
                     <h2 id="catalogTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Analysis Catalog</h2>
-                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Pick a method — CodeCaster drafts a prompt tailored to <span class="font-bold">your</span> columns.</p>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Pick a method — Statly drafts a prompt tailored to <span class="font-bold">your</span> columns.</p>
                 </div>
                 <button data-close-modal="catalogModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close catalog">&times;</button>
             </div>
@@ -244,8 +251,8 @@
                 <div class="flex items-center justify-between">
                     <div class="animate-fade-in-up" style="animation-delay: 0.1s;">
                         <div class="flex items-center gap-3 mb-1">
-                            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="CodeCaster logo" class="w-8 h-8 rounded-lg shadow-lg shadow-indigo-500/30">
-                            <h1 class="text-2xl font-bold font-display bg-gradient-to-r from-indigo-700 to-purple-700 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent tracking-tight">CodeCaster</h1>
+                            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Statly logo" class="w-8 h-8 rounded-lg shadow-lg shadow-indigo-500/30">
+                            <h1 class="text-2xl font-bold font-display bg-gradient-to-r from-indigo-700 to-purple-700 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent tracking-tight">Statly</h1>
                         </div>
                         <p class="text-xs text-slate-600 dark:text-slate-400 font-mono tracking-[0.2em] uppercase ml-[44px] font-medium">Proactive Social-Science Assistant</p>
                     </div>

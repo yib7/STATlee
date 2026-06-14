@@ -13,13 +13,13 @@ import prompts
 from extensions import limiter
 from routes import json_error, sse_event, sse_stream
 
-logger = logging.getLogger('codecaster.converse')
+logger = logging.getLogger('statly.converse')
 
 bp = Blueprint('converse', __name__)
 
 
 def _cfg():
-    return current_app.config['CODECASTER']
+    return current_app.config['STATLY']
 
 
 @bp.route('/converse', methods=['POST'])
@@ -36,7 +36,7 @@ def converse():
         return json_error('Missing message')
 
     service = llm.get_service()
-    cfg = current_app.config['CODECASTER']
+    cfg = current_app.config['STATLY']
 
     # 0.6: the same baseline moderation gate /chat uses.
     try:

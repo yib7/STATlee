@@ -20,7 +20,7 @@ import time
 from flask import current_app, session
 from werkzeug.utils import secure_filename
 
-logger = logging.getLogger('codecaster.storage')
+logger = logging.getLogger('statly.storage')
 
 MANIFEST_PREFIX = '.versions__'
 META_PREFIX = '.meta__'

@@ -1,6 +1,6 @@
 # Compose v2 no longer needs the top-level `version` key.
 services:
-  codecaster-web:
+  statly-web:
     build: .
     ports:
       - "5000:5000"

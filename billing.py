@@ -15,7 +15,7 @@ seam. Nothing outside this module should read or write ``credits``.
 """
 import logging
 
-logger = logging.getLogger('codecaster.billing')
+logger = logging.getLogger('statly.billing')
 
 # Credits a single priority (high-tier) request will cost once billing is real.
 PRIORITY_COST = 1
