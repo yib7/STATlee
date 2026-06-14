@@ -7,7 +7,7 @@ from flask_login import current_user
 
 import llm
 import prompts
-from extensions import db
+from extensions import db, limiter
 from routes import json_error, sse_event, sse_stream
 
 logger = logging.getLogger('codecaster.misc')
@@ -15,6 +15,10 @@ logger = logging.getLogger('codecaster.misc')
 bp = Blueprint('misc', __name__)
 
 _START_TIME = time.time()
+
+
+def _cfg():
+    return current_app.config['CODECASTER']
 
 
 @bp.route('/')
@@ -50,6 +54,7 @@ def metrics():
 # ---------------------------------------------------------------------------
 
 @bp.route('/report_issue', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def report_issue():
     data = request.get_json(silent=True) or {}
     description = (data.get('description') or '').strip()
@@ -107,6 +112,7 @@ def _email_report(cfg, report):
 # ---------------------------------------------------------------------------
 
 @bp.route('/generate_report', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def generate_report():
     data = request.get_json(silent=True) or {}
     revision = data.get('revision')

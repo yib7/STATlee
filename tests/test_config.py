@@ -44,3 +44,17 @@ def test_unknown_converse_role_defaults_to_flash():
     cfg = Config(env='development', converse_role='ultra')
     cfg.validate()
     assert cfg.converse_role == 'flash'
+
+
+def test_production_subprocess_sandbox_warns():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 sandbox_mode='subprocess')
+    cfg.validate()
+    assert any('SANDBOX_MODE=subprocess' in w for w in cfg.warnings)
+
+
+def test_production_docker_sandbox_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 sandbox_mode='docker')
+    cfg.validate()
+    assert not any('SANDBOX_MODE' in w for w in cfg.warnings)

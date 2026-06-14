@@ -10,6 +10,7 @@ from flask import Blueprint, current_app, request
 
 import llm
 import prompts
+from extensions import limiter
 from routes import json_error, sse_event, sse_stream
 
 logger = logging.getLogger('codecaster.converse')
@@ -17,7 +18,12 @@ logger = logging.getLogger('codecaster.converse')
 bp = Blueprint('converse', __name__)
 
 
+def _cfg():
+    return current_app.config['CODECASTER']
+
+
 @bp.route('/converse', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def converse():
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '').strip()

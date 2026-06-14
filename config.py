@@ -81,6 +81,12 @@ class Config:
     rate_limit_default: str = '120 per minute'
     rate_limit_run: str = '10 per minute'
     rate_limit_chat: str = '20 per minute'
+    # Number of trusted reverse-proxy hops in front of the app. >0 enables
+    # ProxyFix so rate limiting and logging see the real client IP from
+    # X-Forwarded-For. Render fronts the app with exactly one proxy, so this
+    # defaults to 1 in production. Keep it 0 anywhere the app is exposed
+    # directly, or clients could spoof X-Forwarded-For to dodge IP limits.
+    trust_proxy_hops: int = 0
 
     # --- CSRF (1.5) -----------------------------------------------------------------
     csrf_enabled: bool = True
@@ -127,6 +133,10 @@ class Config:
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),
             rate_limit_chat=os.environ.get('RATE_LIMIT_CHAT', '20 per minute'),
+            trust_proxy_hops=_env_int(
+                'TRUST_PROXY_HOPS',
+                1 if os.environ.get('APP_ENV', '').strip().lower() == 'production'
+                else 0),
             smtp_host=os.environ.get('SMTP_HOST', '').strip(),
             smtp_port=_env_int('SMTP_PORT', 587),
             smtp_user=os.environ.get('SMTP_USER', '').strip(),
@@ -165,6 +175,11 @@ class Config:
 
         if self.sandbox_mode not in ('subprocess', 'docker'):
             raise ValueError("SANDBOX_MODE must be 'subprocess' or 'docker'")
+        if self.is_production and self.sandbox_mode == 'subprocess':
+            self._warn(
+                "SANDBOX_MODE=subprocess in production — generated code runs as "
+                "the app user with full filesystem read access. Use "
+                "SANDBOX_MODE=docker for real isolation in production.")
         if self.storage_backend not in ('local', 's3'):
             raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
         if self.storage_backend == 's3' and not self.s3_bucket:

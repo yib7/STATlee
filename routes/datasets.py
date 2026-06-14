@@ -25,7 +25,7 @@ import llm
 import prompts
 import sandbox
 import storage
-from extensions import db
+from extensions import db, limiter
 from routes import json_error
 
 logger = logging.getLogger('codecaster.datasets')
@@ -90,6 +90,7 @@ def _read_active(filename, nrows=None):
 # ---------------------------------------------------------------------------
 
 @bp.route('/upload', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def upload_file():
     """Dataset upload — CSV/TSV/Excel/Stata/SPSS (5.1), normalized to CSV."""
     storage.cleanup_old_files(_cfg().file_ttl_seconds)
@@ -161,6 +162,7 @@ def upload_file():
 
 
 @bp.route('/upload_pdf', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def upload_pdf():
     """Optional PDF/TXT codebook or survey upload. Max page count enforced."""
     storage.cleanup_old_files(_cfg().file_ttl_seconds)
@@ -228,6 +230,7 @@ def upload_pdf():
 
 
 @bp.route('/extract_pdf_codebook', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def extract_pdf_codebook():
     """Map variable labels from an uploaded PDF.
 
@@ -323,6 +326,7 @@ def data_page():
 # ---------------------------------------------------------------------------
 
 @bp.route('/classify_variables', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def classify_variables():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')
@@ -355,6 +359,7 @@ def classify_variables():
 
 
 @bp.route('/suggest', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def suggest_analysis():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')
@@ -414,6 +419,7 @@ WRANGLE_HARNESS = textwrap.dedent("""\
 
 
 @bp.route('/wrangle', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_run)
 def wrangle():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')

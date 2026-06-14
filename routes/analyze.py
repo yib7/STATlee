@@ -225,6 +225,7 @@ def run_code():
 # ---------------------------------------------------------------------------
 
 @bp.route('/interpret', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def interpret_results():
     data = request.get_json(silent=True) or {}
     final_output = data.get('output', '') or ''
@@ -281,6 +282,7 @@ def interpret_results():
 # ---------------------------------------------------------------------------
 
 @bp.route('/method_prompt', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_chat)
 def method_prompt():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')

@@ -59,6 +59,15 @@ def create_app(config=None):
     cfg = config or Config.from_env()
 
     app = Flask(__name__, template_folder='templates', static_folder='static')
+
+    # Behind a trusted reverse proxy (e.g. Render), honour X-Forwarded-For so
+    # rate limiting and logging see the real client IP rather than the proxy's.
+    if cfg.trust_proxy_hops:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app, x_for=cfg.trust_proxy_hops,
+            x_proto=cfg.trust_proxy_hops)
+
     app.config['CODECASTER'] = cfg
     app.config['MAX_CONTENT_LENGTH'] = cfg.max_upload_mb * 1024 * 1024
     app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root()
