@@ -201,8 +201,40 @@
         </div>
     </div>
 
+    <!-- Workspace settings (suggestions + split view toggles) -->
+    <div id="settingsModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="bg-white/95 dark:bg-surface-1/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-md w-full border border-white/20 dark:border-slate-700/50 animate-fade-in-up">
+            <div class="flex justify-between items-center mb-5">
+                <h2 id="settingsTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">Workspace Settings</h2>
+                <button data-close-modal="settingsModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close settings">&times;</button>
+            </div>
+            <div class="flex flex-col gap-5">
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" id="prefAutosuggest" class="w-4 h-4 mt-0.5 accent-indigo-600 cursor-pointer shrink-0">
+                    <span>
+                        <span class="block text-sm font-semibold text-slate-800 dark:text-slate-200">Auto-suggest analyses</span>
+                        <span class="block text-xs text-slate-600 dark:text-slate-400 leading-relaxed mt-0.5">Generate analysis ideas automatically after each upload. Turn off to save AI credits when you already know what you want to run.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" id="prefSplit" class="w-4 h-4 mt-0.5 accent-indigo-600 cursor-pointer shrink-0">
+                    <span>
+                        <span class="block text-sm font-semibold text-slate-800 dark:text-slate-200">Split view</span>
+                        <span class="block text-xs text-slate-600 dark:text-slate-400 leading-relaxed mt-0.5">Show the Split button so two panels can sit side by side. Turn off for a single, full-width workspace tab.</span>
+                    </span>
+                </label>
+            </div>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-6 font-mono uppercase tracking-widest">Preferences are saved in this browser</p>
+        </div>
+    </div>
+
     <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
     <div class="flex flex-1 min-h-0 relative">
+
+        <!-- Floating handle to reopen a collapsed sidebar -->
+        <button id="expandSidebarBtn" onclick="toggleSidebar()" class="hidden fixed top-1/2 -translate-y-1/2 left-0 z-40 btn-primary p-2 rounded-l-none rounded-r-lg shadow-lg" title="Expand sidebar" aria-label="Expand sidebar">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
+        </button>
 
         <!-- Left Sidebar -->
         <div id="leftSidebar" style="width: 33.333%;" class="glass-panel shrink-0 min-w-[320px] border-r border-slate-200/60 dark:border-slate-700/30 flex flex-col shadow-2xl z-10 transition-colors duration-500">
@@ -219,6 +251,9 @@
                     </div>
                     <div class="flex items-center gap-3 animate-fade-in-up" style="animation-delay: 0.1s;">
                         <span id="accountLabel" class="hidden text-[10px] font-mono text-slate-600 dark:text-slate-400 max-w-[110px] truncate"></span>
+                        <button onclick="toggleSidebar()" class="text-slate-500 hover:text-indigo-700 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors focus:outline-none p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800/50" title="Collapse sidebar for a full-width workspace" aria-label="Collapse sidebar">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg>
+                        </button>
                         <button onclick="toggleTheme()" class="text-slate-500 hover:text-indigo-700 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors focus:outline-none p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800/50" title="Toggle Theme" aria-label="Toggle color theme">
                             <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                             <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
@@ -236,6 +271,7 @@
                     <button id="exportBtn" class="btn-toolbar" title="Download data + script + plots + report as a zip" aria-label="Download project archive">Export</button>
                     <button id="issueBtn" class="btn-toolbar" title="Report a problem" aria-label="Report an issue">Support</button>
                     <button id="accountBtn" class="btn-toolbar" title="Sign in to keep your work" aria-label="Account">Account</button>
+                    <button id="settingsBtn" class="btn-toolbar" title="Workspace settings — suggestions, split view" aria-label="Workspace settings">Settings</button>
                 </div>
             </div>
 

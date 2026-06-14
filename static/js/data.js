@@ -168,7 +168,12 @@
 
     async function runPostUploadPipeline(filename) {
         await fetchCodebook(filename);
-        await CC.fetchSuggestions(filename);
+        // Auto-suggestions cost AI credits; skip when the user disabled them.
+        if (!CC.prefs || CC.prefs.get('autosuggest', true)) {
+            await CC.fetchSuggestions(filename);
+        } else {
+            CC.pipeline.set('suggest', 'skipped', 'disabled in settings');
+        }
     }
 
     // --- upload flow ------------------------------------------------------------

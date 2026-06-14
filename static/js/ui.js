@@ -335,9 +335,62 @@
         if (Object.keys(CC.state.codebook).length > 0) container.classList.remove('hidden');
     };
 
+    // --- workspace preferences (persisted) + sidebar collapse ----------------------
+    CC.prefs = {
+        get(key, dflt) {
+            const v = localStorage.getItem('cc_pref_' + key);
+            return v === null ? dflt : v === 'true';
+        },
+        set(key, val) { localStorage.setItem('cc_pref_' + key, val ? 'true' : 'false'); },
+    };
+
+    // Split view (6.1) can be hidden entirely as a focus preference.
+    function applySplitPref() {
+        const on = CC.prefs.get('split', true);
+        const btn = document.getElementById('splitBtn');
+        if (btn) btn.style.display = on ? '' : 'none';
+        if (!on) CC.closeSplit();
+    }
+
+    // Collapse the left sidebar for a full-width workspace.
+    CC.setSidebarCollapsed = function (collapsed) {
+        const sidebar = document.getElementById('leftSidebar');
+        const resizer = document.getElementById('resizer');
+        const expandBtn = document.getElementById('expandSidebarBtn');
+        if (!sidebar) return;
+        sidebar.classList.toggle('hidden', collapsed);
+        if (resizer) resizer.classList.toggle('hidden', collapsed);
+        if (expandBtn) expandBtn.classList.toggle('hidden', !collapsed);
+        localStorage.setItem('cc_sidebar_collapsed', collapsed ? 'true' : 'false');
+        if (CC.editor) setTimeout(() => CC.editor.refresh(), 30);
+    };
+    CC.toggleSidebar = function () {
+        const sidebar = document.getElementById('leftSidebar');
+        CC.setSidebarCollapsed(!sidebar.classList.contains('hidden'));
+    };
+    window.toggleSidebar = CC.toggleSidebar;
+
+    function initWorkspacePrefs() {
+        const settingsBtn = document.getElementById('settingsBtn');
+        const autosuggest = document.getElementById('prefAutosuggest');
+        const split = document.getElementById('prefSplit');
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => {
+                if (autosuggest) autosuggest.checked = CC.prefs.get('autosuggest', true);
+                if (split) split.checked = CC.prefs.get('split', true);
+                CC.modal.open('settingsModal');
+            });
+        }
+        if (autosuggest) autosuggest.addEventListener('change', (e) => CC.prefs.set('autosuggest', e.target.checked));
+        if (split) split.addEventListener('change', (e) => { CC.prefs.set('split', e.target.checked); applySplitPref(); });
+        applySplitPref();
+        if (localStorage.getItem('cc_sidebar_collapsed') === 'true') CC.setSidebarCollapsed(true);
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initSplitControls();
         initSidebarResizer();
+        initWorkspacePrefs();
         const popoutBtn = document.getElementById('codebookPopoutBtn');
         if (popoutBtn) {
             popoutBtn.addEventListener('click', (e) => {
