@@ -51,7 +51,7 @@ class FakeLLMService:
     ]
 
     def __init__(self):
-        self.calls = []                 # (role, kind, text) per call
+        self.calls = []                 # (role, kind, text, priority) per call
         self.usage_totals = {}
         self._overrides = {}
         self._defaults = {
@@ -111,18 +111,20 @@ class FakeLLMService:
         entry['output'] += 5
 
     # -- LLMService surface ------------------------------------------------
-    def generate(self, role, contents, *, temperature=0.2, json_mode=False):
+    def generate(self, role, contents, *, temperature=0.2, json_mode=False,
+                 priority=False):
         text = self._flatten(contents)
         kind = self._kind(text)
-        self.calls.append((role, kind, text))
+        self.calls.append((role, kind, text, priority))
         self._track(role, kind)
         return llm.LLMResult(text=self._payload(kind),
                              usage={'model': role, 'input': 10, 'output': 5})
 
-    def stream(self, role, contents, *, temperature=0.2, usage_out=None):
+    def stream(self, role, contents, *, temperature=0.2, usage_out=None,
+               priority=False):
         text = self._flatten(contents)
         kind = self._kind(text)
-        self.calls.append((role, kind, text))
+        self.calls.append((role, kind, text, priority))
         self._track(role, kind)
         payload = self._payload(kind)
         # Emit in two chunks to exercise delta accumulation.

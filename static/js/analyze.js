@@ -5,6 +5,13 @@
 (function () {
     'use strict';
 
+    // Priority/quality toggle (workstream B): when on, the backend routes to
+    // the faster, higher model tier. Read once per request.
+    CC.priorityOn = function () {
+        const el = document.getElementById('priorityToggle');
+        return !!(el && el.checked);
+    };
+
     CC.getCode = function () { return CC.editor ? CC.editor.getValue() : ''; };
     CC.setCode = function (text) {
         if (CC.editor) {
@@ -89,6 +96,7 @@
                 history: CC.state.chatHistory,
                 codebook: mergedCodebook,
                 current_code: sendCurrent ? existing : null,
+                priority: CC.priorityOn(),
             });
 
             const contentType = response.headers.get('Content-Type') || '';
@@ -209,6 +217,7 @@
                 plots: runData.plots || [],
                 success: !!runData.success,
                 code,  // 5.11: lets the backend switch to debugging-assistant mode
+                priority: CC.priorityOn(),
             });
             const contentType = response.headers.get('Content-Type') || '';
             if (!contentType.includes('text/event-stream')) {

@@ -4,15 +4,26 @@ Every model call in the app goes through this module. Calls are addressed by
 *role* — 'pro', 'flash', 'lite', or 'draft' — and the role→model mapping lives
 in config, so swapping a model is a config change, not a code change.
 
+A ``priority`` flag (workstream B) escalates a call one tier (lite→flash→pro)
+for the user-facing speed/quality toggle. Deterministic (temperature 0)
+``generate`` calls are cached so repeated moderation of the same prompt doesn't
+re-bill the API.
+
 Token usage is recorded per model and exposed for /metrics and the per-
 analysis cost display.
 """
+import hashlib
 import logging
 import threading
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 
 logger = logging.getLogger('codecaster.llm')
+
+# Priority escalates a role one tier toward the strongest model.
+PRIORITY_ESCALATION = {'lite': 'flash', 'flash': 'pro', 'draft': 'draft', 'pro': 'pro'}
+
+_GEN_CACHE_MAX = 256
 
 
 @dataclass
@@ -27,12 +38,15 @@ class LLMService:
         self._gemini = None
         self._lock = threading.Lock()
         self.usage_totals = defaultdict(lambda: {'calls': 0, 'input': 0, 'output': 0})
+        self._gen_cache = OrderedDict()   # deterministic generate() results
 
     # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
-    def _resolve(self, role):
+    def _resolve(self, role, priority=False):
         cfg = self.config
+        if priority:
+            role = PRIORITY_ESCALATION.get(role, role)
         mapping = {
             'pro': cfg.model_pro,
             'flash': cfg.model_flash,
@@ -77,11 +91,48 @@ class LLMService:
         return usage
 
     # ------------------------------------------------------------------
+    # Deterministic-call cache (workstream B)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _cache_key(model, contents, json_mode):
+        flat = contents if isinstance(contents, str) else "\n".join(
+            str(c) for c in contents)
+        digest = hashlib.sha256(flat.encode('utf-8', 'ignore')).hexdigest()
+        return (model, json_mode, digest)
+
+    def _cache_get(self, key):
+        with self._lock:
+            if key in self._gen_cache:
+                self._gen_cache.move_to_end(key)
+                return self._gen_cache[key]
+        return None
+
+    def _cache_put(self, key, value):
+        with self._lock:
+            self._gen_cache[key] = value
+            self._gen_cache.move_to_end(key)
+            while len(self._gen_cache) > _GEN_CACHE_MAX:
+                self._gen_cache.popitem(last=False)
+
+    # ------------------------------------------------------------------
     # Synchronous generation
     # ------------------------------------------------------------------
-    def generate(self, role, contents, *, temperature=0.2, json_mode=False):
-        model = self._resolve(role)
-        return self._generate_gemini(model, contents, temperature, json_mode)
+    def generate(self, role, contents, *, temperature=0.2, json_mode=False,
+                 priority=False):
+        model = self._resolve(role, priority)
+        # Only temperature-0 calls are deterministic and therefore cacheable
+        # (e.g. moderation / code-moderation), so a hammered prompt can't
+        # re-bill the API. Higher-temperature calls always hit the model.
+        cache_key = None
+        if temperature == 0.0 and isinstance(contents, (str, list, tuple)):
+            cache_key = self._cache_key(model, contents, json_mode)
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached
+        result = self._generate_gemini(model, contents, temperature, json_mode)
+        if cache_key is not None:
+            self._cache_put(cache_key, result)
+        return result
 
     def _generate_gemini(self, model, contents, temperature, json_mode):
         from google.genai import types
@@ -100,9 +151,10 @@ class LLMService:
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------
-    def stream(self, role, contents, *, temperature=0.2, usage_out=None):
+    def stream(self, role, contents, *, temperature=0.2, usage_out=None,
+               priority=False):
         """Yield text deltas; fill ``usage_out`` (if given) when finished."""
-        model = self._resolve(role)
+        model = self._resolve(role, priority)
         yield from self._stream_gemini(model, contents, temperature, usage_out)
 
     def _stream_gemini(self, model, contents, temperature, usage_out):

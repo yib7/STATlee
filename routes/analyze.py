@@ -12,6 +12,7 @@ import os
 import pandas as pd
 from flask import Blueprint, current_app, jsonify, request
 
+import billing
 import datatools
 import llm
 import prompts
@@ -27,6 +28,14 @@ bp = Blueprint('analyze', __name__)
 
 def _cfg():
     return current_app.config['CODECASTER']
+
+
+def _current_user():
+    """The logged-in User model, or None for anonymous callers."""
+    from flask_login import current_user
+    if current_user and getattr(current_user, 'is_authenticated', False):
+        return current_user
+    return None
 
 
 def _sum_usage(*usages):
@@ -54,16 +63,23 @@ def chat():
     history = data.get('history', [])
     codebook = data.get('codebook', {}) or {}
     current_code = (data.get('current_code') or '').strip() or None  # 5.12
+    priority = bool(data.get('priority'))  # workstream B speed/quality toggle
 
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
+
+    # Monetization seam (E): one chokepoint decides whether the (costlier)
+    # priority tier is allowed for this user. A no-op today.
+    allowed, deny_msg = billing.check_and_debit(_current_user(), priority=priority)
+    if not allowed:
+        return json_error(deny_msg or 'Out of credits.', 402)
 
     service = llm.get_service()
 
     # Gate 1: moderation (synchronous — must 403 before any stream starts).
     try:
         mod = service.generate('lite', prompts.moderation(user_prompt),
-                               temperature=0.0)
+                               temperature=0.0, priority=priority)
         if 'BLOCK' in mod.text:
             return json_error(f'Request denied. {mod.text.strip()}', 403)
     except Exception:
@@ -93,7 +109,7 @@ def chat():
             sel = service.generate(
                 'flash',
                 prompts.feature_selection(column_context, user_prompt),
-                temperature=0.1, json_mode=True)
+                temperature=0.1, json_mode=True, priority=priority)
             selection_usage = sel.usage
             candidates = json.loads(sel.text).get('required_columns', [])
             if isinstance(candidates, list):
@@ -123,7 +139,7 @@ def chat():
             yield sse_event({'type': 'phase', 'phase': 'drafting'})
             draft_accumulated = ''
             for delta in service.stream('draft', draft_prompt,
-                                        temperature=0.1,
+                                        temperature=0.1, priority=priority,
                                         usage_out=draft_usage):
                 draft_accumulated += delta
                 yield sse_event({'type': 'delta', 'text': delta})
@@ -135,7 +151,8 @@ def chat():
             for delta in service.stream(
                     'lite',
                     prompts.validation(target_language, filename, draft_code),
-                    temperature=0.0, usage_out=validation_usage):
+                    temperature=0.0, priority=priority,
+                    usage_out=validation_usage):
                 validated += delta
                 yield sse_event({'type': 'delta', 'text': delta})
 
@@ -233,6 +250,7 @@ def interpret_results():
     if plots is None:
         plots = [data.get('plot')] if data.get('plot') else []
     code = data.get('code') or ''
+    priority = bool(data.get('priority'))
     if 'success' in data:
         failed = not data.get('success')
     else:
@@ -265,7 +283,7 @@ def interpret_results():
         usage = {}
         try:
             for delta in service.stream('flash', contents, temperature=0.3,
-                                        usage_out=usage):
+                                        priority=priority, usage_out=usage):
                 yield sse_event({'type': 'delta', 'text': delta})
             yield sse_event({'type': 'done', 'debug': failed,
                              'usage': _sum_usage(usage)})

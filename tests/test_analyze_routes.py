@@ -25,6 +25,28 @@ def test_chat_streams_phases_and_final_code(client, fake_llm):
     assert done and done[0]['code'] == "print('final code')"
 
 
+def test_chat_propagates_priority_flag_to_llm(client, fake_llm):
+    """The UI's priority toggle reaches every model call in the pipeline."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'describe the data',
+                      'priority': True})
+    sse_events(resp)
+    # FakeLLMService records (role, kind, text, priority); the draft + validation
+    # streamed calls must carry priority=True.
+    kinds = {c[1]: c[3] for c in fake_llm.calls}
+    assert kinds.get('draft') is True
+    assert kinds.get('validation') is True
+
+
+def test_chat_defaults_to_non_priority(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'describe the data'})
+    sse_events(resp)
+    assert all(c[3] is False for c in fake_llm.calls)
+
+
 def _generate_script(client, prompt='go'):
     """Run /chat and DRAIN the SSE stream so the generator persists the
     approved script (it only saves once the body is consumed)."""
