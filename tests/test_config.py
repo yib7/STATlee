@@ -30,12 +30,6 @@ def test_testing_env_is_quiet_without_keys():
     assert cfg.warnings == []        # testing suppresses the missing-key warnings
 
 
-def test_anthropic_without_key_falls_back_to_gemini():
-    cfg = Config(env='development', draft_provider='anthropic', anthropic_api_key='')
-    cfg.validate()
-    assert cfg.draft_provider == 'gemini'
-
-
 def test_invalid_sandbox_mode_raises():
     with pytest.raises(ValueError):
         Config(env='development', sandbox_mode='vm').validate()

@@ -1,9 +1,8 @@
-"""Provider-agnostic LLM service with usage tracking (roadmap 3.3 / 3.4).
+"""Gemini LLM service with usage tracking (roadmap 3.3 / 3.4).
 
 Every model call in the app goes through this module. Calls are addressed by
-*role* — 'pro', 'flash', 'lite', or 'draft' — and the role→(provider, model)
-mapping lives in config, so swapping a model (or moving code drafting to the
-Claude API) is a config change, not a code change.
+*role* — 'pro', 'flash', 'lite', or 'draft' — and the role→model mapping lives
+in config, so swapping a model is a config change, not a code change.
 
 Token usage is recorded per model and exposed for /metrics and the per-
 analysis cost display.
@@ -26,7 +25,6 @@ class LLMService:
     def __init__(self, config):
         self.config = config
         self._gemini = None
-        self._anthropic = None
         self._lock = threading.Lock()
         self.usage_totals = defaultdict(lambda: {'calls': 0, 'input': 0, 'output': 0})
 
@@ -35,8 +33,6 @@ class LLMService:
     # ------------------------------------------------------------------
     def _resolve(self, role):
         cfg = self.config
-        if role == 'draft' and cfg.draft_provider == 'anthropic':
-            return 'anthropic', cfg.anthropic_model
         mapping = {
             'pro': cfg.model_pro,
             'flash': cfg.model_flash,
@@ -45,7 +41,7 @@ class LLMService:
         }
         if role not in mapping:
             raise ValueError(f"Unknown LLM role: {role!r}")
-        return 'gemini', mapping[role]
+        return mapping[role]
 
     def _gemini_client(self):
         if self._gemini is None:
@@ -55,13 +51,6 @@ class LLMService:
                     "GEMINI_API_KEY is not configured on the server.")
             self._gemini = genai.Client(api_key=self.config.gemini_api_key)
         return self._gemini
-
-    def _anthropic_client(self):
-        if self._anthropic is None:
-            import anthropic
-            self._anthropic = anthropic.Anthropic(
-                api_key=self.config.anthropic_api_key)
-        return self._anthropic
 
     # ------------------------------------------------------------------
     # Usage accounting
@@ -91,9 +80,7 @@ class LLMService:
     # Synchronous generation
     # ------------------------------------------------------------------
     def generate(self, role, contents, *, temperature=0.2, json_mode=False):
-        provider, model = self._resolve(role)
-        if provider == 'anthropic':
-            return self._generate_anthropic(model, contents, temperature)
+        model = self._resolve(role)
         return self._generate_gemini(model, contents, temperature, json_mode)
 
     def _generate_gemini(self, model, contents, temperature, json_mode):
@@ -110,36 +97,13 @@ class LLMService:
                     model, usage['input'], usage['output'])
         return LLMResult(text=(response.text or '').strip(), usage=usage)
 
-    def _generate_anthropic(self, model, contents, temperature):
-        if not isinstance(contents, str):
-            contents = "\n".join(str(c) for c in contents)
-        response = self._anthropic_client().messages.create(
-            model=model, max_tokens=8192, temperature=temperature,
-            messages=[{'role': 'user', 'content': contents}])
-        text = ''.join(
-            block.text for block in response.content
-            if getattr(block, 'type', '') == 'text')
-        u = getattr(response, 'usage', None)
-        usage = {
-            'model': model,
-            'input': getattr(u, 'input_tokens', 0) or 0,
-            'output': getattr(u, 'output_tokens', 0) or 0,
-        }
-        self._record(model, usage['input'], usage['output'])
-        logger.info("llm call model=%s in=%s out=%s",
-                    model, usage['input'], usage['output'])
-        return LLMResult(text=text.strip(), usage=usage)
-
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------
     def stream(self, role, contents, *, temperature=0.2, usage_out=None):
         """Yield text deltas; fill ``usage_out`` (if given) when finished."""
-        provider, model = self._resolve(role)
-        if provider == 'anthropic':
-            yield from self._stream_anthropic(model, contents, temperature, usage_out)
-        else:
-            yield from self._stream_gemini(model, contents, temperature, usage_out)
+        model = self._resolve(role)
+        yield from self._stream_gemini(model, contents, temperature, usage_out)
 
     def _stream_gemini(self, model, contents, temperature, usage_out):
         from google.genai import types
@@ -154,24 +118,6 @@ class LLMService:
                 yield delta
         usage = self._gemini_usage(last_chunk, model) if last_chunk else {
             'model': model, 'input': 0, 'output': 0}
-        self._record(model, usage['input'], usage['output'])
-        if usage_out is not None:
-            usage_out.update(usage)
-
-    def _stream_anthropic(self, model, contents, temperature, usage_out):
-        if not isinstance(contents, str):
-            contents = "\n".join(str(c) for c in contents)
-        with self._anthropic_client().messages.stream(
-                model=model, max_tokens=8192, temperature=temperature,
-                messages=[{'role': 'user', 'content': contents}]) as s:
-            yield from s.text_stream
-            final = s.get_final_message()
-        u = getattr(final, 'usage', None)
-        usage = {
-            'model': model,
-            'input': getattr(u, 'input_tokens', 0) or 0,
-            'output': getattr(u, 'output_tokens', 0) or 0,
-        }
         self._record(model, usage['input'], usage['output'])
         if usage_out is not None:
             usage_out.update(usage)

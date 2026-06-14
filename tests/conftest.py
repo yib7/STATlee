@@ -13,7 +13,6 @@ import pytest
 # Force a clean, key-less testing environment before anything imports config.
 os.environ['APP_ENV'] = 'testing'
 os.environ.pop('GEMINI_API_KEY', None)
-os.environ.pop('ANTHROPIC_API_KEY', None)
 
 import llm  # noqa: E402
 from config import Config  # noqa: E402

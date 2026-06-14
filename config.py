@@ -39,7 +39,6 @@ class Config:
 
     # --- Secrets / providers ------------------------------------------------
     gemini_api_key: str = ''
-    anthropic_api_key: str = ''
     flask_secret_key: str = ''
     app_password: str = ''          # legacy single-password gate (optional)
 
@@ -66,8 +65,6 @@ class Config:
     model_pro: str = 'gemini-3.1-pro-preview'
     model_flash: str = 'gemini-3-flash-preview'
     model_flash_lite: str = 'gemini-3.1-flash-lite-preview'
-    draft_provider: str = 'gemini'      # 'gemini' | 'anthropic'
-    anthropic_model: str = 'claude-sonnet-4-6'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
 
     # --- Analysis tunables -----------------------------------------------------
@@ -103,7 +100,6 @@ class Config:
         cfg = cls(
             env=os.environ.get('APP_ENV', 'development').strip().lower(),
             gemini_api_key=os.environ.get('GEMINI_API_KEY', '').strip(),
-            anthropic_api_key=os.environ.get('ANTHROPIC_API_KEY', '').strip(),
             flask_secret_key=os.environ.get('FLASK_SECRET_KEY', '').strip(),
             app_password=os.environ.get('PASSWORD', '').strip(),
             port=_env_int('PORT', 5000),
@@ -121,8 +117,6 @@ class Config:
             model_pro=os.environ.get('MODEL_PRO', cls.model_pro).strip(),
             model_flash=os.environ.get('MODEL_FLASH', cls.model_flash).strip(),
             model_flash_lite=os.environ.get('MODEL_FLASH_LITE', cls.model_flash_lite).strip(),
-            draft_provider=os.environ.get('DRAFT_PROVIDER', 'gemini').strip().lower(),
-            anthropic_model=os.environ.get('ANTHROPIC_MODEL', cls.anthropic_model).strip(),
             converse_role=os.environ.get('CONVERSE_ROLE', 'flash').strip().lower(),
             feature_selection_threshold=_env_int('FEATURE_SELECTION_THRESHOLD', 15),
             data_page_row_cap=_env_int('DATA_PAGE_ROW_CAP', 500_000),
@@ -168,14 +162,6 @@ class Config:
                 self._warn(
                     "FLASK_SECRET_KEY not set — using a random key. Logins "
                     "reset on restart and fail across multiple workers.")
-
-        if self.draft_provider not in ('gemini', 'anthropic'):
-            raise ValueError("DRAFT_PROVIDER must be 'gemini' or 'anthropic'")
-        if self.draft_provider == 'anthropic' and not self.anthropic_api_key:
-            self._warn(
-                "DRAFT_PROVIDER=anthropic but ANTHROPIC_API_KEY is unset — "
-                "falling back to Gemini for code drafting.")
-            self.draft_provider = 'gemini'
 
         if self.sandbox_mode not in ('subprocess', 'docker'):
             raise ValueError("SANDBOX_MODE must be 'subprocess' or 'docker'")

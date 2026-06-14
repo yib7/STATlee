@@ -4,13 +4,13 @@
 
 CodeCaster is a web-based, AI-driven data analysis platform that abstracts away the coding process. Designed primarily for social science students and researchers, it lets users upload datasets and use natural language to request complex analytical workflows without writing Python or R syntax.
 
-It uses a provider-agnostic, role-based LLM architecture (Google Gemini by default, with optional Anthropic Claude for code drafting) to generate, validate, and securely execute code in an isolated sandbox, then returns statistical interpretations and visualizations natively.
+It uses a role-based LLM architecture (Google Gemini) to generate, validate, and securely execute code in an isolated sandbox, then returns statistical interpretations and visualizations natively.
 
 ## Key Features
 
 * **Intelligent Codebook:** Samples uploaded data to classify variables as Nominal, Ordinal, or Continuous, preventing statistical errors (e.g. linear regression on nominal data). Codebooks can also be extracted from a PDF data dictionary or *inferred from a survey questionnaire*.
 * **Multi-format ingestion:** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and SPSS (`.sav`) — normalized to CSV internally, with native variable labels seeding the codebook for free.
-* **Role-based model routing:** Each step is addressed by a *role* (`pro`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model — or moving code drafting to the Claude API — is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
+* **Role-based model routing:** Each step is addressed by a *role* (`pro`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
 * **Sandboxed execution:** Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
 * **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
 * **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); CodeCaster runs it in the sandbox and tracks every dataset version with undo/redo.
@@ -133,7 +133,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 
 * **Frontend:** Vanilla JavaScript (modular `CC` namespace), HTML5, Tailwind CSS, CodeMirror, vendored/pinned `marked` + `DOMPurify`.
 * **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
-* **AI Integration:** Google GenAI SDK (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`), optional Anthropic Claude for code drafting.
+* **AI Integration:** Google GenAI SDK (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`).
 * **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
 * **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod).
 

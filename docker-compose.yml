@@ -8,11 +8,9 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-development}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
       - PASSWORD=${PASSWORD:-}
       - DATABASE_URL=${DATABASE_URL:-}
-      - DRAFT_PROVIDER=${DRAFT_PROVIDER:-gemini}
       - SANDBOX_MODE=${SANDBOX_MODE:-subprocess}
       - REQUIRE_LOGIN=${REQUIRE_LOGIN:-false}
       - ACCOUNTS_ENABLED=${ACCOUNTS_ENABLED:-true}

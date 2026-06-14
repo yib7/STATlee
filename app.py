@@ -164,8 +164,8 @@ def create_app(config=None):
 
     for warning in cfg.warnings:
         logger.warning("config: %s", warning)
-    logger.info("CodeCaster ready (env=%s, sandbox=%s, draft=%s, storage=%s)",
-                cfg.env, cfg.sandbox_mode, cfg.draft_provider, cfg.storage_backend)
+    logger.info("CodeCaster ready (env=%s, sandbox=%s, storage=%s)",
+                cfg.env, cfg.sandbox_mode, cfg.storage_backend)
     return app
 
 
