@@ -46,7 +46,8 @@ def check_auth():
         'password' if cfg.app_password else 'open')
     user = None
     if current_user and getattr(current_user, 'is_authenticated', False):
-        user = {'email': current_user.email}
+        user = {'email': current_user.email,
+                'plan': current_user.plan, 'credits': current_user.credits}
     if is_authorized():
         return jsonify({
             'status': 'authorized', 'mode': mode, 'user': user,
