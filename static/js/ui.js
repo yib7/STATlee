@@ -105,6 +105,20 @@
     };
     window.switchTab = CC.switchTab; // keep inline onclick handlers working
 
+    // Grey out the header tab whose view currently lives in the split pane, so
+    // it's obvious it's already shown elsewhere (reduces friction).
+    function updateSplitTabState() {
+        VIEWS.forEach(n => {
+            const tab = document.getElementById('tab' + n);
+            if (!tab) return;
+            const inSplit = paneBView === n.toLowerCase();
+            tab.classList.toggle('opacity-40', inSplit);
+            tab.classList.toggle('cursor-not-allowed', inSplit);
+            if (inSplit) tab.setAttribute('aria-disabled', 'true');
+            else tab.removeAttribute('aria-disabled');
+        });
+    }
+
     CC.openSplit = function (viewName) {
         const paneB = document.getElementById('paneB');
         const divider = document.getElementById('paneDivider');
@@ -122,6 +136,7 @@
         divider.classList.remove('hidden');
         select.value = viewName;
         paneBView = viewName;
+        updateSplitTabState();
         const splitBtn = document.getElementById('splitBtn');
         if (splitBtn) splitBtn.setAttribute('aria-pressed', 'true');
         if (CC.editor) setTimeout(() => CC.editor.refresh(), 30);
@@ -130,7 +145,7 @@
     CC.closeSplit = function () {
         const paneB = document.getElementById('paneB');
         const divider = document.getElementById('paneDivider');
-        if (!paneB || paneB.classList.contains('hidden')) { paneBView = null; return; }
+        if (!paneB || paneB.classList.contains('hidden')) { paneBView = null; updateSplitTabState(); return; }
         if (paneBView) {
             const content = contentEl(paneBView);
             if (content) {
@@ -145,6 +160,7 @@
         const splitBtn = document.getElementById('splitBtn');
         if (splitBtn) splitBtn.setAttribute('aria-pressed', 'false');
         CC.switchTab(activeA);
+        updateSplitTabState();
     };
 
     function initSplitControls() {
