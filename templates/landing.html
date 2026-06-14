@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statly — turn data questions into answers, in plain English</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
+    <meta name="description" content="Statly is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation — no coding required.">
+    <meta name="theme-color" content="#6366f1">
+    <meta property="og:title" content="Statly — turn data questions into answers, in plain English">
+    <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; Statly writes, runs, and interprets the statistics for you.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ url_for('static', filename='images/wordmark.svg') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --indigo: #6366f1;
+            --purple: #9333ea;
+            --ink: #0b0914;
+            --ink-1: #120f26;
+            --ink-2: #1b1740;
+            --text: #e7e5f0;
+            --muted: #a5a3b8;
+            --line: rgba(255, 255, 255, 0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--ink);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+        a { color: inherit; text-decoration: none; }
+        .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+        .grad-text {
+            background: linear-gradient(100deg, #818cf8, #c084fc);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .font-display { font-family: 'Syne', sans-serif; letter-spacing: -0.02em; }
+
+        /* ambient glow */
+        .glow { position: fixed; border-radius: 50%; filter: blur(110px); opacity: 0.4; z-index: 0; pointer-events: none; }
+        .glow.a { width: 460px; height: 460px; background: #4f46e5; top: -140px; left: -120px; }
+        .glow.b { width: 420px; height: 420px; background: #9333ea; top: 240px; right: -160px; }
+
+        /* nav */
+        nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(12px);
+              background: rgba(11, 9, 20, 0.7); border-bottom: 1px solid var(--line); }
+        .nav-in { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+        .brand { display: flex; align-items: center; gap: 10px; font-family: 'Syne', sans-serif;
+                 font-weight: 800; font-size: 22px; }
+        .brand img { width: 32px; height: 32px; border-radius: 9px; box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+        .nav-links { display: flex; align-items: center; gap: 28px; }
+        .nav-links a.minor { color: var(--muted); font-size: 14px; font-weight: 500; }
+        .nav-links a.minor:hover { color: var(--text); }
+
+        .btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600;
+               border-radius: 11px; padding: 11px 20px; transition: all .2s; cursor: pointer;
+               font-size: 15px; border: 1px solid transparent; }
+        .btn-primary { background: linear-gradient(100deg, var(--indigo), var(--purple)); color: #fff;
+                       box-shadow: 0 8px 24px rgba(99,102,241,0.35); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(99,102,241,0.5); }
+        .btn-ghost { border-color: var(--line); color: var(--text); background: rgba(255,255,255,0.03); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.07); }
+
+        section { position: relative; z-index: 1; }
+
+        /* hero */
+        .hero { padding: 96px 0 64px; text-align: center; }
+        .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+                   color: #c4b5fd; background: rgba(124,58,237,0.14); border: 1px solid rgba(124,58,237,0.3);
+                   padding: 6px 14px; border-radius: 999px; margin-bottom: 26px; }
+        .hero h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(38px, 6vw, 68px);
+                   line-height: 1.05; letter-spacing: -0.03em; margin-bottom: 22px; }
+        .hero p.sub { font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); max-width: 660px;
+                      margin: 0 auto 34px; }
+        .hero-cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+        .micro { margin-top: 18px; font-size: 13px; color: var(--muted); }
+
+        /* product mock */
+        .mock { margin: 56px auto 0; max-width: 880px; background: var(--ink-1);
+                border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+                box-shadow: 0 40px 90px -30px rgba(79,70,229,0.5); }
+        .mock-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+        .dot { width: 11px; height: 11px; border-radius: 50%; }
+        .mock-bar .label { margin-left: 12px; font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+        .mock-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+        .mock-col { padding: 20px; }
+        .mock-col + .mock-col { border-left: 1px solid var(--line); }
+        .mock-col h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: #818cf8;
+                       font-weight: 700; margin-bottom: 12px; }
+        .term { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #cbd5e1;
+                background: #0d0d12; border-radius: 10px; padding: 14px; white-space: pre-wrap; line-height: 1.55; }
+        .term .k { color: #f0abfc; } .term .n { color: #7dd3fc; } .term .g { color: #86efac; }
+        .interp p { font-size: 14px; color: #d6d3e6; margin-bottom: 10px; }
+        .interp .tag { color: #86efac; font-weight: 600; }
+        .bars { display: flex; align-items: flex-end; gap: 10px; height: 92px; margin-top: 6px; }
+        .bars span { flex: 1; background: linear-gradient(180deg, #818cf8, #9333ea); border-radius: 6px 6px 0 0; opacity: 0.9; }
+
+        /* generic section heading */
+        .head { text-align: center; max-width: 640px; margin: 0 auto 52px; }
+        .head h2 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(28px, 4vw, 42px);
+                   letter-spacing: -0.02em; margin-bottom: 14px; }
+        .head p { color: var(--muted); font-size: 17px; }
+        .pad { padding: 84px 0; }
+        .pad-t { border-top: 1px solid var(--line); }
+
+        /* benefits */
+        .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+        .card { background: var(--ink-1); border: 1px solid var(--line); border-radius: 16px; padding: 28px; transition: all .25s; }
+        .card:hover { transform: translateY(-4px); border-color: rgba(129,140,248,0.4); }
+        .card .ico { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+                     background: rgba(99,102,241,0.15); margin-bottom: 18px; font-size: 22px; }
+        .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .card p { color: var(--muted); font-size: 14.5px; }
+
+        /* steps */
+        .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; counter-reset: step; }
+        .step { position: relative; padding-top: 8px; }
+        .step .num { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 15px; width: 38px; height: 38px;
+                     border-radius: 50%; display: grid; place-items: center; color: #fff;
+                     background: linear-gradient(100deg, var(--indigo), var(--purple)); margin-bottom: 16px; }
+        .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .step p { color: var(--muted); font-size: 14.5px; }
+
+        /* pricing */
+        .price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; max-width: 720px; margin: 0 auto; }
+        .price { background: var(--ink-1); border: 1px solid var(--line); border-radius: 18px; padding: 32px; }
+        .price.feat { border-color: rgba(129,140,248,0.5); background: linear-gradient(180deg, rgba(99,102,241,0.12), var(--ink-1)); position: relative; }
+        .price .badge { position: absolute; top: -12px; right: 22px; background: linear-gradient(100deg, var(--indigo), var(--purple));
+                        color: #fff; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 999px; }
+        .price .name { font-size: 14px; font-weight: 700; color: #c4b5fd; text-transform: uppercase; letter-spacing: 0.08em; }
+        .price .amt { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 40px; margin: 10px 0 4px; }
+        .price .amt small { font-size: 15px; color: var(--muted); font-weight: 500; }
+        .price ul { list-style: none; margin: 20px 0 0; }
+        .price li { font-size: 14.5px; color: #d6d3e6; padding: 7px 0 7px 26px; position: relative; }
+        .price li::before { content: '✓'; position: absolute; left: 0; color: #86efac; font-weight: 700; }
+
+        /* final cta */
+        .final { text-align: center; background: linear-gradient(140deg, rgba(99,102,241,0.15), rgba(147,51,234,0.12));
+                 border: 1px solid var(--line); border-radius: 24px; padding: 64px 32px; margin: 84px 0; }
+        .final h2 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(28px, 4vw, 44px);
+                    letter-spacing: -0.02em; margin-bottom: 16px; }
+        .final p { color: var(--muted); font-size: 18px; margin-bottom: 30px; }
+
+        footer { border-top: 1px solid var(--line); padding: 40px 0; color: var(--muted); font-size: 13.5px; }
+        .foot-in { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+        .foot-in .compliance { max-width: 540px; }
+
+        @media (max-width: 680px) {
+            .mock-body { grid-template-columns: 1fr; }
+            .mock-col + .mock-col { border-left: none; border-top: 1px solid var(--line); }
+            .nav-links a.minor { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="glow a"></div>
+    <div class="glow b"></div>
+
+    <nav>
+        <div class="wrap nav-in">
+            <a class="brand" href="/welcome">
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Statly logo">
+                <span class="font-display">Statly</span>
+            </a>
+            <div class="nav-links">
+                <a class="minor" href="#how">How it works</a>
+                <a class="minor" href="#features">Features</a>
+                <a class="minor" href="#pricing">Pricing</a>
+                <a class="btn btn-primary" href="/">Launch app</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="wrap">
+            <span class="eyebrow">⚡ AI data analysis for social scientists</span>
+            <h1>Turn data questions into<br><span class="grad-text">answers, in plain English.</span></h1>
+            <p class="sub">Stats software shouldn't fight you. Upload your dataset, describe the analysis
+                in plain English, and Statly writes, runs, and explains the statistics — no Python, no R, no syntax errors.</p>
+            <div class="hero-cta">
+                <a class="btn btn-primary" href="/">Start analyzing — free →</a>
+                <a class="btn btn-ghost" href="#how">See how it works</a>
+            </div>
+            <p class="micro">No install · No credit card · Your data isn't stored when you're signed out</p>
+
+            <!-- Product mock (stand-in for a real screenshot) -->
+            <div class="mock" aria-label="Statly output preview">
+                <div class="mock-bar">
+                    <span class="dot" style="background:#ff5f56"></span>
+                    <span class="dot" style="background:#ffbd2e"></span>
+                    <span class="dot" style="background:#27c93f"></span>
+                    <span class="label">statly · "does income predict turnout?"</span>
+                </div>
+                <div class="mock-body">
+                    <div class="mock-col">
+                        <h4>Terminal output</h4>
+                        <div class="term"><span class="k">OLS Regression Results</span>
+==============================
+Dep. Variable:      <span class="n">turnout</span>
+R-squared:            <span class="g">0.412</span>
+------------------------------
+            coef   std err      P&gt;|t|
+<span class="n">income</span>     0.0034    0.000    <span class="g">0.000</span>
+<span class="n">age</span>        0.0121    0.004    <span class="g">0.002</span>
+==============================</div>
+                        <div class="bars" aria-hidden="true">
+                            <span style="height:40%"></span><span style="height:62%"></span>
+                            <span style="height:55%"></span><span style="height:80%"></span>
+                            <span style="height:71%"></span><span style="height:95%"></span>
+                        </div>
+                    </div>
+                    <div class="mock-col interp">
+                        <h4>Plain-English interpretation</h4>
+                        <p><span class="tag">Significant.</span> Income is a positive, statistically
+                            significant predictor of voter turnout (p &lt; 0.001).</p>
+                        <p>For every $10,000 increase in income, predicted turnout rises by about
+                            3.4 percentage points, holding age constant.</p>
+                        <p>The model explains roughly <strong>41%</strong> of the variation in turnout —
+                            moderate for survey data. Consider adding education as a control.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits -->
+    <section id="features" class="pad pad-t">
+        <div class="wrap">
+            <div class="head">
+                <h2>Built for researchers, not engineers</h2>
+                <p>Everything you need to go from a messy dataset to a defensible result.</p>
+            </div>
+            <div class="grid3">
+                <div class="card">
+                    <div class="ico">💬</div>
+                    <h3>Describe it, don't code it</h3>
+                    <p>Ask for "a multiple regression of turnout on income and age with a residual plot."
+                        Statly generates the script, runs it, and shows the results. No syntax to memorize.</p>
+                </div>
+                <div class="card">
+                    <div class="ico">🧭</div>
+                    <h3>Statistically valid by design</h3>
+                    <p>An intelligent codebook classifies each variable as nominal, ordinal, or continuous —
+                        so Statly won't run a linear model on a categorical outcome.</p>
+                </div>
+                <div class="card">
+                    <div class="ico">🔒</div>
+                    <h3>Runs in a secure sandbox</h3>
+                    <p>Every script executes in a throwaway, network-less environment with no access to
+                        secrets. Hand-edits are re-checked before they're allowed to run.</p>
+                </div>
+                <div class="card">
+                    <div class="ico">📖</div>
+                    <h3>Answers you can explain</h3>
+                    <p>Results come back as plain-English interpretation — effect sizes, significance, and
+                        caveats — so you can write up findings with confidence.</p>
+                </div>
+                <div class="card">
+                    <div class="ico">📂</div>
+                    <h3>Bring any format</h3>
+                    <p>CSV, Excel, Stata (.dta), and SPSS (.sav) — native value labels seed the codebook
+                        automatically. Wrangle and clean by chatting.</p>
+                </div>
+                <div class="card">
+                    <div class="ico">⚡</div>
+                    <h3>Priority generation</h3>
+                    <p>Flip on the priority toggle to route to the fastest, highest-quality model tier when
+                        a question really matters.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how" class="pad pad-t">
+        <div class="wrap">
+            <div class="head">
+                <h2>From upload to insight in three steps</h2>
+                <p>The whole loop takes about a minute.</p>
+            </div>
+            <div class="steps">
+                <div class="step">
+                    <div class="num">1</div>
+                    <h3>Upload your data</h3>
+                    <p>Drop in a CSV, Excel, Stata, or SPSS file. Statly profiles it and builds a codebook
+                        you can review and tweak.</p>
+                </div>
+                <div class="step">
+                    <div class="num">2</div>
+                    <h3>Describe the analysis</h3>
+                    <p>Type what you want in plain English — or pick a method from the catalog and let Statly
+                        draft a prompt tailored to your columns.</p>
+                </div>
+                <div class="step">
+                    <div class="num">3</div>
+                    <h3>Read the results</h3>
+                    <p>Get the statistics, charts, and a plain-English write-up. Refine by chatting, then
+                        export the whole project.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing teaser -->
+    <section id="pricing" class="pad pad-t">
+        <div class="wrap">
+            <div class="head">
+                <h2>Simple pricing</h2>
+                <p>Start free. Paid tiers are on the way for heavier use.</p>
+            </div>
+            <div class="price-grid">
+                <div class="price">
+                    <div class="name">Free</div>
+                    <div class="amt">$0<small> / forever</small></div>
+                    <p style="color:var(--muted);font-size:14px;">For coursework and exploration.</p>
+                    <ul>
+                        <li>Plain-English analysis</li>
+                        <li>Intelligent codebook</li>
+                        <li>Secure sandbox execution</li>
+                        <li>CSV / Excel / Stata / SPSS</li>
+                    </ul>
+                    <a class="btn btn-primary" href="/" style="width:100%;justify-content:center;margin-top:24px;">Get started</a>
+                </div>
+                <div class="price feat">
+                    <span class="badge">Coming soon</span>
+                    <div class="name">Pro</div>
+                    <div class="amt">$—<small> / month</small></div>
+                    <p style="color:var(--muted);font-size:14px;">For power users and labs.</p>
+                    <ul>
+                        <li>Everything in Free</li>
+                        <li>Priority generation credits</li>
+                        <li>Higher rate limits</li>
+                        <li>Saved project history</li>
+                    </ul>
+                    <a class="btn btn-ghost" href="/" style="width:100%;justify-content:center;margin-top:24px;">Try the app today</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="wrap">
+        <div class="final">
+            <h2>Your next result is one sentence away.</h2>
+            <p>Stop wrestling with statistical software. Just ask.</p>
+            <a class="btn btn-primary" href="/" style="font-size:17px;padding:14px 28px;">Launch Statly — free →</a>
+        </div>
+    </section>
+
+    <footer>
+        <div class="wrap foot-in">
+            <div class="brand" style="font-size:18px;">
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Statly logo" style="width:26px;height:26px;">
+                <span class="font-display">Statly</span>
+            </div>
+            <p class="compliance">© 2026 Statly. AI analysis powered by Google&nbsp;Gemini. Statly is a
+                research aid — always review generated code and results before relying on them.</p>
+        </div>
+    </footer>
+</body>
+</html>

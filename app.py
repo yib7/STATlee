@@ -49,7 +49,7 @@ logger = logging.getLogger('statly')
 
 # Endpoints reachable without authorization (frontend loader, auth handshake).
 PUBLIC_ENDPOINTS = {
-    'misc.index', 'static', 'misc.health_check',
+    'misc.index', 'misc.welcome', 'static', 'misc.health_check',
     'auth.check_auth', 'auth.login', 'auth.register', 'auth.logout',
 }
 

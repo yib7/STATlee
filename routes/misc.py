@@ -31,6 +31,13 @@ def index():
     )
 
 
+@bp.route('/welcome')
+def welcome():
+    """Public marketing/landing page (workstream D). The app itself lives at
+    '/'; this is the startup-style front door that links into it."""
+    return render_template('landing.html')
+
+
 @bp.route('/health')
 def health_check():
     return 'OK', 200
