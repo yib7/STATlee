@@ -27,6 +27,7 @@ instance/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 
 # Preserved pointer to the previous (corrupted) git metadata; see notes.
 .git.corrupt-backup
