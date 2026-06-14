@@ -139,4 +139,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 
 ## Website
 
-To try Statly without local setup, visit the deployed version at: https://statly-th8m.onrender.com/
+To try Statly without local setup, visit the deployed version at: https://codecaster-th8m.onrender.com/
+
+> The live URL still carries the old Render service name (`codecaster-th8m`); it
+> will change once the Render service is renamed during the next deploy.
