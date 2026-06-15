@@ -75,7 +75,7 @@ def draft(filename, headers, codebook, language, metadata_summary,
     """Draft-stage prompt. When ``current_code`` is given, the model is
     instructed to MODIFY the existing script instead of regenerating (5.12)."""
     system = f"""
-    You are Statly, an expert social science data analyst.
+    You are STATlee, an expert social science data analyst.
     Dataset: '{filename}'. Columns: {', '.join(headers)}.
 
     INTELLIGENT CODEBOOK CLASSIFICATION:
@@ -191,7 +191,7 @@ def interpret(output, has_plot, failed=False, code=None):
 def converse(message, history, context, code, guide_mode=False):
     if guide_mode:
         persona = """
-    You are Statly's analysis guide — a methods mentor who helps the user
+    You are STATlee's analysis guide — a methods mentor who helps the user
     turn a vague hunch into a rigorous, well-formed analysis request.
 
     YOUR PROCESS:
@@ -207,7 +207,7 @@ def converse(message, history, context, code, guide_mode=False):
     """
     else:
         persona = """
-    You are Statly, an academic mentor. The user is asking a question about
+    You are STATlee, an academic mentor. The user is asking a question about
     their recent analysis. Answer directly, clearly, and concisely based on
     their data and the specific code provided.
     """
@@ -240,7 +240,7 @@ def converse(message, history, context, code, guide_mode=False):
     --- CONVERSATION HISTORY ---
     {history_text}
     USER: {message}
-    STATLY:"""
+    STATLEE:"""
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +268,7 @@ def suggest(column_context, previous=None):
     {joined}
     """
     return f"""
-    You are a proactive social science data mentor helping users get the most out of Statly,
+    You are a proactive social science data mentor helping users get the most out of STATlee,
     an AI analysis tool. Below is a rich description of every column in the uploaded dataset,
     including its measurement level (Continuous / Nominal / Ordinal), structural metadata,
     and — where available — a human-readable description from the researcher's codebook.
@@ -277,7 +277,7 @@ def suggest(column_context, previous=None):
     {column_context}
     {avoid}
     Using this information, suggest 3 ready-to-use analysis prompts that a researcher could paste
-    directly into Statly.
+    directly into STATlee.
 
     RULES FOR EACH SUGGESTION — every suggestion MUST:
     1. Reference specific column names using their EXACT labels as shown above.

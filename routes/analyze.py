@@ -21,13 +21,13 @@ import storage
 from extensions import limiter
 from routes import json_error, sse_event, sse_stream, strip_code_fences
 
-logger = logging.getLogger('statly.analyze')
+logger = logging.getLogger('statlee.analyze')
 
 bp = Blueprint('analyze', __name__)
 
 
 def _cfg():
-    return current_app.config['STATLY']
+    return current_app.config['STATLEE']
 
 
 def _current_user():

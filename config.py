@@ -9,7 +9,7 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 
-logger = logging.getLogger('statly.config')
+logger = logging.getLogger('statlee.config')
 
 VALID_ENVS = ('development', 'production', 'testing')
 
@@ -51,12 +51,12 @@ class Config:
     database_url: str = ''          # empty -> sqlite file under instance dir
     storage_backend: str = 'local'  # 'local' | 's3' (7.3)
     s3_bucket: str = ''
-    s3_prefix: str = 'statly'
+    s3_prefix: str = 'statlee'
     file_ttl_seconds: int = 7200    # anonymous-file cleanup window (2h)
 
     # --- Execution sandbox (Tier 0) ------------------------------------------
     sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker' (0.3)
-    runner_image: str = 'statly-runner'
+    runner_image: str = 'statlee-runner'
     exec_timeout: int = 60
     exec_memory_mb: int = 2048
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
@@ -114,10 +114,10 @@ class Config:
             database_url=os.environ.get('DATABASE_URL', '').strip(),
             storage_backend=os.environ.get('STORAGE_BACKEND', 'local').strip().lower(),
             s3_bucket=os.environ.get('S3_BUCKET', '').strip(),
-            s3_prefix=os.environ.get('S3_PREFIX', 'statly').strip(),
+            s3_prefix=os.environ.get('S3_PREFIX', 'statlee').strip(),
             file_ttl_seconds=_env_int('FILE_TTL_SECONDS', 7200),
             sandbox_mode=os.environ.get('SANDBOX_MODE', 'subprocess').strip().lower(),
-            runner_image=os.environ.get('RUNNER_IMAGE', 'statly-runner').strip(),
+            runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
             model_pro=os.environ.get('MODEL_PRO', cls.model_pro).strip(),
@@ -207,12 +207,12 @@ class Config:
         if self.upload_root:
             os.makedirs(self.upload_root, exist_ok=True)
             return self.upload_root
-        self.upload_root = tempfile.mkdtemp(prefix='statly_')
+        self.upload_root = tempfile.mkdtemp(prefix='statlee_')
         return self.upload_root
 
     def resolved_database_url(self, instance_dir):
         if self.database_url:
             return self.database_url
         os.makedirs(instance_dir, exist_ok=True)
-        db_path = os.path.join(instance_dir, 'statly.db')
+        db_path = os.path.join(instance_dir, 'statlee.db')
         return 'sqlite:///' + db_path.replace('\\', '/')

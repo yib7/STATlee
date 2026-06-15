@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Statly — turn data questions into answers, in plain English</title>
+    <title>STATlee — turn data questions into answers, in plain English</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
-    <meta name="description" content="Statly is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation — no coding required.">
+    <meta name="description" content="STATlee is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation — no coding required.">
     <meta name="theme-color" content="#6366f1">
-    <meta property="og:title" content="Statly — turn data questions into answers, in plain English">
-    <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; Statly writes, runs, and interprets the statistics for you.">
+    <meta property="og:title" content="STATlee — turn data questions into answers, in plain English">
+    <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; STATlee writes, runs, and interprets the statistics for you.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="{{ url_for('static', filename='images/wordmark.svg') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -164,8 +164,8 @@
     <nav>
         <div class="wrap nav-in">
             <a class="brand" href="/welcome">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Statly logo">
-                <span class="font-display">Statly</span>
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="STATlee logo">
+                <span class="font-display">STATlee</span>
             </a>
             <div class="nav-links">
                 <a class="minor" href="#how">How it works</a>
@@ -182,7 +182,7 @@
             <span class="eyebrow">⚡ AI data analysis for social scientists</span>
             <h1>Turn data questions into<br><span class="grad-text">answers, in plain English.</span></h1>
             <p class="sub">Stats software shouldn't fight you. Upload your dataset, describe the analysis
-                in plain English, and Statly writes, runs, and explains the statistics — no Python, no R, no syntax errors.</p>
+                in plain English, and STATlee writes, runs, and explains the statistics — no Python, no R, no syntax errors.</p>
             <div class="hero-cta">
                 <a class="btn btn-primary" href="/">Start analyzing — free →</a>
                 <a class="btn btn-ghost" href="#how">See how it works</a>
@@ -190,12 +190,12 @@
             <p class="micro">No install · No credit card · Your data isn't stored when you're signed out</p>
 
             <!-- Product mock (stand-in for a real screenshot) -->
-            <div class="mock" aria-label="Statly output preview">
+            <div class="mock" aria-label="STATlee output preview">
                 <div class="mock-bar">
                     <span class="dot" style="background:#ff5f56"></span>
                     <span class="dot" style="background:#ffbd2e"></span>
                     <span class="dot" style="background:#27c93f"></span>
-                    <span class="label">statly · "does income predict turnout?"</span>
+                    <span class="label">statlee · "does income predict turnout?"</span>
                 </div>
                 <div class="mock-body">
                     <div class="mock-col">
@@ -241,13 +241,13 @@ R-squared:            <span class="g">0.412</span>
                     <div class="ico">💬</div>
                     <h3>Describe it, don't code it</h3>
                     <p>Ask for "a multiple regression of turnout on income and age with a residual plot."
-                        Statly generates the script, runs it, and shows the results. No syntax to memorize.</p>
+                        STATlee generates the script, runs it, and shows the results. No syntax to memorize.</p>
                 </div>
                 <div class="card">
                     <div class="ico">🧭</div>
                     <h3>Statistically valid by design</h3>
                     <p>An intelligent codebook classifies each variable as nominal, ordinal, or continuous —
-                        so Statly won't run a linear model on a categorical outcome.</p>
+                        so STATlee won't run a linear model on a categorical outcome.</p>
                 </div>
                 <div class="card">
                     <div class="ico">🔒</div>
@@ -288,13 +288,13 @@ R-squared:            <span class="g">0.412</span>
                 <div class="step">
                     <div class="num">1</div>
                     <h3>Upload your data</h3>
-                    <p>Drop in a CSV, Excel, Stata, or SPSS file. Statly profiles it and builds a codebook
+                    <p>Drop in a CSV, Excel, Stata, or SPSS file. STATlee profiles it and builds a codebook
                         you can review and tweak.</p>
                 </div>
                 <div class="step">
                     <div class="num">2</div>
                     <h3>Describe the analysis</h3>
-                    <p>Type what you want in plain English — or pick a method from the catalog and let Statly
+                    <p>Type what you want in plain English — or pick a method from the catalog and let STATlee
                         draft a prompt tailored to your columns.</p>
                 </div>
                 <div class="step">
@@ -349,17 +349,17 @@ R-squared:            <span class="g">0.412</span>
         <div class="final">
             <h2>Your next result is one sentence away.</h2>
             <p>Stop wrestling with statistical software. Just ask.</p>
-            <a class="btn btn-primary" href="/" style="font-size:17px;padding:14px 28px;">Launch Statly — free →</a>
+            <a class="btn btn-primary" href="/" style="font-size:17px;padding:14px 28px;">Launch STATlee — free →</a>
         </div>
     </section>
 
     <footer>
         <div class="wrap foot-in">
             <div class="brand" style="font-size:18px;">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Statly logo" style="width:26px;height:26px;">
-                <span class="font-display">Statly</span>
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="STATlee logo" style="width:26px;height:26px;">
+                <span class="font-display">STATlee</span>
             </div>
-            <p class="compliance">© 2026 Statly. AI analysis powered by Google&nbsp;Gemini. Statly is a
+            <p class="compliance">© 2026 STATlee. AI analysis powered by Google&nbsp;Gemini. STATlee is a
                 research aid — always review generated code and results before relying on them.</p>
         </div>
     </footer>

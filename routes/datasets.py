@@ -28,13 +28,13 @@ import storage
 from extensions import db, limiter
 from routes import json_error
 
-logger = logging.getLogger('statly.datasets')
+logger = logging.getLogger('statlee.datasets')
 
 bp = Blueprint('datasets', __name__)
 
 
 def _cfg():
-    return current_app.config['STATLY']
+    return current_app.config['STATLEE']
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +559,7 @@ def export_project():
             zf.write(p, arcname=f'plots/{os.path.basename(p)}')
 
         lines = [f'# Project: {stem}', '',
-                 f'_Exported from Statly on {time.strftime("%Y-%m-%d %H:%M")}_', '']
+                 f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']
         if history:
             lines.append('## Analysis requests')
             lines.extend(f"- {msg.get('text', '')}" for msg in history

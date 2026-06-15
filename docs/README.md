@@ -1,8 +1,8 @@
-# Statly
+# STATlee
 
 **An AI-Assisted Data Analysis Platform for Social Scientists**
 
-Statly is a web-based, AI-driven data analysis platform that abstracts away the coding process. Designed primarily for social science students and researchers, it lets users upload datasets and use natural language to request complex analytical workflows without writing Python or R syntax.
+STATlee is a web-based, AI-driven data analysis platform that abstracts away the coding process. Designed primarily for social science students and researchers, it lets users upload datasets and use natural language to request complex analytical workflows without writing Python or R syntax.
 
 It uses a role-based LLM architecture (Google Gemini) to generate, validate, and securely execute code in an isolated sandbox, then returns statistical interpretations and visualizations natively.
 
@@ -13,7 +13,7 @@ It uses a role-based LLM architecture (Google Gemini) to generate, validate, and
 * **Role-based model routing:** Each step is addressed by a *role* (`pro`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
 * **Sandboxed execution:** Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
 * **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
-* **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); Statly runs it in the sandbox and tracks every dataset version with undo/redo.
+* **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo.
 * **AI interpretation & auto-debugging:** Translates dense terminal output and p-values into plain-English Markdown insights — and switches to a debugging assistant when a run fails.
 * **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits, and exports the whole project (data, script, plots, report) as a zip.
 * **Converse tab:** A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a rigorous, ready-to-run analysis prompt.
@@ -39,7 +39,7 @@ The full roadmap and status of each feature lives in [IMPLEMENTATION_PLAN.md](IM
 
 ## Getting Started
 
-Because Statly executes dynamically generated code, running it via Docker is recommended for a secure, isolated sandbox.
+Because STATlee executes dynamically generated code, running it via Docker is recommended for a secure, isolated sandbox.
 
 ### Prerequisites
 
@@ -49,8 +49,8 @@ Because Statly executes dynamically generated code, running it via Docker is rec
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/statly.git
-cd statly
+git clone https://github.com/yourusername/statlee.git
+cd statlee
 ```
 
 ### 2. Configure environment variables
@@ -84,7 +84,7 @@ Then open **http://localhost:5000**.
 To enable true container isolation for code execution, build the runner image and set `SANDBOX_MODE=docker`:
 
 ```bash
-docker build -f runner.Dockerfile -t statly-runner .
+docker build -f runner.Dockerfile -t statlee-runner .
 ```
 
 ---
@@ -139,7 +139,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 
 ## Website
 
-To try Statly without local setup, visit the deployed version at: https://codecaster-th8m.onrender.com/
+To try STATlee without local setup, visit the deployed version at: https://codecaster-th8m.onrender.com/
 
 > The live URL still carries the old Render service name (`codecaster-th8m`); it
 > will change once the Render service is renamed during the next deploy.

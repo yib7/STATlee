@@ -21,7 +21,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 
-logger = logging.getLogger('statly.sandbox')
+logger = logging.getLogger('statlee.sandbox')
 
 
 @dataclass
@@ -109,7 +109,7 @@ def _docker_cmd(image, run_dir, script_name, is_python, memory_mb):
 def run_in_sandbox(code, language='Python', dataset_path=None,
                    dataset_name=None, *, timeout=60, memory_mb=2048,
                    output_limit=256 * 1024, mode='subprocess',
-                   runner_image='statly-runner', collect=()):
+                   runner_image='statlee-runner', collect=()):
     """Execute ``code`` in a throwaway directory and collect its artifacts."""
     is_python = (language or 'Python').lower() == 'python'
     run_dir = tempfile.mkdtemp(prefix='ccrun_')

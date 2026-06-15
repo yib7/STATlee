@@ -1,7 +1,7 @@
-# Statly: AI Collaboration Context & System Instructions
+# STATlee: AI Collaboration Context & System Instructions
 
 ## 1. Project Overview
-Statly is a proactive, containerized data analysis platform designed to bridge the gap between complex statistical concepts and programming syntax. Its primary demographic includes college students, researchers, and industry analysts in the social sciences who need to generate meaningful analytical observations without deep software engineering expertise or just want to be more productive in an all encompassing environment. The system takes natural language prompts, securely processes CSV uploads, and outputs/executes optimized Python or R scripts.
+STATlee is a proactive, containerized data analysis platform designed to bridge the gap between complex statistical concepts and programming syntax. Its primary demographic includes college students, researchers, and industry analysts in the social sciences who need to generate meaningful analytical observations without deep software engineering expertise or just want to be more productive in an all encompassing environment. The system takes natural language prompts, securely processes CSV uploads, and outputs/executes optimized Python or R scripts.
 
 ## 2. Technical Stack Standards
 When generating or modifying code for this project, adhere to the following stack and constraints:

@@ -1,12 +1,12 @@
-# Statly — Architecture & Codebase Guide
+# STATlee — Architecture & Codebase Guide
 
-A walkthrough of how Statly is put together, for anyone reading the code for the
+A walkthrough of how STATlee is put together, for anyone reading the code for the
 first time. It explains the request lifecycle, the analysis pipeline, the
 security boundaries, and where each responsibility lives.
 
 ## Big picture
 
-Statly is a **Flask app-factory** (`app.py`) wiring together focused modules and
+STATlee is a **Flask app-factory** (`app.py`) wiring together focused modules and
 five route blueprints. The frontend is **vanilla JavaScript** (no build step)
 organized under a single `CC` namespace, talking to the backend over JSON and
 **Server-Sent Events** (SSE) for streamed generation. There is no SPA framework
@@ -41,7 +41,7 @@ every environment variable **once**, then `validate()` fails fast on hard
 requirements (e.g. production must have `GEMINI_API_KEY` + `FLASK_SECRET_KEY`)
 and warns loudly on soft ones (e.g. running the weaker `subprocess` sandbox in
 production). Routes never read `os.environ` directly — they read
-`current_app.config['STATLY']`.
+`current_app.config['STATLEE']`.
 
 ## Request lifecycle (`app.py`)
 

@@ -1,4 +1,4 @@
-# Security Audit — Statly
+# Security Audit — STATlee
 
 _Adversarial review against the question: "Can a random internet user run up my
 Gemini bill or read my keys?"_ Date: 2026-06-14.

@@ -1,4 +1,4 @@
-# Statly — Project Closeout
+# STATlee — Project Closeout
 
 Status of the PLAN.md workstreams after the "secure → rebrand → land → ship"
 round. Branch: `claude/hardcore-hellman-c0fb41`.
@@ -12,7 +12,7 @@ round. Branch: `claude/hardcore-hellman-c0fb41`.
 | 3 | `chore: stop tracking local .claude/ tooling config` | hygiene |
 | 4 | `feat(billing): add credits/plan seam + check_and_debit` | **E** |
 | 5 | `feat(llm): priority speed/quality toggle + safe response cache` | **B** |
-| 6 | `feat(brand): rename CodeCaster -> Statly + new logo/wordmark` | **C** |
+| 6 | `feat(brand): rename CodeCaster -> STATlee + new logo/wordmark` | **C** |
 | 7 | `feat(landing): startup-style marketing page at /welcome` | **D** |
 | 8 | `docs: showpiece README, CREDITS, architecture guide + compliance` | **F** |
 
@@ -31,8 +31,8 @@ gated through the billing seam. Deterministic (temp-0) calls are now LRU-cached
 so a hammered moderation prompt can't re-bill. Per-request token cost already
 surfaces in the UI (`usageBadge`).
 
-### C — Rebrand → **Statly** + logo
-Picked **Statly** from the shortlist (friendly, clearly statistics-focused, fits
+### C — Rebrand → **STATlee** + logo
+Picked **STATlee** from the shortlist (friendly, clearly statistics-focused, fits
 the non-coder audience). Consistent rename across code, config, loggers, SMTP
 subject, personas and docs. New icon (ascending stat bars + insight spark) that
 doubles as favicon, plus a wordmark for marketing.
@@ -58,7 +58,7 @@ prohibited-use compliance note in the README and the app footer.
 |---|---|
 | `pytest -q` | ✅ **97 passed** (was 82; +15 new tests) |
 | `ruff check .` | ✅ clean |
-| App boots, `/health` | ✅ `OK` ("Statly ready") |
+| App boots, `/health` | ✅ `OK` ("STATlee ready") |
 | `gitleaks`-equivalent secret scan over **full history** | ✅ clean; `.env` never committed |
 | Priority toggle routes to faster tier | ✅ unit-tested (`test_llm.py`) |
 
@@ -69,7 +69,7 @@ These were intentionally skipped — they require access the automated run doesn
 - **Make repo private** (GitHub access).
 - **Push / open PR** — all 8 commits are local on `claude/hardcore-hellman-c0fb41`.
 - **Consolidate worktree → clean `main`** (PLAN session 1).
-- **Rename the GitHub repo + Render service** (`codecaster-th8m` → `statly`); the
+- **Rename the GitHub repo + Render service** (`codecaster-th8m` → `statlee`); the
   live URL and any infra image names follow from that.
 - **Install `gitleaks`** for the canonical scan (the git-grep fallback was clean).
 - **Run `/security-review`** as its own session if you want the cloud multi-agent

@@ -1,4 +1,4 @@
-/* Statly core namespace: state, fetch/CSRF, SSE, sanitized markdown,
+/* STATlee core namespace: state, fetch/CSRF, SSE, sanitized markdown,
  * usage accounting, console-error ring buffer (for issue reports). */
 (function () {
     'use strict';

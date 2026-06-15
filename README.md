@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="static/images/wordmark.svg" alt="Statly" width="260">
+  <img src="static/images/wordmark.svg" alt="STATlee" width="260">
 </p>
 
 <h1 align="center">Turn data questions into answers, in plain English.</h1>
 
 <p align="center">
-  <b>Statly</b> is AI data analysis for social scientists. Upload a dataset, describe the
-  analysis in plain English, and Statly writes, moderates, sandboxes, runs, and
+  <b>STATlee</b> is AI data analysis for social scientists. Upload a dataset, describe the
+  analysis in plain English, and STATlee writes, moderates, sandboxes, runs, and
   <i>explains</i> the statistics — no Python, no R, no syntax errors.
 </p>
 
@@ -26,11 +26,11 @@
 
 ---
 
-## Why Statly
+## Why STATlee
 
 Statistical software is hostile to non-coders. SPSS menus, Stata syntax, and R
 tibbles all stand between a researcher and a simple question like *"does income
-predict turnout?"* Statly removes that wall: you ask in plain English and get a
+predict turnout?"* STATlee removes that wall: you ask in plain English and get a
 runnable analysis, charts, and a plain-English write-up you can defend.
 
 > **Try it:** the marketing landing page lives at **`/welcome`**; the app itself
@@ -142,10 +142,10 @@ AI analysis is **powered by [Google Gemini](https://ai.google.dev/)** via the
 Google GenAI SDK; use is subject to the
 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)
 and the [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy)
-— Statly's moderation gate enforces the prohibited-use rules. Third-party
+— STATlee's moderation gate enforces the prohibited-use rules. Third-party
 libraries and their licenses are listed in [CREDITS.md](CREDITS.md).
 
-Statly is a research aid: **always review generated code and results before
+STATlee is a research aid: **always review generated code and results before
 relying on them.**
 
 ## License

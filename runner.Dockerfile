@@ -1,9 +1,9 @@
 # Minimal, network-less execution image for SANDBOX_MODE=docker (roadmap 0.3).
-# Build once:  docker build -f runner.Dockerfile -t statly-runner .
+# Build once:  docker build -f runner.Dockerfile -t statlee-runner .
 # The app launches throwaway sibling containers from this image per run:
 #   docker run --rm --network none --read-only --user 1000:1000 --memory 2g \
 #     --cpus 1 --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges \
-#     -v <run_dir>:/work:rw -w /work statly-runner python script.py
+#     -v <run_dir>:/work:rw -w /work statlee-runner python script.py
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

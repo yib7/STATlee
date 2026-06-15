@@ -13,7 +13,7 @@ def test_welcome_landing_page_is_public(client):
     resp = client.get('/welcome')
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert 'Statly' in body
+    assert 'STATlee' in body
     assert 'plain English' in body
 
 

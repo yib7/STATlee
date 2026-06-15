@@ -1,6 +1,6 @@
 # Credits & Attribution
 
-Statly is built on excellent open-source libraries and a commercial AI API.
+STATlee is built on excellent open-source libraries and a commercial AI API.
 Thank you to the maintainers of every project below. Each dependency is governed
 by its own license; consult the linked project for full terms.
 
@@ -10,7 +10,7 @@ by its own license; consult the linked project for full terms.
 |---|---|---|
 | **Google Gemini** (via the `google-genai` SDK) | All natural-language → code generation, moderation, and interpretation. | [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) · [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy) |
 
-AI analysis is **powered by Google Gemini**. Statly's moderation gate enforces
+AI analysis is **powered by Google Gemini**. STATlee's moderation gate enforces
 the Gemini Prohibited Use Policy by blocking malware/illegal requests.
 
 ## Backend (Python)

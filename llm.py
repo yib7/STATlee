@@ -18,7 +18,7 @@ import threading
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 
-logger = logging.getLogger('statly.llm')
+logger = logging.getLogger('statlee.llm')
 
 # Priority escalates a role one tier toward the strongest model.
 PRIORITY_ESCALATION = {'lite': 'flash', 'flash': 'pro', 'draft': 'draft', 'pro': 'pro'}
