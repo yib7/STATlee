@@ -19,9 +19,9 @@ import uuid
 from dotenv import load_dotenv
 from flask import Flask, g, has_request_context, jsonify, request, session
 
-import llm
-from config import Config
-from extensions import db, limiter, login_manager
+from . import llm
+from .config import Config
+from .extensions import db, limiter, login_manager
 
 load_dotenv()
 
@@ -93,7 +93,7 @@ def create_app(config=None):
     limiter.init_app(app)
     llm.init_service(cfg)
 
-    from models import User
+    from .models import User
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -107,7 +107,7 @@ def create_app(config=None):
         db.create_all()
 
     # --- blueprints ---------------------------------------------------------
-    from routes import analyze, auth, converse, datasets, misc
+    from .routes import analyze, auth, converse, datasets, misc
     app.register_blueprint(misc.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(datasets.bp)
@@ -136,7 +136,7 @@ def create_app(config=None):
 
     @app.before_request
     def require_auth():
-        from routes.auth import is_authorized
+        from .routes.auth import is_authorized
         if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
             return None
         if not is_authorized():
@@ -179,7 +179,3 @@ def create_app(config=None):
 
 
 app = create_app()
-
-if __name__ == '__main__':
-    port = app.config['STATLEE'].port
-    app.run(debug=False, host='0.0.0.0', port=port)

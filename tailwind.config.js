@@ -1,7 +1,7 @@
 /** Tailwind build config (roadmap 3.2 — replaces the CDN runtime). */
 module.exports = {
   darkMode: 'class',
-  content: ['./templates/**/*.html', './static/js/**/*.js'],
+  content: ['./statlee/templates/**/*.html', './statlee/static/js/**/*.js'],
   safelist: ['dark'],
   theme: {
     extend: {

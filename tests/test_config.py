@@ -2,7 +2,7 @@
 elsewhere, and provider/sandbox/storage sanity checks."""
 import pytest
 
-from config import Config
+from statlee.config import Config
 
 
 def test_invalid_env_raises():

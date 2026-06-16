@@ -2,7 +2,7 @@
 collection (5.2), timeouts, and named-file collection (used by /wrangle)."""
 import os
 
-import sandbox
+from statlee import sandbox
 
 
 def test_runs_python_and_captures_stdout():

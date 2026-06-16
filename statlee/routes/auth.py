@@ -12,9 +12,9 @@ import re
 from flask import Blueprint, current_app, jsonify, request, session
 from flask_login import current_user, login_user, logout_user
 
-from extensions import db
-from models import AnalysisRun, User
-from routes import json_error
+from ..extensions import db
+from ..models import AnalysisRun, User
+from . import json_error
 
 logger = logging.getLogger('statlee.auth')
 

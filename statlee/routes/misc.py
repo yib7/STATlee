@@ -5,10 +5,9 @@ import time
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 from flask_login import current_user
 
-import llm
-import prompts
-from extensions import db, limiter
-from routes import json_error, sse_event, sse_stream
+from .. import llm, prompts
+from ..extensions import db, limiter
+from . import json_error, sse_event, sse_stream
 
 logger = logging.getLogger('statlee.misc')
 
@@ -68,7 +67,7 @@ def report_issue():
     if not description:
         return json_error('Please describe the issue.')
 
-    from models import IssueReport
+    from ..models import IssueReport
     report = IssueReport(
         user_id=(current_user.id
                  if current_user and getattr(current_user, 'is_authenticated', False)

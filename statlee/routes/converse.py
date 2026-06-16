@@ -8,10 +8,9 @@ import logging
 
 from flask import Blueprint, current_app, request
 
-import llm
-import prompts
-from extensions import limiter
-from routes import json_error, sse_event, sse_stream
+from .. import llm, prompts
+from ..extensions import limiter
+from . import json_error, sse_event, sse_stream
 
 logger = logging.getLogger('statlee.converse')
 

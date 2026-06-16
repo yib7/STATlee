@@ -80,9 +80,9 @@ def test_history_persists_for_logged_in_user(client):
 def test_require_login_blocks_protected_routes(tmp_path, fake_llm, require_login):
     """REQUIRE_LOGIN=true makes the sandbox closed: protected routes 401 until
     the user authenticates (7.4)."""
-    import llm
-    from app import create_app
-    from config import Config
+    from statlee import llm
+    from statlee.app import create_app
+    from statlee.config import Config
     cfg = Config(
         env='testing', upload_root=str(tmp_path / 'u'),
         database_url='sqlite:///' + str(tmp_path / 'a.db').replace('\\', '/'),

@@ -124,4 +124,4 @@ only barrier.
 
 ## Verification
 `pytest -q` → all pass (incl. the 4 new tests above); `ruff check .` clean;
-`APP_ENV=testing python -c "import app"` boots cleanly.
+`APP_ENV=testing python -c "import statlee.app"` boots cleanly.

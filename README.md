@@ -14,7 +14,7 @@
   <a href="https://codecaster-th8m.onrender.com/">Live demo</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/SECURITY_AUDIT.md">Security</a> ·
-  <a href="CREDITS.md">Credits</a>
+  <a href="docs/CREDITS.md">Credits</a>
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ Or run locally without Docker (dev only — generated code runs on your host):
 ```bash
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-APP_ENV=development python app.py                  # http://localhost:5000
+APP_ENV=development python wsgi.py                 # http://localhost:5000
 ```
 
 See [docs/README.md](docs/README.md) for the full setup, Docker sandbox build,
@@ -112,18 +112,21 @@ ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
 
+The application lives in the `statlee/` package (entry point: `wsgi.py` →
+`statlee.app:app`).
+
 | Module | Responsibility |
 |---|---|
-| `config.py` | Validated, env-driven configuration (one source of truth). |
-| `app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
-| `storage.py` | Per-identity file isolation + dataset version control. |
-| `sandbox.py` | Isolated code execution (subprocess or Docker). |
-| `llm.py` | Role-based Gemini service: usage tracking, priority escalation, response cache. |
-| `billing.py` | Monetization seam — `check_and_debit` chokepoint (no-op today). |
-| `prompts.py` | Every prompt builder in one reviewable place. |
-| `datatools.py` | Multi-format ingestion + metadata profiling. |
-| `models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
-| `routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
+| `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
+| `statlee/app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
+| `statlee/storage.py` | Per-identity file isolation + dataset version control. |
+| `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
+| `statlee/llm.py` | Role-based Gemini service: usage tracking, priority escalation, response cache. |
+| `statlee/billing.py` | Monetization seam — `check_and_debit` chokepoint (no-op today). |
+| `statlee/prompts.py` | Every prompt builder in one reviewable place. |
+| `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
+| `statlee/models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
+| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
 
 A deeper walkthrough — request lifecycle, security boundaries, data flow — is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -143,11 +146,11 @@ Google GenAI SDK; use is subject to the
 [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)
 and the [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy)
 — STATlee's moderation gate enforces the prohibited-use rules. Third-party
-libraries and their licenses are listed in [CREDITS.md](CREDITS.md).
+libraries and their licenses are listed in [CREDITS.md](docs/CREDITS.md).
 
 STATlee is a research aid: **always review generated code and results before
 relying on them.**
 
 ## License
 
-See [CREDITS.md](CREDITS.md) for dependency licenses. Project license: TBD.
+See [CREDITS.md](docs/CREDITS.md) for dependency licenses. Project license: TBD.

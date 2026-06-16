@@ -6,7 +6,7 @@ contract so wiring (the priority toggle) can depend on it, and so a future
 real implementation has a regression net for the "always allowed today"
 behaviour it will replace.
 """
-import billing
+from statlee import billing
 
 
 def test_check_and_debit_allows_anonymous():
@@ -16,8 +16,8 @@ def test_check_and_debit_allows_anonymous():
 
 
 def test_check_and_debit_allows_free_user(app):
-    from extensions import db
-    from models import User
+    from statlee.extensions import db
+    from statlee.models import User
     with app.app_context():
         user = User(email='seam@example.com')
         user.set_password('password123')
@@ -31,8 +31,8 @@ def test_check_and_debit_allows_free_user(app):
 
 
 def test_new_user_defaults_to_free_plan_zero_credits(app):
-    from extensions import db
-    from models import User
+    from statlee.extensions import db
+    from statlee.models import User
     with app.app_context():
         user = User(email='defaults@example.com')
         user.set_password('password123')

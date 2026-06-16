@@ -1,8 +1,8 @@
 """LLM service: priority role escalation and the deterministic-call cache
 (workstream B). These exercise the real ``LLMService`` with the Gemini call
 monkeypatched out, so no network or API key is needed."""
-import llm
-from config import Config
+from statlee import llm
+from statlee.config import Config
 
 
 def _svc():

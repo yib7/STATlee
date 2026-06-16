@@ -42,7 +42,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Byte-compile all modules
-        run: python -m compileall -q config.py extensions.py models.py storage.py datatools.py llm.py prompts.py sandbox.py routes app.py
+        run: python -m compileall -q statlee wsgi.py
       - name: Run test suite
         env:
           APP_ENV: testing

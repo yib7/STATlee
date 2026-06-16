@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import pytest
 
-import datatools
+from statlee import datatools
 
 
 def _write_csv(tmp_path, name='d.csv'):

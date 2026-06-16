@@ -20,13 +20,9 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_login import current_user
 from werkzeug.utils import secure_filename
 
-import datatools
-import llm
-import prompts
-import sandbox
-import storage
-from extensions import db, limiter
-from routes import json_error
+from .. import datatools, llm, prompts, sandbox, storage
+from ..extensions import db, limiter
+from . import json_error
 
 logger = logging.getLogger('statlee.datasets')
 
@@ -146,7 +142,7 @@ def upload_file():
     })
 
     if current_user and getattr(current_user, 'is_authenticated', False):
-        from models import Dataset
+        from ..models import Dataset
         db.session.add(Dataset(
             user_id=current_user.id, filename=csv_name,
             original_name=file.filename[:255], sha256=sha256))

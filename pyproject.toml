@@ -1,12 +1,13 @@
 [project]
-name = "codecaster"
+name = "statlee"
 version = "1.0.0"
 description = "AI-assisted social-science data analysis sandbox"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
-# Make the project root importable so tests can `import app`, `import storage`,
-# and load the fake-LLM conftest before collection (roadmap 2.1).
+# Make the project root importable so tests can `import statlee.app`,
+# `import statlee.storage`, and load the fake-LLM conftest before collection
+# (roadmap 2.1).
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
@@ -17,7 +18,7 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["static/vendor", "__pycache__"]
+extend-exclude = ["statlee/static/vendor", "__pycache__"]
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, isort, bugbear, pyupgrade, comprehensions, perf-lint.

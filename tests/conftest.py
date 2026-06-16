@@ -14,8 +14,8 @@ import pytest
 os.environ['APP_ENV'] = 'testing'
 os.environ.pop('GEMINI_API_KEY', None)
 
-import llm  # noqa: E402
-from config import Config  # noqa: E402
+from statlee import llm  # noqa: E402
+from statlee.config import Config  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fake LLM service
@@ -167,7 +167,7 @@ def fake_llm():
 
 @pytest.fixture
 def app(config, fake_llm):
-    from app import create_app
+    from statlee.app import create_app
     application = create_app(config)
     llm.set_service(fake_llm)        # override the real service init_service made
     application.config['_FAKE_LLM'] = fake_llm

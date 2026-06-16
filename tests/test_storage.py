@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from flask import session
 
-import storage
+from statlee import storage
 
 
 def _req(app, sid='session-a'):

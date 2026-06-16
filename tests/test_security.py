@@ -73,7 +73,7 @@ def test_csrf_token_is_stable_within_session(client):
 def test_rate_limit_key_is_ip_for_anonymous(app):
     """Anonymous traffic is keyed on client IP, not the resettable ``sid``
     cookie — so dropping cookies can't mint a fresh rate-limit bucket."""
-    from extensions import _rate_limit_key
+    from statlee.extensions import _rate_limit_key
     with app.test_request_context('/chat', environ_base={'REMOTE_ADDR': '203.0.113.7'}):
         assert _rate_limit_key() == '203.0.113.7'
 
@@ -82,7 +82,7 @@ def test_rate_limit_key_is_account_for_logged_in(app):
     """A logged-in user is limited per account regardless of IP/cookies."""
     from unittest.mock import patch
 
-    from extensions import _rate_limit_key
+    from statlee.extensions import _rate_limit_key
 
     class _FakeUser:
         is_authenticated = True

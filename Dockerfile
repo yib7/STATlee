@@ -26,4 +26,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD ["python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','5000')+'/health')"]
 
 # Production WSGI server honoring $PORT, threaded workers for SSE (1.2)
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 8 --timeout 120 --graceful-timeout 30 app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 8 --timeout 120 --graceful-timeout 30 wsgi:app"]

@@ -21,19 +21,20 @@ It uses a role-based LLM architecture (Google Gemini) to generate, validate, and
 
 ## Architecture
 
-The application uses the Flask app-factory pattern with focused modules:
+The application lives in the `statlee/` package and uses the Flask app-factory
+pattern with focused modules (entry point: `wsgi.py` → `statlee.app:app`):
 
 | Module | Responsibility |
 |---|---|
-| `config.py` | Validated, env-driven configuration (one source of truth). |
-| `app.py` | App factory + cross-cutting middleware (sessions, CSRF, rate limits, request-id logging). |
-| `storage.py` | Per-identity file isolation + dataset version control. |
-| `sandbox.py` | Isolated code execution (subprocess or Docker). |
-| `llm.py` | Provider-agnostic LLM service with usage tracking. |
-| `prompts.py` | Every prompt builder in one reviewable place. |
-| `datatools.py` | Multi-format ingestion + metadata profiling. |
-| `models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
-| `routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
+| `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
+| `statlee/app.py` | App factory + cross-cutting middleware (sessions, CSRF, rate limits, request-id logging). |
+| `statlee/storage.py` | Per-identity file isolation + dataset version control. |
+| `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
+| `statlee/llm.py` | Provider-agnostic LLM service with usage tracking. |
+| `statlee/prompts.py` | Every prompt builder in one reviewable place. |
+| `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
+| `statlee/models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
+| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
 
 The full roadmap and status of each feature lives in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
@@ -110,8 +111,8 @@ Running generated code directly on your host is *not recommended for untrusted i
 4. Run the app (development mode does not require an API key to boot, but LLM endpoints will error until one is set):
 
    ```bash
-   # PowerShell:  $env:APP_ENV="development"; python app.py
-   APP_ENV=development python app.py
+   # PowerShell:  $env:APP_ENV="development"; python wsgi.py
+   APP_ENV=development python wsgi.py
    ```
 
 ## Development & Testing
