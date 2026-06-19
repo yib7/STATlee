@@ -153,4 +153,5 @@ relying on them.**
 
 ## License
 
-See [CREDITS.md](docs/CREDITS.md) for dependency licenses. Project license: TBD.
+STATlee is released under the [MIT License](LICENSE). See
+[CREDITS.md](docs/CREDITS.md) for third-party dependency licenses.

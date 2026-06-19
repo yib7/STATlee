@@ -64,8 +64,9 @@ def chat():
         return json_error('Missing prompt or filename')
 
     # Monetization seam (E): one chokepoint decides whether the (costlier)
-    # priority tier is allowed for this user. A no-op today.
-    allowed, deny_msg = billing.check_and_debit(_current_user(), priority=priority)
+    # priority tier is allowed for this user. No-op unless billing is enabled.
+    allowed, deny_msg = billing.check_and_debit(
+        _current_user(), priority=priority, config=_cfg())
     if not allowed:
         return json_error(deny_msg or 'Out of credits.', 402)
 

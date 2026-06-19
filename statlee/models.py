@@ -32,6 +32,12 @@ class User(UserMixin, db.Model):
     plan = db.Column(db.String(32), nullable=False, default='free')
     credits = db.Column(db.Integer, nullable=False, default=0)
 
+    # --- Email verification (opt-in via REQUIRE_EMAIL_VERIFICATION) -------
+    # Existing rows default to unverified; the flag is off by default so this
+    # does not lock anyone out until an operator turns verification on.
+    email_verified = db.Column(db.Boolean, nullable=False, default=False)
+    verification_token = db.Column(db.String(64), nullable=True, index=True)
+
     datasets = db.relationship('Dataset', backref='user', lazy=True,
                                cascade='all, delete-orphan')
     runs = db.relationship('AnalysisRun', backref='user', lazy=True,

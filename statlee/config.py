@@ -75,6 +75,14 @@ class Config:
     # --- Auth (7.1) -------------------------------------------------------------
     accounts_enabled: bool = True
     require_login: bool = False         # False keeps the anonymous sandbox mode
+    require_email_verification: bool = False  # gate accounts until email confirmed
+
+    # --- Billing / cost guardrails (workstream E) -------------------------------
+    billing_enabled: bool = False       # turn on credit debit in check_and_debit
+    # Hard ceiling on priority (high-tier) requests per calendar month, enforced
+    # on the server's own key so nobody can run up an unbounded bill. 0 disables.
+    # NOTE: per-process — across multiple workers each enforces its own count.
+    monthly_priority_call_ceiling: int = 0
 
     # --- Rate limits (1.4) --------------------------------------------------------
     rate_limit_enabled: bool = True
@@ -135,6 +143,9 @@ class Config:
             pdf_max_pages=_env_int('PDF_MAX_PAGES', 50),
             accounts_enabled=_env_bool('ACCOUNTS_ENABLED', True),
             require_login=_env_bool('REQUIRE_LOGIN', False),
+            require_email_verification=_env_bool('REQUIRE_EMAIL_VERIFICATION', False),
+            billing_enabled=_env_bool('BILLING_ENABLED', False),
+            monthly_priority_call_ceiling=_env_int('MONTHLY_PRIORITY_CALL_CEILING', 0),
             rate_limit_enabled=_env_bool('RATE_LIMIT_ENABLED', True),
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),

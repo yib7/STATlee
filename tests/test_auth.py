@@ -76,6 +76,71 @@ def test_history_persists_for_logged_in_user(client):
     assert runs['runs'][0]['prompt'] == 'run OLS'
 
 
+def _verify_app(tmp_path, fake_llm):
+    """An app instance with email verification required."""
+    from statlee import llm
+    from statlee.app import create_app
+    from statlee.config import Config
+    cfg = Config(
+        env='testing', upload_root=str(tmp_path / 'u'),
+        database_url='sqlite:///' + str(tmp_path / 'a.db').replace('\\', '/'),
+        flask_secret_key='k', rate_limit_enabled=False,
+        accounts_enabled=True, require_email_verification=True)
+    cfg.validate()
+    app = create_app(cfg)
+    llm.set_service(fake_llm)
+    return app
+
+
+def _user_by_email(app, email):
+    from statlee.extensions import db
+    from statlee.models import User
+    with app.app_context():
+        return db.session.execute(
+            db.select(User).filter_by(email=email)).scalar_one()
+
+
+def test_register_requires_verification_when_enabled(tmp_path, fake_llm):
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    resp = post_json(c, '/register', {'email': 'v@x.com', 'password': 'password123'})
+    assert resp.status_code == 202
+    assert resp.get_json()['status'] == 'verification_required'
+    # Not logged in until verified.
+    assert c.get('/check_auth').get_json().get('user') is None
+    user = _user_by_email(app, 'v@x.com')
+    assert user.email_verified is False
+    assert user.verification_token
+
+
+def test_login_blocked_until_verified(tmp_path, fake_llm):
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    post_json(c, '/register', {'email': 'v2@x.com', 'password': 'password123'})
+    resp = post_json(c, '/login', {'email': 'v2@x.com', 'password': 'password123'})
+    assert resp.status_code == 403
+    assert 'confirm your email' in resp.get_json()['error'].lower()
+
+
+def test_verify_email_confirms_and_logs_in(tmp_path, fake_llm):
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    post_json(c, '/register', {'email': 'v3@x.com', 'password': 'password123'})
+    token = _user_by_email(app, 'v3@x.com').verification_token
+
+    resp = c.get(f'/verify_email?token={token}')
+    assert resp.status_code == 302                       # redirect to '/'
+    assert c.get('/check_auth').get_json()['user']['email'] == 'v3@x.com'
+    user = _user_by_email(app, 'v3@x.com')
+    assert user.email_verified is True
+    assert user.verification_token is None
+
+
+def test_verify_email_rejects_bad_token(tmp_path, fake_llm):
+    app = _verify_app(tmp_path, fake_llm)
+    assert app.test_client().get('/verify_email?token=nope').status_code == 400
+
+
 @pytest.mark.parametrize('require_login', [True])
 def test_require_login_blocks_protected_routes(tmp_path, fake_llm, require_login):
     """REQUIRE_LOGIN=true makes the sandbox closed: protected routes 401 until

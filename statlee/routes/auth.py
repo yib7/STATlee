@@ -8,8 +8,9 @@ Three coexisting modes keep the anonymous sandbox promise intact:
 """
 import logging
 import re
+import secrets
 
-from flask import Blueprint, current_app, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 from flask_login import current_user, login_user, logout_user
 
 from ..extensions import db
@@ -31,6 +32,11 @@ def is_authorized():
     """Single authorization decision used by the app-level gate."""
     cfg = _cfg()
     if current_user and getattr(current_user, 'is_authenticated', False):
+        # A logged-in account is only authorized once its email is confirmed,
+        # when verification is required.
+        if (cfg.require_email_verification
+                and not getattr(current_user, 'email_verified', False)):
+            return False
         return True
     if cfg.require_login:
         return False
@@ -71,6 +77,10 @@ def login():
         user = db.session.execute(
             db.select(User).filter_by(email=email)).scalar_one_or_none()
         if user and user.check_password(data.get('password') or ''):
+            if cfg.require_email_verification and not user.email_verified:
+                return json_error(
+                    'Please confirm your email before logging in. Check your '
+                    'inbox for the verification link.', 403)
             login_user(user, remember=True)
             return jsonify({'status': 'success', 'user': {'email': user.email}}), 200
         return json_error('Invalid email or password.', 401)
@@ -104,11 +114,70 @@ def register():
 
     user = User(email=email)
     user.set_password(password)
+    if cfg.require_email_verification:
+        user.email_verified = False
+        user.verification_token = secrets.token_urlsafe(32)
+    else:
+        user.email_verified = True
     db.session.add(user)
     db.session.commit()
-    login_user(user, remember=True)
     logger.info("New account registered: %s (id=%s)", email, user.id)
+
+    if cfg.require_email_verification:
+        try:
+            _send_verification_email(cfg, user.email, user.verification_token)
+        except Exception:
+            logger.exception("Failed to send verification email to %s", email)
+        return jsonify({
+            'status': 'verification_required',
+            'message': 'Account created. Check your email to confirm it before '
+                       'logging in.',
+        }), 202
+
+    login_user(user, remember=True)
     return jsonify({'status': 'success', 'user': {'email': user.email}}), 201
+
+
+def _send_verification_email(cfg, email, token):
+    """Send the confirmation link, or log it when SMTP isn't configured (dev)."""
+    link = url_for('auth.verify_email', token=token, _external=True)
+    if not cfg.smtp_host:
+        logger.info("Email verification link for %s (no SMTP configured): %s",
+                    email, link)
+        return
+    import smtplib
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg['Subject'] = '[STATlee] Confirm your email'
+    msg['From'] = cfg.smtp_user or 'statlee@localhost'
+    msg['To'] = email
+    msg.set_content(
+        "Welcome to STATlee. Confirm your account by opening this link:\n\n"
+        f"{link}\n\nIf you didn't create this account, you can ignore this email.")
+    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15) as server:
+        server.starttls()
+        if cfg.smtp_user:
+            server.login(cfg.smtp_user, cfg.smtp_password)
+        server.send_message(msg)
+
+
+@bp.route('/verify_email', methods=['GET'])
+def verify_email():
+    """Confirm an account from the emailed link, then log the user in."""
+    token = (request.args.get('token') or '').strip()
+    if not token:
+        return json_error('Missing verification token.', 400)
+    user = db.session.execute(
+        db.select(User).filter_by(verification_token=token)).scalar_one_or_none()
+    if not user:
+        return json_error('Invalid or expired verification link.', 400)
+    user.email_verified = True
+    user.verification_token = None
+    db.session.commit()
+    login_user(user, remember=True)
+    logger.info("Email verified for %s (id=%s)", user.email, user.id)
+    return redirect('/')
 
 
 @bp.route('/logout', methods=['POST'])

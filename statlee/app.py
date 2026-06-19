@@ -51,6 +51,7 @@ logger = logging.getLogger('statlee')
 PUBLIC_ENDPOINTS = {
     'misc.index', 'misc.welcome', 'static', 'misc.health_check',
     'auth.check_auth', 'auth.login', 'auth.register', 'auth.logout',
+    'auth.verify_email',
 }
 
 

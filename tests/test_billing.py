@@ -50,3 +50,77 @@ def test_check_auth_exposes_plan_and_credits(client, app):
     payload = client.get('/check_auth').get_json()
     assert payload['user']['plan'] == 'free'
     assert payload['user']['credits'] == 0
+
+
+# --- Billing turned on (workstream E, behind BILLING_ENABLED) ----------------
+
+def test_billing_disabled_config_is_still_a_noop():
+    from statlee.config import Config
+    cfg = Config(env='testing', billing_enabled=False)
+    allowed, message = billing.check_and_debit(None, priority=True, config=cfg)
+    assert allowed is True
+    assert message is None
+
+
+def test_billing_enabled_denies_free_user_without_credits(app):
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True)
+    with app.app_context():
+        user = User(email='broke@example.com')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+        allowed, message = billing.check_and_debit(
+            user, priority=True, config=cfg)
+        assert allowed is False
+        assert 'credit' in message.lower()
+        assert user.credits == 0
+
+
+def test_billing_enabled_debits_a_credit(app):
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True)
+    with app.app_context():
+        user = User(email='rich@example.com')
+        user.set_password('password123')
+        user.credits = 3
+        db.session.add(user)
+        db.session.commit()
+        allowed, message = billing.check_and_debit(
+            user, priority=True, config=cfg)
+        assert allowed is True and message is None
+        assert user.credits == 2
+
+
+def test_monthly_priority_ceiling_blocks_when_exceeded():
+    from statlee.config import Config
+    cfg = Config(env='testing', billing_enabled=True,
+                 monthly_priority_call_ceiling=1)
+    billing.reset_spend()
+    try:
+        allowed_first, _ = billing.check_and_debit(None, priority=True, config=cfg)
+        allowed_second, message = billing.check_and_debit(
+            None, priority=True, config=cfg)
+    finally:
+        billing.reset_spend()
+    assert allowed_first is True
+    assert allowed_second is False
+    assert 'ceiling' in message.lower()
+
+
+def test_monthly_ceiling_ignores_non_priority():
+    from statlee.config import Config
+    cfg = Config(env='testing', billing_enabled=True,
+                 monthly_priority_call_ceiling=1)
+    billing.reset_spend()
+    try:
+        # Non-priority requests never consume the ceiling.
+        for _ in range(5):
+            allowed, _msg = billing.check_and_debit(None, priority=False, config=cfg)
+            assert allowed is True
+    finally:
+        billing.reset_spend()
