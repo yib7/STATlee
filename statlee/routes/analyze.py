@@ -14,7 +14,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .. import billing, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
-from . import json_error, sse_event, sse_stream, strip_code_fences
+from . import json_error, moderation_blocked, sse_event, sse_stream, strip_code_fences
 
 logger = logging.getLogger('statlee.analyze')
 
@@ -72,14 +72,16 @@ def chat():
     service = llm.get_service()
 
     # Gate 1: moderation (synchronous — must 403 before any stream starts).
+    # Structured verdict + default-deny: a malformed/ambiguous reply blocks.
     try:
         mod = service.generate('lite', prompts.moderation(user_prompt),
-                               temperature=0.0, priority=priority)
-        if 'BLOCK' in mod.text:
-            return json_error(f'Request denied. {mod.text.strip()}', 403)
+                               temperature=0.0, json_mode=True, priority=priority)
     except Exception:
         logger.exception("Moderation service failed")
         return json_error('Moderation service failed.', 503)
+    blocked, reason = moderation_blocked(mod.text)
+    if blocked:
+        return json_error(f'Request denied. {reason}', 403)
 
     filepath = storage.active_dataset_path(filename)
     if not filepath or not os.path.exists(filepath):
@@ -194,15 +196,15 @@ def run_code():
         try:
             verdict = llm.get_service().generate(
                 'lite', prompts.code_moderation(code, language),
-                temperature=0.0)
+                temperature=0.0, json_mode=True)
         except Exception:
             logger.exception("Run-guard moderation failed")
             return json_error(
                 'Could not verify the edited script. Please try again.', 503)
-        if 'BLOCK' in verdict.text:
+        blocked, reason = moderation_blocked(verdict.text)
+        if blocked:
             return json_error(
-                f'Edited script rejected by the safety check. '
-                f'{verdict.text.strip()}', 403)
+                f'Edited script rejected by the safety check. {reason}', 403)
         storage.save_approved_script(code, language)
 
     dataset_path = None

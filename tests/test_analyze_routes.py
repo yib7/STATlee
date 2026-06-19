@@ -12,6 +12,48 @@ def test_chat_blocked_by_moderation(client, fake_llm):
     assert 'denied' in resp.get_json()['error'].lower()
 
 
+def test_chat_malformed_moderation_is_blocked(client, fake_llm):
+    """Default-deny: a moderation reply that isn't an explicit pass verdict
+    (here, non-JSON) must block rather than fail open."""
+    fake_llm.set('moderation', 'sure, that looks fine to me')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'describe the data'})
+    assert resp.status_code == 403
+
+
+def test_chat_empty_decision_is_blocked(client, fake_llm):
+    """A well-formed JSON object missing a 'pass' decision still blocks."""
+    fake_llm.set('moderation', '{"reason": "no decision field"}')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'describe the data'})
+    assert resp.status_code == 403
+
+
+def test_moderation_blocked_helper_fails_closed():
+    from statlee.routes import moderation_blocked
+    assert moderation_blocked('{"decision": "pass"}') == (False, '')
+    assert moderation_blocked('not json')[0] is True
+    assert moderation_blocked('{"decision": "block", "reason": "malware"}') == (
+        True, 'malware')
+    assert moderation_blocked('')[0] is True
+    assert moderation_blocked('{"decision": "maybe"}')[0] is True
+
+
+def test_run_guard_blocks_malformed_code_moderation(client, fake_llm):
+    """An unparseable code-moderation verdict on an edited script fails closed."""
+    fake_llm.set('validation', "print('original')")
+    upload_csv(client, SAMPLE_CSV)
+    _generate_script(client)
+    fake_llm.set('code_moderation', 'looks safe enough')
+    resp = post_json(client, '/run',
+                     {'filename': 'test.csv',
+                      'code': "import os  # edited", 'language': 'Python'})
+    assert resp.status_code == 403
+    assert 'safety check' in resp.get_json()['error'].lower()
+
+
 def test_chat_streams_phases_and_final_code(client, fake_llm):
     fake_llm.set('validation', "print('final code')")
     upload_csv(client, SAMPLE_CSV)

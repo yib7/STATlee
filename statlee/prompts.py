@@ -9,15 +9,24 @@ import json
 # Safety gates
 # ---------------------------------------------------------------------------
 
+_VERDICT_SHAPE = (
+    'Return STRICTLY a single JSON object and nothing else (no markdown, no '
+    'prose, no code fences):\n'
+    '{"decision": "pass" | "block", "reason": "<short reason; for pass, may be empty>"}')
+
+
 def moderation(user_prompt):
     return f"""
     You are a strict safety and relevance filter for an academic data analysis tool.
     Assess the following user request: "{user_prompt}"
 
-    Rules:
-    1. If the request is asking to build malware, hack, or engage in illegal/unethical acts, reply STRICTLY with "BLOCK: Safety Violation".
-    2. If the request is wildly off-topic (e.g., "write a poem about cats", "how do I bake a cake"), reply STRICTLY with "BLOCK: Off-topic".
-    3. If the request is a valid data analysis, coding, or statistical query, reply STRICTLY with "PASS".
+    Decide:
+    - "block" if the request asks to build malware, hack, or engage in
+      illegal/unethical acts, OR is wildly off-topic for data analysis (e.g.
+      "write a poem about cats", "how do I bake a cake").
+    - "pass" if it is a valid data analysis, coding, or statistical query.
+
+    {_VERDICT_SHAPE}
     """
 
 
@@ -29,7 +38,7 @@ def code_moderation(code, language):
     ONLY allowed to read a local dataset file, compute statistics, print
     results, and save plot images to the working directory.
 
-    Reply STRICTLY with "BLOCK: <short reason>" if the script does ANY of:
+    Decide "block" (with a short reason) if the script does ANY of:
     - network access of any kind (requests, urllib, sockets, curl, download.file, ...)
     - reading environment variables or files outside its working directory
     - spawning processes, installing packages, or shell commands
@@ -37,7 +46,9 @@ def code_moderation(code, language):
     - resource exhaustion (fork bombs, unbounded loops writing to disk, huge allocations)
     - anything unrelated to statistical analysis of the local dataset
 
-    Otherwise reply STRICTLY with "PASS".
+    Otherwise decide "pass".
+
+    {_VERDICT_SHAPE}
 
     SCRIPT:
     {code}

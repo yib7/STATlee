@@ -55,8 +55,8 @@ class FakeLLMService:
         self.usage_totals = {}
         self._overrides = {}
         self._defaults = {
-            'moderation': 'PASS',
-            'code_moderation': 'PASS',
+            'moderation': json.dumps({'decision': 'pass', 'reason': ''}),
+            'code_moderation': json.dumps({'decision': 'pass', 'reason': ''}),
             'feature_selection': json.dumps({'required_columns': []}),
             'classify': json.dumps({}),
             'suggest': json.dumps(['Suggestion 1', 'Suggestion 2', 'Suggestion 3']),
@@ -82,10 +82,12 @@ class FakeLLMService:
         self._overrides[kind] = value
 
     def block(self, reason='Safety Violation'):
-        self._overrides['moderation'] = f'BLOCK: {reason}'
+        self._overrides['moderation'] = json.dumps(
+            {'decision': 'block', 'reason': reason})
 
     def block_code(self, reason='network access'):
-        self._overrides['code_moderation'] = f'BLOCK: {reason}'
+        self._overrides['code_moderation'] = json.dumps(
+            {'decision': 'block', 'reason': reason})
 
     # -- internals ---------------------------------------------------------
     @staticmethod

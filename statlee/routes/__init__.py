@@ -10,6 +10,40 @@ def json_error(message, status=400):
     return jsonify({'error': message}), status
 
 
+_MODERATION_FALLBACK = ('The request could not be verified as safe and '
+                        'on-topic. Please rephrase and try again.')
+
+
+def moderation_blocked(result_text):
+    """Interpret a moderation verdict, **failing closed**.
+
+    Moderation prompts now return a structured JSON verdict
+    ``{"decision": "pass" | "block", "reason": "..."}``. This parses it and
+    treats anything that is not an explicit ``pass`` — malformed JSON, a missing
+    or unexpected ``decision``, an empty body — as *blocked*. That closes the
+    prompt-injection path where suppressing a magic word made moderation
+    fail open (see docs/SECURITY_AUDIT.md, residual-risk note).
+
+    Returns ``(blocked: bool, reason: str)``; ``reason`` is empty when allowed.
+    """
+    try:
+        verdict = json.loads((result_text or '').strip())
+    except (ValueError, TypeError):
+        return True, _MODERATION_FALLBACK
+
+    decision = None
+    reason = ''
+    if isinstance(verdict, dict):
+        decision = str(verdict.get('decision', '')).strip().lower()
+        reason = str(verdict.get('reason', '') or '').strip()
+    elif isinstance(verdict, str):
+        decision = verdict.strip().lower()
+
+    if decision == 'pass':
+        return False, ''
+    return True, (reason or _MODERATION_FALLBACK)
+
+
 def sse_stream(generator):
     """Wrap a generator function in a standard Server-Sent Events response."""
     return Response(

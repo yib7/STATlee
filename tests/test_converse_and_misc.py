@@ -10,6 +10,13 @@ def test_converse_moderation_gate(client, fake_llm):
     assert resp.status_code == 403
 
 
+def test_converse_malformed_moderation_is_blocked(client, fake_llm):
+    """Default-deny applies to /converse too."""
+    fake_llm.set('moderation', 'yep go ahead')
+    resp = post_json(client, '/converse', {'message': 'what is a t-test?'})
+    assert resp.status_code == 403
+
+
 def test_converse_single_pass_stream(client):
     resp = post_json(client, '/converse',
                      {'message': 'what does this p-value mean?'})

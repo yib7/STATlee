@@ -10,7 +10,7 @@ from flask import Blueprint, current_app, request
 
 from .. import llm, prompts
 from ..extensions import limiter
-from . import json_error, sse_event, sse_stream
+from . import json_error, moderation_blocked, sse_event, sse_stream
 
 logger = logging.getLogger('statlee.converse')
 
@@ -37,15 +37,16 @@ def converse():
     service = llm.get_service()
     cfg = current_app.config['STATLEE']
 
-    # 0.6: the same baseline moderation gate /chat uses.
+    # 0.6: the same baseline moderation gate /chat uses (structured + default-deny).
     try:
         mod = service.generate('lite', prompts.moderation(message),
-                               temperature=0.0)
-        if 'BLOCK' in mod.text:
-            return json_error(f'Request denied. {mod.text.strip()}', 403)
+                               temperature=0.0, json_mode=True)
     except Exception:
         logger.exception("Converse moderation failed")
         return json_error('Moderation service failed.', 503)
+    blocked, reason = moderation_blocked(mod.text)
+    if blocked:
+        return json_error(f'Request denied. {reason}', 403)
 
     prompt = prompts.converse(message, history, context, code,
                               guide_mode=guide_mode)

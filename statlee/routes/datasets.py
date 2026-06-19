@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 
 from .. import datatools, llm, prompts, sandbox, storage
 from ..extensions import db, limiter
-from . import json_error
+from . import json_error, moderation_blocked
 
 logger = logging.getLogger('statlee.datasets')
 
@@ -426,12 +426,13 @@ def wrangle():
     service = llm.get_service()
     try:
         mod = service.generate('lite', prompts.moderation(instruction),
-                               temperature=0.0)
-        if 'BLOCK' in mod.text:
-            return json_error(f'Request denied. {mod.text.strip()}', 403)
+                               temperature=0.0, json_mode=True)
     except Exception:
         logger.exception("Wrangle moderation failed")
         return json_error('Moderation service failed.', 503)
+    blocked, reason = moderation_blocked(mod.text)
+    if blocked:
+        return json_error(f'Request denied. {reason}', 403)
 
     try:
         df, active_path = _read_active(filename, nrows=100)
