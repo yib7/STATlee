@@ -73,6 +73,9 @@ def create_app(config=None):
     app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root()
     app.config['SQLALCHEMY_DATABASE_URI'] = cfg.resolved_database_url(app.instance_path)
     app.config['RATELIMIT_ENABLED'] = cfg.rate_limit_enabled
+    # Authoritative limiter store (memory:// by default; a shared store such as
+    # redis:// makes the limits hold across gunicorn workers and restarts).
+    app.config['RATELIMIT_STORAGE_URI'] = cfg.rate_limit_storage_uri
     app.config['TESTING'] = cfg.is_testing
 
     # 1.5 — session cookie hardening

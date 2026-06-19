@@ -81,6 +81,12 @@ class Config:
     rate_limit_default: str = '120 per minute'
     rate_limit_run: str = '10 per minute'
     rate_limit_chat: str = '20 per minute'
+    # Backing store for rate-limit counters. Default 'memory://' is per-process:
+    # with >1 gunicorn worker the buckets are NOT shared (each worker enforces
+    # its own copy) and they reset on every restart, which weakens the
+    # bill-abuse protection. Point this at a shared store (e.g. redis://...) in
+    # production, or pin WEB_CONCURRENCY=1. See validate().
+    rate_limit_storage_uri: str = 'memory://'
     # Number of trusted reverse-proxy hops in front of the app. >0 enables
     # ProxyFix so rate limiting and logging see the real client IP from
     # X-Forwarded-For. Render fronts the app with exactly one proxy, so this
@@ -133,6 +139,9 @@ class Config:
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),
             rate_limit_chat=os.environ.get('RATE_LIMIT_CHAT', '20 per minute'),
+            rate_limit_storage_uri=(
+                os.environ.get('RATELIMIT_STORAGE_URI')
+                or os.environ.get('REDIS_URL') or 'memory://').strip(),
             trust_proxy_hops=_env_int(
                 'TRUST_PROXY_HOPS',
                 1 if os.environ.get('APP_ENV', '').strip().lower() == 'production'
@@ -184,6 +193,16 @@ class Config:
             raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
         if self.storage_backend == 's3' and not self.s3_bucket:
             raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET")
+
+        if (self.is_production and self.rate_limit_enabled
+                and self.rate_limit_storage_uri.startswith('memory://')):
+            self._warn(
+                "RATELIMIT_STORAGE_URI is in-memory (memory://) in production — "
+                "rate-limit buckets are per-worker and reset on restart, so the "
+                "configured limits do not hold across multiple gunicorn workers "
+                "and a redeploy clears them, weakening bill-abuse protection. Set "
+                "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
+                "WEB_CONCURRENCY=1.")
 
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")

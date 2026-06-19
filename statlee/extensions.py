@@ -32,4 +32,8 @@ def _rate_limit_key():
 
 db = SQLAlchemy()
 login_manager = LoginManager()
-limiter = Limiter(key_func=_rate_limit_key, storage_uri='memory://')
+# The storage backend is supplied by the app at init_app time via
+# app.config['RATELIMIT_STORAGE_URI'] (see app.py / config.py), so a deployment
+# can point the limiter at a shared store (redis://) without code changes.
+# Flask-Limiter defaults to in-memory when the config key is unset.
+limiter = Limiter(key_func=_rate_limit_key)

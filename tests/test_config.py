@@ -58,3 +58,33 @@ def test_production_docker_sandbox_is_quiet():
                  sandbox_mode='docker')
     cfg.validate()
     assert not any('SANDBOX_MODE' in w for w in cfg.warnings)
+
+
+def test_limiter_storage_uri_from_env(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('RATELIMIT_STORAGE_URI', 'redis://localhost:6379/0')
+    monkeypatch.delenv('REDIS_URL', raising=False)
+    cfg = Config.from_env()
+    assert cfg.rate_limit_storage_uri == 'redis://localhost:6379/0'
+
+
+def test_limiter_storage_uri_falls_back_to_redis_url(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.delenv('RATELIMIT_STORAGE_URI', raising=False)
+    monkeypatch.setenv('REDIS_URL', 'redis://cache:6379/1')
+    cfg = Config.from_env()
+    assert cfg.rate_limit_storage_uri == 'redis://cache:6379/1'
+
+
+def test_production_memory_limiter_warns():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 rate_limit_storage_uri='memory://')
+    cfg.validate()
+    assert any('memory://' in w for w in cfg.warnings)
+
+
+def test_production_shared_limiter_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 rate_limit_storage_uri='redis://localhost:6379')
+    cfg.validate()
+    assert not any('RATELIMIT_STORAGE_URI' in w for w in cfg.warnings)

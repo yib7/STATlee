@@ -91,3 +91,18 @@ def test_rate_limit_key_is_account_for_logged_in(app):
     with app.test_request_context('/chat'):
         with patch('flask_login.current_user', _FakeUser()):
             assert _rate_limit_key() == 'user_42'
+
+
+def test_default_app_limiter_store_is_in_memory(app):
+    # The default config keeps the in-memory store; production should override it.
+    assert app.config['RATELIMIT_STORAGE_URI'] == 'memory://'
+
+
+def test_app_propagates_configured_limiter_store(config):
+    """A shared store from config reaches Flask-Limiter via app.config so the
+    limits can be enforced across workers (no connection is opened here because
+    rate limiting is disabled in the test config)."""
+    from statlee.app import create_app
+    config.rate_limit_storage_uri = 'redis://example:6379/2'
+    application = create_app(config)
+    assert application.config['RATELIMIT_STORAGE_URI'] == 'redis://example:6379/2'
