@@ -38,6 +38,10 @@ pattern with focused modules (entry point: `wsgi.py` → `statlee.app:app`):
 
 The full roadmap and status of each feature lives in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
+**Operations:** taking STATlee live without surprises on your bill is covered in
+the [Deployment Playbook](DEPLOYMENT_PLAYBOOK.md); the (illustrative) pricing
+model and how the billing seam backs it are in [Pricing](PRICING.md).
+
 ## Getting Started
 
 Because STATlee executes dynamically generated code, running it via Docker is recommended for a secure, isolated sandbox.

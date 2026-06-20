@@ -11,16 +11,17 @@
 </p>
 
 <p align="center">
-  <a href="https://your-statlee-deployment.example.com/">Live demo</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/SECURITY_AUDIT.md">Security</a> ·
+  <a href="docs/DEPLOYMENT_PLAYBOOK.md">Deploy</a> ·
+  <a href="docs/PRICING.md">Pricing</a> ·
   <a href="docs/CREDITS.md">Credits</a>
 </p>
 
 <p align="center">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-124%20passing-3fb950">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-135%20passing-3fb950">
   <img alt="AI provider" src="https://img.shields.io/badge/AI-Google%20Gemini-8E75B2?logo=google&logoColor=white">
 </p>
 
@@ -53,9 +54,12 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   assistant kicks in when a run fails.
 - **📂 Bring any format.** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and
   SPSS (`.sav`); native value labels seed the codebook for free.
-- **🧹 Conversational wrangling** with full dataset version history (undo/redo),
-  an **AI report builder** grounded strictly in your real outputs, and one-click
-  **project export** (data + script + plots + report).
+- **🧹 Conversational wrangling.** Clean your data by chatting — *"delete the
+  notes column", "filter for age > 30"* — with a back-and-forth transcript, full
+  version history (**undo / redo**), and a one-click **revert to the original
+  upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
+  down. Plus an **AI report builder** grounded strictly in your real outputs and
+  one-click **project export** (data + script + plots + report).
 - **⚡ Priority generation** toggle routes to the fastest, highest-quality model
   tier when a question really matters.
 
@@ -111,7 +115,7 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 124 tests, fully offline (deterministic fake LLM — no API key)
+pytest -q         # 135 tests, fully offline (deterministic fake LLM — no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
@@ -139,6 +143,17 @@ The application lives in the `statlee/` package (entry point: `wsgi.py` →
 
 A deeper walkthrough — request lifecycle, security boundaries, data flow — is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Hosting & pricing
+
+STATlee runs locally for free and is **not currently deployed** — a deliberate,
+zero-cost choice. When you want it online, the
+[Deployment Playbook](docs/DEPLOYMENT_PLAYBOOK.md) walks through a **money-safe**
+free-tier deploy: the app's only real cost is the Gemini API, and it ships with
+the controls to cap that spend at a number you choose (a global monthly priority
+ceiling, per-identity rate limits, cheapest-tier defaults, and a startup warning
+if billing is on without a cap). The (illustrative) monetization model and how
+the billing seam backs it are in [Pricing](docs/PRICING.md).
 
 ## Security
 

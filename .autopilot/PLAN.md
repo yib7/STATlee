@@ -58,11 +58,13 @@ production; `.env.example` documents the money-safe settings; full suite green.
 **Checkpoint:** `docs/DEPLOYMENT_PLAYBOOK.md` + `docs/PRICING.md` exist and are internally
 consistent; README links to them and to the data-cleaning feature.
 
-- [ ] `docs/DEPLOYMENT_PLAYBOOK.md` — GitHub-only-now stance + step-by-step "when ready to deploy"
-      free-tier path with the exact money-safety checklist (caps, env vars, what NEVER to enable)
-- [ ] `docs/PRICING.md` — resume-showcase pricing tiers + how the existing billing seam backs them
-- [ ] Update `README.md` to reference both docs and the conversational data-cleaning feature
-- [ ] Tests: docs render / internal links resolve (manual check), full suite still green
+- [x] `docs/DEPLOYMENT_PLAYBOOK.md` — GitHub-only-now stance + money-safe free-tier deploy steps +
+      pre-deploy checklist + "what NEVER to do" footguns
+- [x] `docs/PRICING.md` — illustrative tiers (Free/Student/Pro) mapped to the billing seam, with
+      the deliberate "turning it on" (Stripe + secrets = human) steps
+- [x] Update `README.md` (Deploy+Pricing nav links, Hosting & pricing section, sharpened wrangling
+      bullet, test badge 124→135) and `docs/README.md` (Operations pointer)
+- [x] Links resolve, no stale "124" refs, full suite **135 passed**, ruff clean
 
 ## Blocked (filled in during the run)
 
