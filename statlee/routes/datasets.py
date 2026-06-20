@@ -154,6 +154,7 @@ def upload_file():
         'profile': profile,
         'labels': labels,        # native .sav/.dta labels seed the codebook
         'sha256': sha256,
+        'changelog': storage.dataset_changelog(csv_name),  # seeds the cleaning panel
     }), 200
 
 
@@ -422,6 +423,7 @@ def wrangle():
         return json_error('Missing filename or instruction')
 
     service = llm.get_service()
+    cfg = _cfg()
     try:
         mod = service.generate('lite', prompts.moderation(instruction),
                                temperature=0.0, json_mode=True)
@@ -442,7 +444,7 @@ def wrangle():
 
     try:
         result = service.generate(
-            'flash',
+            cfg.wrangle_role,
             prompts.wrangle(datatools.metadata_json(df), instruction),
             temperature=0.1, json_mode=True)
         plan = json.loads(result.text)
@@ -454,7 +456,6 @@ def wrangle():
         return json_error(plan.get('error')
                           or 'Could not translate that instruction.', 422)
 
-    cfg = _cfg()
     dataset_basename = os.path.basename(active_path)
     script = WRANGLE_HARNESS.format(src=dataset_basename,
                                     code=plan['code'])
@@ -474,7 +475,7 @@ def wrangle():
     try:
         new_df = pd.read_csv(io.BytesIO(run.files['__wrangled.csv']))
         storage.add_dataset_version(
-            filename, new_df, plan.get('summary') or instruction)
+            filename, new_df, instruction, summary=plan.get('summary'))
         clear_caches()
         return jsonify({
             'status': 'success',
@@ -508,6 +509,30 @@ def version_control():
     if not filename or direction not in ('undo', 'redo'):
         return json_error("Missing filename or direction ('undo'|'redo')")
     manifest = storage.shift_dataset_version(filename, direction)
+    if manifest is None:
+        return json_error('Unknown dataset.', 404)
+    clear_caches()
+    try:
+        df, _ = _read_active(filename, nrows=100)
+        profile = datatools.profile_dataframe(df) if df is not None else None
+    except Exception:
+        profile = None
+    return jsonify({
+        'status': 'success',
+        'changelog': storage.dataset_changelog(filename),
+        'profile': profile,
+    })
+
+
+@bp.route('/revert_dataset', methods=['POST'])
+def revert_dataset():
+    """Restore the dataset to its original upload as a new, undo-able version
+    (4.6). Distinct from /reset, which wipes the whole workspace."""
+    data = request.get_json(silent=True) or {}
+    filename = data.get('filename')
+    if not filename:
+        return json_error('Missing filename')
+    manifest = storage.revert_to_original(filename)
     if manifest is None:
         return json_error('Unknown dataset.', 404)
     clear_caches()

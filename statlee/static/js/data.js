@@ -214,6 +214,7 @@
                     }
                     CC.renderTableHeaders(CC.state.headers);
                     await CC.fetchDataPage(1);
+                    renderChangelog(data.changelog);   // reveal the cleaning chat with v1
                     CC.pipeline.set('load', 'done');
                     pendingFilename = data.filename;
                     showCodebookStep('ask');
@@ -312,15 +313,29 @@
         if (!changelog) { panel.classList.add('hidden'); return; }
         panel.classList.remove('hidden');
         list.innerHTML = '';
-        changelog.versions.slice().reverse().forEach(v => {
-            const item = document.createElement('div');
-            item.className = 'changelog-item text-slate-700 dark:text-slate-300' +
-                (v.v === changelog.active ? ' active-version' : '');
-            item.innerHTML = `<span class="v-badge">v${v.v}</span><span>${CC.escapeHtml(v.instruction)}</span>`;
-            list.appendChild(item);
+        changelog.versions.forEach(v => {
+            const active = v.v === changelog.active;
+            if (v.summary) {
+                // A user-driven edit: their words, then the applied result.
+                const turn = document.createElement('div');
+                turn.className = 'wrangle-turn' + (active ? ' active-version' : '');
+                turn.innerHTML =
+                    `<div class="wrangle-msg user"><span class="v-badge">v${v.v}</span>${CC.escapeHtml(v.instruction)}</div>` +
+                    `<div class="wrangle-msg applied"><span aria-hidden="true">✓</span> ${CC.escapeHtml(v.summary)}</div>`;
+                list.appendChild(turn);
+            } else {
+                // A milestone (original upload / reverted) — a centered note.
+                const note = document.createElement('div');
+                note.className = 'wrangle-note' + (active ? ' active-version' : '');
+                note.innerHTML = `<span class="v-badge">v${v.v}</span>${CC.escapeHtml(v.instruction)}`;
+                list.appendChild(note);
+            }
         });
+        list.scrollTop = list.scrollHeight;        // newest at the bottom, chat-style
         document.getElementById('undoBtn').disabled = !changelog.can_undo;
         document.getElementById('redoBtn').disabled = !changelog.can_redo;
+        const revertBtn = document.getElementById('revertBtn');
+        if (revertBtn) revertBtn.disabled = (changelog.versions.length <= 1);
     }
 
     async function afterVersionChange(profile, changelog) {
@@ -337,23 +352,44 @@
         const applyBtn = document.getElementById('wrangleApplyBtn');
         const input = document.getElementById('wrangleInput');
 
+        function appendPending(instruction) {
+            const list = document.getElementById('changelogList');
+            const el = document.createElement('div');
+            el.className = 'wrangle-turn pending';
+            el.id = 'wranglePending';
+            el.innerHTML =
+                `<div class="wrangle-msg user">${CC.escapeHtml(instruction)}</div>` +
+                `<div class="wrangle-msg applied">${CC.spinner('h-3 w-3')} Applying…</div>`;
+            list.appendChild(el);
+            list.scrollTop = list.scrollHeight;
+        }
+        function removePending() {
+            const el = document.getElementById('wranglePending');
+            if (el) el.remove();
+        }
+
         async function applyWrangle() {
             const instruction = input.value.trim();
             if (!instruction || !CC.state.filename) return;
             applyBtn.disabled = true;
             applyBtn.innerHTML = CC.spinner('h-4 w-4');
+            input.value = '';
+            appendPending(instruction);              // optimistic chat echo
             try {
                 const { ok, data } = await CC.post('/wrangle', {
                     filename: CC.state.filename, instruction,
                 });
                 if (ok && data.status === 'success') {
-                    input.value = '';
                     CC.toast(`Applied: ${data.summary}`, 'success');
                     await afterVersionChange(data.profile, data.changelog);
                 } else {
+                    removePending();
+                    input.value = instruction;       // restore for an easy retry
                     CC.toast((data && data.error) || 'Transformation failed.', 'error');
                 }
             } catch (e) {
+                removePending();
+                input.value = instruction;
                 CC.toast('Network error applying the transformation.', 'error');
             } finally {
                 applyBtn.disabled = false;
@@ -366,6 +402,7 @@
 
         document.getElementById('undoBtn').addEventListener('click', () => shiftVersion('undo'));
         document.getElementById('redoBtn').addEventListener('click', () => shiftVersion('redo'));
+        document.getElementById('revertBtn').addEventListener('click', revertToOriginal);
 
         async function shiftVersion(direction) {
             const { ok, data } = await CC.post('/version_control', {
@@ -375,6 +412,20 @@
                 await afterVersionChange(data.profile, data.changelog);
             } else {
                 CC.toast((data && data.error) || 'Could not change version.', 'error');
+            }
+        }
+
+        async function revertToOriginal() {
+            if (!CC.state.filename) return;
+            if (!window.confirm('Revert the data to its original upload? You can Undo this afterwards.')) return;
+            const { ok, data } = await CC.post('/revert_dataset', {
+                filename: CC.state.filename,
+            });
+            if (ok && data.status === 'success') {
+                CC.toast('Reverted to the original upload.', 'success');
+                await afterVersionChange(data.profile, data.changelog);
+            } else {
+                CC.toast((data && data.error) || 'Could not revert the dataset.', 'error');
             }
         }
     }

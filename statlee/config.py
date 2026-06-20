@@ -66,6 +66,10 @@ class Config:
     model_flash: str = 'gemini-3-flash-preview'
     model_flash_lite: str = 'gemini-3.1-flash-lite-preview'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
+    # Conversational data-cleaning ("wrangle") tier. Defaults to the cheapest
+    # model since these are short, structured transforms ("delete column 2",
+    # "filter for X") — keeps per-edit cost (and the operator's bill) low.
+    wrangle_role: str = 'lite'
 
     # --- Analysis tunables -----------------------------------------------------
     feature_selection_threshold: int = 15
@@ -138,6 +142,7 @@ class Config:
             model_flash=os.environ.get('MODEL_FLASH', cls.model_flash).strip(),
             model_flash_lite=os.environ.get('MODEL_FLASH_LITE', cls.model_flash_lite).strip(),
             converse_role=os.environ.get('CONVERSE_ROLE', 'flash').strip().lower(),
+            wrangle_role=os.environ.get('WRANGLE_ROLE', 'lite').strip().lower(),
             feature_selection_threshold=_env_int('FEATURE_SELECTION_THRESHOLD', 15),
             data_page_row_cap=_env_int('DATA_PAGE_ROW_CAP', 500_000),
             pdf_max_pages=_env_int('PDF_MAX_PAGES', 50),
@@ -218,6 +223,10 @@ class Config:
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")
             self.converse_role = 'flash'
+
+        if self.wrangle_role not in ('pro', 'flash', 'lite'):
+            self._warn(f"WRANGLE_ROLE {self.wrangle_role!r} unknown; using 'lite'.")
+            self.wrangle_role = 'lite'
 
     def _warn(self, message):
         self.warnings.append(message)

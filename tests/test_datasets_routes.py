@@ -16,6 +16,15 @@ def test_upload_accepts_csv(client):
     assert body['sha256']
 
 
+def test_upload_returns_initial_changelog(client):
+    # The data-cleaning panel needs the v1 changelog to render on first upload.
+    body = upload_csv(client, SAMPLE_CSV).get_json()
+    cl = body['changelog']
+    assert cl['active'] == 1
+    assert cl['versions'][0]['instruction'] == 'Original upload'
+    assert cl['can_undo'] is False
+
+
 def test_upload_rejects_unsupported_format(client):
     token = csrf_token(client)
     data = {'file': (io.BytesIO(b'nope'), 'evil.exe')}
@@ -103,6 +112,47 @@ def test_wrangle_creates_new_version(client, fake_llm):
     # The active version now reflects the transform (NaN rows removed).
     page = post_json(client, '/data_page', {'filename': 'test.csv'}).get_json()
     assert page['total_rows'] == 2
+
+
+def test_wrangle_uses_configured_lite_role(client, fake_llm):
+    # Conversational cleaning should run on the cheap flash-lite tier (default).
+    upload_csv(client, SAMPLE_CSV)
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    wrangle_calls = [c for c in fake_llm.calls if c[1] == 'wrangle']
+    assert wrangle_calls, 'expected a wrangle LLM call'
+    assert all(role == 'lite' for role, *_ in wrangle_calls)
+
+
+def test_revert_dataset_restores_original(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)                       # v1: 4 rows
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})  # v2: 2 rows
+    resp = post_json(client, '/revert_dataset', {'filename': 'test.csv'})
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['changelog']['active'] == 3             # revert is a new version
+    assert body['changelog']['can_undo'] is True        # ...and undo-able
+    # Original four rows are back.
+    page = post_json(client, '/data_page', {'filename': 'test.csv'}).get_json()
+    assert page['total_rows'] == 4
+
+
+def test_revert_dataset_is_undoable(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})  # v2: 2 rows
+    post_json(client, '/revert_dataset', {'filename': 'test.csv'})           # v3: 4 rows
+    undo = post_json(client, '/version_control',
+                     {'filename': 'test.csv', 'direction': 'undo'})
+    assert undo.get_json()['changelog']['active'] == 2  # back to the wrangled state
+    page = post_json(client, '/data_page', {'filename': 'test.csv'}).get_json()
+    assert page['total_rows'] == 2
+
+
+def test_revert_unknown_dataset_404(client):
+    resp = post_json(client, '/revert_dataset', {'filename': 'nope.csv'})
+    assert resp.status_code == 404
 
 
 def test_wrangle_blocked_by_moderation(client, fake_llm):

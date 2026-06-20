@@ -318,21 +318,21 @@
                     <div id="codebookList" class="flex flex-col gap-2"></div>
                 </div>
 
-                <!-- Data cleaning + changelog (5.16) -->
+                <!-- Conversational data cleaning + version control (5.16) -->
                 <div id="changelogPanel" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 animate-fade-in-up">
-                    <label class="block text-sm font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="wrangleInput">Data Cleaning</label>
-                    <div class="flex gap-2 mb-3">
-                        <input type="text" id="wrangleInput" class="flex-1 bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-600" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
-                        <button id="wrangleApplyBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider" aria-label="Apply transformation">Apply</button>
-                    </div>
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Changelog</span>
+                    <div class="flex items-center justify-between mb-3">
+                        <label class="block text-sm font-bold text-slate-900 dark:text-slate-300 uppercase tracking-wider" for="wrangleInput">Data Cleaning</label>
                         <div class="flex gap-1.5">
                             <button id="undoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all inline-flex items-center gap-1" aria-label="Undo last data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h11a4 4 0 010 8h-1M3 10l4-4M3 10l4 4"></path></svg>Undo</button>
                             <button id="redoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all inline-flex items-center gap-1" aria-label="Redo data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10H10a4 4 0 000 8h1M21 10l-4-4M21 10l-4 4"></path></svg>Redo</button>
+                            <button id="revertBtn" disabled class="revert-btn px-2.5 py-1 text-[10px] font-mono font-bold uppercase border rounded-lg disabled:opacity-40 transition-all inline-flex items-center gap-1" title="Restore the dataset to its originally-uploaded state (undo-able)" aria-label="Revert dataset to original upload"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M4 9a9 9 0 1 1 1 7"></path></svg>Original</button>
                         </div>
                     </div>
-                    <div id="changelogList" class="flex flex-col gap-1 max-h-40 overflow-y-auto"></div>
+                    <div id="changelogList" class="wrangle-chat flex flex-col gap-2 overflow-y-auto mb-3" aria-live="polite"></div>
+                    <div class="flex gap-2">
+                        <input type="text" id="wrangleInput" class="flex-1 bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-600" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
+                        <button id="wrangleApplyBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider" aria-label="Apply transformation">Apply</button>
+                    </div>
                 </div>
 
                 <!-- Configuration -->

@@ -112,6 +112,7 @@ def register_dataset(filename, identity=None):
             'v': 1,
             'file': secure_filename(filename),
             'instruction': 'Original upload',
+            'summary': None,
             'ts': time.time(),
         }],
         'active': 1,
@@ -133,15 +134,22 @@ def active_dataset_path(filename, identity=None):
     return resolve_path(filename, identity)
 
 
-def add_dataset_version(filename, new_df, instruction, identity=None):
-    """Persist a wrangled DataFrame as the next version and activate it.
-
-    A new edit after an Undo truncates the redo branch, like an editor's
-    undo stack.
-    """
-    manifest = _load_manifest(filename, identity) or register_dataset(filename, identity)
+def _truncate_redo_branch(manifest):
+    """Drop any versions after the active pointer — a new edit (or revert)
+    after an Undo replaces the redo branch, like an editor's undo stack."""
     manifest['versions'] = [v for v in manifest['versions']
                             if v['v'] <= manifest['active']]
+
+
+def add_dataset_version(filename, new_df, instruction, summary=None, identity=None):
+    """Persist a wrangled DataFrame as the next version and activate it.
+
+    ``instruction`` is the user's own words; ``summary`` is the applied,
+    past-tense description (used to render the cleaning history as a chat-style
+    transcript). A new edit after an Undo truncates the redo branch.
+    """
+    manifest = _load_manifest(filename, identity) or register_dataset(filename, identity)
+    _truncate_redo_branch(manifest)
     next_v = manifest['versions'][-1]['v'] + 1
     stem = os.path.splitext(manifest['filename'])[0]
     version_file = f"{stem}__v{next_v}.csv"
@@ -151,6 +159,40 @@ def add_dataset_version(filename, new_df, instruction, identity=None):
         'v': next_v,
         'file': version_file,
         'instruction': instruction,
+        'summary': summary,
+        'ts': time.time(),
+    })
+    manifest['active'] = next_v
+    _save_manifest(filename, manifest, identity)
+    return manifest
+
+
+def revert_to_original(filename, identity=None):
+    """Restore the dataset to its first-uploaded state as a NEW version (4.6).
+
+    Implemented as a forward edit (copy v1's bytes into a fresh version) rather
+    than a pointer jump, so reverting is itself undo-able — one Undo brings the
+    pre-revert state back. Returns the manifest, or ``None`` for an unknown
+    dataset or a missing original file.
+    """
+    manifest = _load_manifest(filename, identity)
+    if not manifest:
+        return None
+    original = min(manifest['versions'], key=lambda v: v['v'])
+    orig_path = resolve_path(original['file'], identity)
+    if not orig_path or not os.path.exists(orig_path):
+        return None
+    _truncate_redo_branch(manifest)
+    next_v = manifest['versions'][-1]['v'] + 1
+    stem = os.path.splitext(manifest['filename'])[0]
+    version_file = f"{stem}__v{next_v}.csv"
+    version_path = resolve_path(version_file, identity)
+    shutil.copyfile(orig_path, version_path)
+    manifest['versions'].append({
+        'v': next_v,
+        'file': version_file,
+        'instruction': 'Reverted to original upload',
+        'summary': None,
         'ts': time.time(),
     })
     manifest['active'] = next_v
@@ -180,7 +222,8 @@ def dataset_changelog(filename, identity=None):
     return {
         'active': manifest['active'],
         'versions': [
-            {'v': v['v'], 'instruction': v['instruction'], 'ts': v['ts']}
+            {'v': v['v'], 'instruction': v['instruction'],
+             'summary': v.get('summary'), 'ts': v['ts']}
             for v in manifest['versions']
         ],
         'can_undo': manifest['active'] > min(v['v'] for v in manifest['versions']),

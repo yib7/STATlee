@@ -73,10 +73,20 @@ body { font-family: 'Inter', sans-serif; }
 .cc-modal { position: fixed; inset: 0; z-index: 95; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .cc-modal.hidden { display: none; }
 
-/* Changelog (5.16) */
-.changelog-item { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.75rem; padding: 0.35rem 0.5rem; border-radius: 0.5rem; }
-.changelog-item.active-version { background: rgba(99, 102, 241, 0.12); font-weight: 700; }
-.changelog-item .v-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; opacity: 0.7; flex-shrink: 0; }
+/* Conversational data-cleaning transcript (5.16) */
+.wrangle-chat { max-height: 14rem; }
+.revert-btn { border-color: rgba(245, 158, 11, 0.55); color: rgb(180, 83, 9); }
+.dark .revert-btn { color: rgb(251, 191, 36); }
+.revert-btn:not(:disabled):hover { background: rgba(245, 158, 11, 0.12); }
+.wrangle-turn { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.25rem; border-radius: 0.6rem; }
+.wrangle-turn.active-version { background: rgba(99, 102, 241, 0.10); }
+.wrangle-turn.pending { opacity: 0.85; }
+.wrangle-msg { font-size: 0.75rem; line-height: 1.35; padding: 0.4rem 0.6rem; border-radius: 0.75rem; max-width: 92%; }
+.wrangle-msg.user { align-self: flex-end; background: rgba(99, 102, 241, 0.16); border-bottom-right-radius: 0.25rem; }
+.wrangle-msg.applied { align-self: flex-start; background: rgba(16, 185, 129, 0.12); border-bottom-left-radius: 0.25rem; display: inline-flex; align-items: center; gap: 0.35rem; }
+.wrangle-note { align-self: center; display: inline-flex; gap: 0.4rem; align-items: baseline; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(148, 163, 184, 0.18); }
+.wrangle-note.active-version { background: rgba(99, 102, 241, 0.16); font-weight: 700; }
+.v-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; opacity: 0.65; flex-shrink: 0; margin-right: 0.3rem; }
 
 /* Focus visibility (5.9). Inputs/selects/textareas carry their own branded
    `focus:ring-2`, so scope the global outline to the controls that don't —

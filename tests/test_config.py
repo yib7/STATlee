@@ -46,6 +46,27 @@ def test_unknown_converse_role_defaults_to_flash():
     assert cfg.converse_role == 'flash'
 
 
+def test_wrangle_role_defaults_to_lite():
+    # Conversational data-cleaning runs on the cheapest tier by default.
+    assert Config.wrangle_role == 'lite'
+    cfg = Config(env='development')
+    cfg.validate()
+    assert cfg.wrangle_role == 'lite'
+
+
+def test_unknown_wrangle_role_defaults_to_lite():
+    cfg = Config(env='development', wrangle_role='ultra')
+    cfg.validate()
+    assert cfg.wrangle_role == 'lite'
+
+
+def test_wrangle_role_from_env(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('WRANGLE_ROLE', 'flash')
+    cfg = Config.from_env()
+    assert cfg.wrangle_role == 'flash'
+
+
 def test_production_subprocess_sandbox_warns():
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  sandbox_mode='subprocess')
