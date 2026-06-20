@@ -1,16 +1,12 @@
-"""Gemini LLM service with usage tracking (roadmap 3.3 / 3.4).
+"""Role-based LLM service with usage tracking (roadmap 3.3 / 3.4).
 
 Every model call in the app goes through this module. Calls are addressed by
 *role* — 'pro', 'flash', 'lite', or 'draft' — and the role→model mapping lives
 in config, so swapping a model is a config change, not a code change.
 
-A ``priority`` flag (workstream B) escalates a call one tier (lite→flash→pro)
-for the user-facing speed/quality toggle. Deterministic (temperature 0)
-``generate`` calls are cached so repeated moderation of the same prompt doesn't
-re-bill the API.
-
-Token usage is recorded per model and exposed for /metrics and the per-
-analysis cost display.
+``LLMService`` owns role resolution, the ``priority`` escalation (workstream B),
+the deterministic-call cache, and usage accounting. The Gemini wire protocol
+lives in ``GeminiBackend``.
 """
 import hashlib
 import logging
@@ -32,13 +28,98 @@ class LLMResult:
     usage: dict = field(default_factory=dict)  # {input, output, model}
 
 
+@dataclass
+class MediaPart:
+    """Provider-neutral binary content (image or PDF) for multimodal prompts.
+
+    Routes pass these inside a ``contents`` list instead of provider-specific
+    objects; each backend translates them to its own SDK shape.
+    """
+    data: bytes
+    mime_type: str   # e.g. 'image/png', 'application/pdf'
+
+
+# ---------------------------------------------------------------------------
+# Gemini backend — owns only the wire protocol.
+# ---------------------------------------------------------------------------
+class GeminiBackend:
+    def __init__(self, config):
+        self.config = config
+        self._client = None
+
+    def _client_(self):
+        if self._client is None:
+            from google import genai
+            if not self.config.gemini_api_key:
+                raise RuntimeError(
+                    "GEMINI_API_KEY is not configured on the server.")
+            self._client = genai.Client(api_key=self.config.gemini_api_key)
+        return self._client
+
+    @staticmethod
+    def _usage(response, model):
+        meta = getattr(response, 'usage_metadata', None)
+        return {
+            'model': model,
+            'input': getattr(meta, 'prompt_token_count', 0) or 0,
+            'output': getattr(meta, 'candidates_token_count', 0) or 0,
+        }
+
+    @staticmethod
+    def _to_contents(contents):
+        """Translate any MediaPart in the list into a google-genai Part."""
+        if isinstance(contents, str):
+            return contents
+        out = []
+        for c in contents:
+            if isinstance(c, MediaPart):
+                from google.genai import types
+                out.append(types.Part.from_bytes(
+                    data=c.data, mime_type=c.mime_type))
+            else:
+                out.append(c)
+        return out
+
+    def generate(self, model, contents, *, temperature, json_mode):
+        from google.genai import types
+        kwargs = {'temperature': temperature}
+        if json_mode:
+            kwargs['response_mime_type'] = 'application/json'
+        response = self._client_().models.generate_content(
+            model=model, contents=self._to_contents(contents),
+            config=types.GenerateContentConfig(**kwargs))
+        usage = self._usage(response, model)
+        logger.info("llm call provider=gemini model=%s in=%s out=%s",
+                    model, usage['input'], usage['output'])
+        return LLMResult(text=(response.text or '').strip(), usage=usage)
+
+    def stream(self, model, contents, *, temperature, usage_out):
+        from google.genai import types
+        stream = self._client_().models.generate_content_stream(
+            model=model, contents=self._to_contents(contents),
+            config=types.GenerateContentConfig(temperature=temperature))
+        last_chunk = None
+        for chunk in stream:
+            last_chunk = chunk
+            delta = getattr(chunk, 'text', None)
+            if delta:
+                yield delta
+        usage = (self._usage(last_chunk, model) if last_chunk
+                 else {'model': model, 'input': 0, 'output': 0})
+        if usage_out is not None:
+            usage_out.update(usage)
+
+
+# ---------------------------------------------------------------------------
+# Service — routing, cache, and usage accounting.
+# ---------------------------------------------------------------------------
 class LLMService:
     def __init__(self, config):
         self.config = config
-        self._gemini = None
         self._lock = threading.Lock()
         self.usage_totals = defaultdict(lambda: {'calls': 0, 'input': 0, 'output': 0})
         self._gen_cache = OrderedDict()   # deterministic generate() results
+        self._backend = GeminiBackend(config)
 
     # ------------------------------------------------------------------
     # Routing
@@ -57,15 +138,6 @@ class LLMService:
             raise ValueError(f"Unknown LLM role: {role!r}")
         return mapping[role]
 
-    def _gemini_client(self):
-        if self._gemini is None:
-            from google import genai
-            if not self.config.gemini_api_key:
-                raise RuntimeError(
-                    "GEMINI_API_KEY is not configured on the server.")
-            self._gemini = genai.Client(api_key=self.config.gemini_api_key)
-        return self._gemini
-
     # ------------------------------------------------------------------
     # Usage accounting
     # ------------------------------------------------------------------
@@ -79,16 +151,6 @@ class LLMService:
     def usage_snapshot(self):
         with self._lock:
             return {model: dict(v) for model, v in self.usage_totals.items()}
-
-    @staticmethod
-    def _gemini_usage(response, model):
-        meta = getattr(response, 'usage_metadata', None)
-        usage = {
-            'model': model,
-            'input': getattr(meta, 'prompt_token_count', 0) or 0,
-            'output': getattr(meta, 'candidates_token_count', 0) or 0,
-        }
-        return usage
 
     # ------------------------------------------------------------------
     # Deterministic-call cache (workstream B)
@@ -129,24 +191,13 @@ class LLMService:
             cached = self._cache_get(cache_key)
             if cached is not None:
                 return cached
-        result = self._generate_gemini(model, contents, temperature, json_mode)
+        result = self._backend.generate(
+            model, contents, temperature=temperature, json_mode=json_mode)
+        self._record(model, result.usage.get('input', 0),
+                     result.usage.get('output', 0))
         if cache_key is not None:
             self._cache_put(cache_key, result)
         return result
-
-    def _generate_gemini(self, model, contents, temperature, json_mode):
-        from google.genai import types
-        kwargs = {'temperature': temperature}
-        if json_mode:
-            kwargs['response_mime_type'] = 'application/json'
-        response = self._gemini_client().models.generate_content(
-            model=model, contents=contents,
-            config=types.GenerateContentConfig(**kwargs))
-        usage = self._gemini_usage(response, model)
-        self._record(model, usage['input'], usage['output'])
-        logger.info("llm call model=%s in=%s out=%s",
-                    model, usage['input'], usage['output'])
-        return LLMResult(text=(response.text or '').strip(), usage=usage)
 
     # ------------------------------------------------------------------
     # Streaming generation
@@ -155,24 +206,12 @@ class LLMService:
                priority=False):
         """Yield text deltas; fill ``usage_out`` (if given) when finished."""
         model = self._resolve(role, priority)
-        yield from self._stream_gemini(model, contents, temperature, usage_out)
-
-    def _stream_gemini(self, model, contents, temperature, usage_out):
-        from google.genai import types
-        stream = self._gemini_client().models.generate_content_stream(
-            model=model, contents=contents,
-            config=types.GenerateContentConfig(temperature=temperature))
-        last_chunk = None
-        for chunk in stream:
-            last_chunk = chunk
-            delta = getattr(chunk, 'text', None)
-            if delta:
-                yield delta
-        usage = self._gemini_usage(last_chunk, model) if last_chunk else {
-            'model': model, 'input': 0, 'output': 0}
-        self._record(model, usage['input'], usage['output'])
+        local = {}
+        yield from self._backend.stream(
+            model, contents, temperature=temperature, usage_out=local)
+        self._record(model, local.get('input', 0), local.get('output', 0))
         if usage_out is not None:
-            usage_out.update(usage)
+            usage_out.update(local)
 
 
 # ---------------------------------------------------------------------------

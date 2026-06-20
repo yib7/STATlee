@@ -18,8 +18,8 @@ maintainable platform — then grow its analytical feature set, and eventually e
 into a multi-user product.
 
 **Tech stack (current):** Python 3.11+ / Flask (app factory + blueprints), pandas +
-statsmodels, provider-agnostic LLM service (Google GenAI multi-model, optional Anthropic
-Claude for drafting), subprocess **or** Docker sandbox execution, Flask-SQLAlchemy /
+statsmodels, Google Gemini LLM service (multi-model via Google GenAI),
+subprocess **or** Docker sandbox execution, Flask-SQLAlchemy /
 Flask-Login / Flask-Limiter, vanilla JS (modular `CC` namespace) + Tailwind + CodeMirror,
 SSE streaming. Tested with pytest (fake-LLM client) and linted with ruff in CI.
 
@@ -450,10 +450,9 @@ sacrificing quality — is integral.
   (conversational explanation rarely needs the Pro model); evaluate whether the
   validation pass can merge into the draft via a stronger draft prompt. Decide with a
   small fixed evaluation prompt-suite run before/after each change.
-- **Evaluate the Claude API for the code-drafting stage** (`:657`) — Claude models are
-  particularly strong at code generation. Route every model call through the centralized
-  config (1.3) so provider/model is a config swap, then A/B the drafting stage
-  (quality / latency / cost) before committing.
+- **Tune the code-drafting model** (`:657`) — route every model call through the
+  centralized config (1.3) so the Gemini model is a config swap, then A/B the
+  drafting stage (quality / latency / cost) before committing.
 - **Surface usage:** log `usage_metadata` per call (3.3) and show a per-analysis
   token/cost summary in the Results tab; optionally expose an admin model-selection
   control. *(Absorbs the original "In-UI model selection & cost display" item.)*
@@ -1069,8 +1068,8 @@ re-proposed. (Where a request was half-covered, the new half's item is linked.)
   default keeps the promise. **Tier 7 breaks it outright** for logged-in users; decide
   whether to keep an anonymous "sandbox mode" alongside accounts, and update the footer
   copy accordingly.
-- **Claude API for code drafting (3.4):** is there an Anthropic API key/budget for the
-  A/B evaluation, and which stage(s) are in scope — drafting only, or validation too?
+- **Model selection for code drafting (3.4):** which Gemini model/stage(s) are in
+  scope for A/B evaluation — drafting only, or validation too?
 - **Auth provider (7.1):** self-hosted (Flask-Login) vs. hosted (Firebase / Supabase /
   Auth0)? Owning credentials means owning resets, lockouts, and breach risk.
 - **Logo asset (4.7):** need the final logo file (ideally SVG or transparent PNG, with a

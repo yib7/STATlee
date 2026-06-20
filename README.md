@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://codecaster-th8m.onrender.com/">Live demo</a> ·
+  <a href="https://your-statlee-deployment.example.com/">Live demo</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/SECURITY_AUDIT.md">Security</a> ·
   <a href="docs/CREDITS.md">Credits</a>
@@ -20,8 +20,8 @@
 <p align="center">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-97%20passing-3fb950">
-  <img alt="Powered by Gemini" src="https://img.shields.io/badge/AI-Google%20Gemini-8E75B2?logo=google&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-124%20passing-3fb950">
+  <img alt="AI provider" src="https://img.shields.io/badge/AI-Google%20Gemini-8E75B2?logo=google&logoColor=white">
 </p>
 
 ---
@@ -94,6 +94,15 @@ pip install -r requirements.txt
 APP_ENV=development python wsgi.py                 # http://localhost:5000
 ```
 
+### LLM configuration
+
+STATlee uses **Google Gemini**. Set `GEMINI_API_KEY` (get one at
+[Google AI Studio](https://aistudio.google.com/apikey)); it's required in
+production. Model ids per role can be pinned with `MODEL_PRO` / `MODEL_FLASH` /
+`MODEL_FLASH_LITE` but default to current Gemini models. The full feature set —
+including the multimodal paths (PDF codebook extraction, plot interpretation) —
+runs on Gemini.
+
 See [docs/README.md](docs/README.md) for the full setup, Docker sandbox build,
 and the documented [`.env.example`](.env.example).
 
@@ -102,7 +111,7 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 97 tests, fully offline (deterministic fake LLM — no API key)
+pytest -q         # 124 tests, fully offline (deterministic fake LLM — no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
@@ -141,12 +150,13 @@ adversarial review is in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
 
 ## Compliance & attribution
 
-AI analysis is **powered by [Google Gemini](https://ai.google.dev/)** via the
-Google GenAI SDK; use is subject to the
-[Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms)
-and the [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy)
-— STATlee's moderation gate enforces the prohibited-use rules. Third-party
-libraries and their licenses are listed in [CREDITS.md](docs/CREDITS.md).
+STATlee's AI analysis is powered by **[Google Gemini](https://ai.google.dev/)**
+via the Google GenAI SDK, as attributed in the in-app footer. Use is subject to
+the [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) and the
+[Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy), which
+STATlee's moderation gate enforces.
+
+Third-party libraries and their licenses are listed in [CREDITS.md](docs/CREDITS.md).
 
 STATlee is a research aid: **always review generated code and results before
 relying on them.**

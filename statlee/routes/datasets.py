@@ -250,11 +250,9 @@ def extract_pdf_codebook():
         else:
             prompt = prompts.pdf_extract()
 
-        from google.genai import types
         result = llm.get_service().generate(
             'flash',
-            [types.Part.from_bytes(data=pdf_bytes, mime_type='application/pdf'),
-             prompt],
+            [llm.MediaPart(data=pdf_bytes, mime_type='application/pdf'), prompt],
             temperature=0.1, json_mode=True)
         mapping = json.loads(result.text)
         if not isinstance(mapping, dict):

@@ -60,6 +60,35 @@ def test_production_docker_sandbox_is_quiet():
     assert not any('SANDBOX_MODE' in w for w in cfg.warnings)
 
 
+def test_production_requires_gemini_key():
+    cfg = Config(env='production', gemini_api_key='', flask_secret_key='s')
+    with pytest.raises(ValueError) as exc:
+        cfg.validate()
+    assert 'GEMINI_API_KEY' in str(exc.value)
+
+
+def test_production_ok_with_gemini_key():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s')
+    cfg.validate()   # must not raise
+    assert cfg.is_production
+
+
+def test_model_defaults_are_gemini(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    for var in ('MODEL_PRO', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
+        monkeypatch.delenv(var, raising=False)
+    cfg = Config.from_env()
+    assert cfg.model_pro == Config.model_pro
+    assert cfg.model_pro.startswith('gemini')
+
+
+def test_explicit_model_env_overrides_default(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('MODEL_PRO', 'gemini-custom')
+    cfg = Config.from_env()
+    assert cfg.model_pro == 'gemini-custom'
+
+
 def test_limiter_storage_uri_from_env(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'testing')
     monkeypatch.setenv('RATELIMIT_STORAGE_URI', 'redis://localhost:6379/0')

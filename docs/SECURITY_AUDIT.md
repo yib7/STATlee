@@ -1,7 +1,8 @@
 # Security Audit — STATlee
 
 _Adversarial review against the question: "Can a random internet user run up my
-Gemini bill or read my keys?"_ Date: 2026-06-14.
+LLM bill or read my keys?"_ Date: 2026-06-14 (updated 2026-06-20 for the
+structured-verdict moderation gate; the app uses Google Gemini).
 
 The review covered rate limiting, the `/run` run-guard, the execution sandbox,
 upload limits, moderation/prompt-injection, secret handling, CORS, and the SSE
@@ -22,6 +23,18 @@ moderation gate:
   code without passing `code_moderation` first.
 
 The bill-abuse boundary is **rate limiting** + (future) per-account credit caps.
+
+---
+
+## Update — 2026-06-19
+
+- **Rate-limit store now holds across workers — MEDIUM.** The limiter previously
+  used an in-memory store while the container runs multiple gunicorn workers, so
+  buckets were per-worker and reset on restart, loosening the bill-abuse limits.
+  `RATELIMIT_STORAGE_URI` (config) now selects the backing store; production
+  warns when it is still `memory://`. Set a shared store (e.g. `redis://`) or pin
+  `WEB_CONCURRENCY=1`.
+- **Moderation now fails closed.** See the resolved residual-risk note below.
 
 ---
 
@@ -72,9 +85,9 @@ only barrier.
 ## Verified clean (no change needed)
 
 - **Secret scrubbing (`sandbox._safe_env`).** Explicit allowlist; no app secret
-  (Gemini key, Flask secret, SMTP creds, DB URL) is ever placed in the child
-  environment. Windows-only entries (`APPDATA`, `SYSTEMROOT`, …) are plain
-  paths, not secrets, and don't apply to the Linux/Docker production path.
+  (Gemini key, Flask secret, SMTP creds, DB URL) is ever placed in
+  the child environment. Windows-only entries (`APPDATA`, `SYSTEMROOT`, …) are
+  plain paths, not secrets, and don't apply to the Linux/Docker production path.
 - **`/run` run-guard.** Per-identity approved-script store; if the submitted
   code differs from the approved script it is re-moderated via
   `code_moderation` and rejected on `BLOCK`. No path observed that runs
@@ -98,13 +111,14 @@ only barrier.
 
 ## Residual risk (documented, accepted for this round)
 
-- **Moderation is topical, not a security control.** The generation-time
-  `moderation` gate embeds the user prompt and keys off `'BLOCK' in text`, so a
-  prompt-injection that prevents the model from emitting `BLOCK` "passes." This
-  is acceptable because execution safety is enforced by the sandbox +
-  `code_moderation` run-guard, not by topical moderation. If moderation is ever
-  relied on as a boundary, switch to a structured verdict (e.g. JSON
-  `{"decision": "block|pass"}`) and default-deny on parse failure.
+- **Moderation is topical, not a security control.** Execution safety is enforced
+  by the sandbox + `code_moderation` run-guard, not by the topical gate.
+  _Update 2026-06-19:_ the prior fail-open weakness (keying off `'BLOCK' in text`,
+  which a prompt-injection could suppress) is **resolved** — `moderation` and
+  `code_moderation` now return a structured JSON verdict
+  (`{"decision": "pass"|"block"}`) and `routes.moderation_blocked` **defaults to
+  deny** on any non-`pass` or unparseable reply. The sandbox remains the real
+  boundary regardless.
 - **`/metrics` is reachable in open mode.** When `REQUIRE_LOGIN=false` and no
   `PASSWORD` is set, anyone can read aggregate token counts. Low sensitivity (no
   per-user data, no secrets). Lock down by setting `REQUIRE_LOGIN=true` or
@@ -115,12 +129,11 @@ only barrier.
   ceiling on the server's own key and email verification on signup.
 
 ## API-terms compliance
-- **Google Gemini API:** usage must follow the Gemini API Additional Terms and
-  the Prohibited Use Policy. The app's moderation gate blocks malware/illegal
-  requests, matching the prohibited-use requirements. A short compliance note +
-  "Powered by Google Gemini" attribution is added to the README/footer.
-- **Anthropic:** the optional Claude code-drafting path was **removed** (the app
-  is Gemini-only now), so no Anthropic attribution is required.
+The app uses the **Google Gemini API**; the operator must comply with its terms
+for their deployment. Usage must follow the Gemini API Additional Terms and the
+Prohibited Use Policy. The moderation gate blocks malware/illegal requests,
+matching the prohibited-use requirements. A compliance note + "Powered by Google
+Gemini" attribution is shown in the README/footer.
 
 ## Verification
 `pytest -q` → all pass (incl. the 4 new tests above); `ruff check .` clean;

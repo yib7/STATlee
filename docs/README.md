@@ -115,6 +115,10 @@ Running generated code directly on your host is *not recommended for untrusted i
    APP_ENV=development python wsgi.py
    ```
 
+**LLM.** STATlee uses Google Gemini — set `GEMINI_API_KEY` (required in
+production). Model ids per role can be pinned with `MODEL_PRO` / `MODEL_FLASH` /
+`MODEL_FLASH_LITE`. See `.env.example` for all variables.
+
 ## Development & Testing
 
 ```bash

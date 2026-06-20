@@ -3,18 +3,17 @@
 Status of the PLAN.md workstreams after the "secure → rebrand → land → ship"
 round. Branch: `claude/hardcore-hellman-c0fb41`.
 
-## What shipped (8 commits, one per unit)
+## What shipped (7 commits, one per unit)
 
 | # | Commit | Workstream |
 |---|---|---|
-| 1 | `refactor(llm): drop unused Anthropic provider` | B (cleanup) |
-| 2 | `feat(security): close rate-limit bypass + throttle all LLM endpoints` | **A** |
-| 3 | `chore: stop tracking local .claude/ tooling config` | hygiene |
-| 4 | `feat(billing): add credits/plan seam + check_and_debit` | **E** |
-| 5 | `feat(llm): priority speed/quality toggle + safe response cache` | **B** |
-| 6 | `feat(brand): rename CodeCaster -> STATlee + new logo/wordmark` | **C** |
-| 7 | `feat(landing): startup-style marketing page at /welcome` | **D** |
-| 8 | `docs: showpiece README, CREDITS, architecture guide + compliance` | **F** |
+| 1 | `feat(security): close rate-limit bypass + throttle all LLM endpoints` | **A** |
+| 2 | `chore: stop tracking local .claude/ tooling config` | hygiene |
+| 3 | `feat(billing): add credits/plan seam + check_and_debit` | **E** |
+| 4 | `feat(llm): priority speed/quality toggle + safe response cache` | **B** |
+| 5 | `feat(brand): rename CodeCaster -> STATlee + new logo/wordmark` | **C** |
+| 6 | `feat(landing): startup-style marketing page at /welcome` | **D** |
+| 7 | `docs: showpiece README, CREDITS, architecture guide + compliance` | **F** |
 
 ### A — Security audit + fixes
 Adversarial review in [SECURITY_AUDIT.md](SECURITY_AUDIT.md). Three real fixes:
@@ -86,7 +85,7 @@ These were intentionally skipped — they require access the automated run doesn
 - `docs/GEMINI.md` — AI-assistant context doc, now partly stale (says "Tailwind
   via CDN"; superseded by `docs/ARCHITECTURE.md`). Update or remove.
 - `docs/IMPLEMENTATION_PLAN.md` (~56 KB) — historical roadmap; still references
-  the old name and the removed Anthropic path. Keep as a record, or trim.
+  the old name. Keep as a record, or trim.
 
 No dead code found: all six `static/js/*.js` are loaded by `index.html`; all
 Python modules are imported.

@@ -1,6 +1,8 @@
 """LLM service: priority role escalation and the deterministic-call cache
 (workstream B). These exercise the real ``LLMService`` with the Gemini call
 monkeypatched out, so no network or API key is needed."""
+import pytest
+
 from statlee import llm
 from statlee.config import Config
 
@@ -30,7 +32,7 @@ def test_generate_caches_deterministic_calls(monkeypatch):
         seen.append(contents)
         return llm.LLMResult(text='ok', usage={'model': model, 'input': 1, 'output': 1})
 
-    monkeypatch.setattr(svc, '_generate_gemini', fake_gen)
+    monkeypatch.setattr(svc._backend, 'generate', fake_gen)
 
     # temperature 0 → deterministic → cached on the second identical call.
     svc.generate('lite', 'same prompt', temperature=0.0)
@@ -46,7 +48,7 @@ def test_nonzero_temperature_is_not_cached(monkeypatch):
     svc = _svc()
     seen = []
     monkeypatch.setattr(
-        svc, '_generate_gemini',
+        svc._backend, 'generate',
         lambda *a, **k: (seen.append(1), llm.LLMResult(text='x'))[1])
     svc.generate('lite', 'p', temperature=0.5)
     svc.generate('lite', 'p', temperature=0.5)
@@ -63,7 +65,20 @@ def test_priority_call_uses_separate_cache_entry(monkeypatch):
         models.append(model)
         return llm.LLMResult(text='ok', usage={'model': model})
 
-    monkeypatch.setattr(svc, '_generate_gemini', fake_gen)
+    monkeypatch.setattr(svc._backend, 'generate', fake_gen)
     svc.generate('lite', 'p', temperature=0.0)
     svc.generate('lite', 'p', temperature=0.0, priority=True)
     assert models == [svc.config.model_flash_lite, svc.config.model_flash]
+
+
+def test_service_uses_gemini_backend():
+    assert isinstance(_svc()._backend, llm.GeminiBackend)
+
+
+def test_gemini_translates_mediapart_to_part():
+    pytest.importorskip('google.genai')
+    from google.genai import types as gtypes
+    out = llm.GeminiBackend._to_contents(
+        ['caption', llm.MediaPart(data=b'\x89PNG', mime_type='image/png')])
+    assert out[0] == 'caption'
+    assert isinstance(out[1], gtypes.Part)

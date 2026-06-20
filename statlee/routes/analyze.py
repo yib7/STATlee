@@ -266,11 +266,9 @@ def interpret_results():
     contents = [prompt]
     if plots and not failed:
         import base64
-
-        from google.genai import types
         for b64 in plots[:3]:
             try:
-                contents.append(types.Part.from_bytes(
+                contents.append(llm.MediaPart(
                     data=base64.b64decode(b64), mime_type='image/png'))
             except Exception:
                 logger.warning("Skipping undecodable plot for interpretation")

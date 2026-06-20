@@ -84,6 +84,12 @@ def test_report_issue_requires_description(client):
     assert resp.status_code == 400
 
 
+def test_footer_attributes_default_provider(client):
+    # Default config is the Gemini provider; the footer attributes it.
+    assert 'Google Gemini' in client.get('/').get_data(as_text=True)
+    assert 'Google Gemini' in client.get('/welcome').get_data(as_text=True)
+
+
 def test_metrics_reflects_llm_usage(client, fake_llm):
     # Drive one converse call, then confirm usage shows up in /metrics.
     post_json(client, '/converse', {'message': 'explain correlation'})

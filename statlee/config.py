@@ -37,7 +37,7 @@ class Config:
     # --- Environment -------------------------------------------------------
     env: str = 'development'
 
-    # --- Secrets / providers ------------------------------------------------
+    # --- Secrets ------------------------------------------------------------
     gemini_api_key: str = ''
     flask_secret_key: str = ''
     app_password: str = ''          # legacy single-password gate (optional)
