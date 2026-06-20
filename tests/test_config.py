@@ -126,6 +126,28 @@ def test_limiter_storage_uri_falls_back_to_redis_url(monkeypatch):
     assert cfg.rate_limit_storage_uri == 'redis://cache:6379/1'
 
 
+def test_billing_without_ceiling_warns_in_production():
+    # Money-safety guardrail: billing on + no ceiling = unbounded operator bill.
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 billing_enabled=True, monthly_priority_call_ceiling=0)
+    cfg.validate()
+    assert any('ceiling' in w.lower() for w in cfg.warnings)
+
+
+def test_billing_with_ceiling_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 billing_enabled=True, monthly_priority_call_ceiling=500)
+    cfg.validate()
+    assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
+
+
+def test_billing_off_does_not_warn_about_ceiling():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 billing_enabled=False, monthly_priority_call_ceiling=0)
+    cfg.validate()
+    assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
+
+
 def test_production_memory_limiter_warns():
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  rate_limit_storage_uri='memory://')

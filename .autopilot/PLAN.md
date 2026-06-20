@@ -48,9 +48,10 @@ lite role; a "revert to original" route restores v1; changelog renders as a chat
 **Checkpoint:** config grows a guardrail warning when billing is on without a spend ceiling in
 production; `.env.example` documents the money-safe settings; full suite green.
 
-- [ ] `Config.validate()` warns if `billing_enabled` and `monthly_priority_call_ceiling<=0` in prod
-- [ ] Document money-safe env defaults (low ceiling, rate limits, file TTL) in `.env.example`
-- [ ] Tests: config warning test
+- [x] `Config.validate()` warns if `billing_enabled` and `monthly_priority_call_ceiling<=0` in prod
+- [x] Document money-safe env defaults in `.env.example` (MONEY SAFETY block, low ceiling=200,
+      WRANGLE_ROLE added)
+- [x] Tests: 3 config warning tests — **135 passed**, ruff clean
 
 ## SP4 — Deploy + pricing playbook (task 2: docs only, $0)
 

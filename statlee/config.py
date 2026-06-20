@@ -220,6 +220,14 @@ class Config:
                 "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
                 "WEB_CONCURRENCY=1.")
 
+        if (self.is_production and self.billing_enabled
+                and self.monthly_priority_call_ceiling <= 0):
+            self._warn(
+                "BILLING_ENABLED is on but MONTHLY_PRIORITY_CALL_CEILING is unset "
+                "(<=0): there is NO monthly cap on priority requests billed to the "
+                "operator's API key, so one abusive session could run up an "
+                "unbounded bill. Set MONTHLY_PRIORITY_CALL_CEILING to a low number.")
+
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")
             self.converse_role = 'flash'
