@@ -59,6 +59,37 @@ def test_generate_report_streams_markdown(client, fake_llm):
     assert 'Findings' in text
 
 
+def test_generate_report_is_two_pass_pro_then_flash(client, fake_llm):
+    """The draft is compiled on the bigger 'pro_max' (3.1-pro) model, then the
+    finished paper is written on 'pro' (3.5-flash). The converse discussion of
+    the findings is folded into the draft pass."""
+    resp = post_json(client, '/generate_report',
+                     {'output': 'coef=1.2 p=0.01', 'interpretation': 'significant',
+                      'converse': [{'role': 'user', 'text': 'is this causal?'}]})
+    sse_events(resp)
+    by_kind = {c[1]: c for c in fake_llm.calls}
+    assert by_kind['report_draft'][0] == 'pro_max'   # draft on the bigger model
+    assert by_kind['report'][0] == 'pro'             # final paper on flash
+    assert 'is this causal?' in by_kind['report_draft'][2]
+
+
+def test_generate_report_essay_format_reaches_prompt(client, fake_llm):
+    resp = post_json(client, '/generate_report',
+                     {'output': 'coef=1.2', 'interpretation': 'ok',
+                      'format': 'essay'})
+    sse_events(resp)
+    final = next(c for c in fake_llm.calls if c[1] == 'report')
+    assert 'traditional essay' in final[2]
+
+
+def test_generate_report_default_format_is_sectioned(client, fake_llm):
+    resp = post_json(client, '/generate_report',
+                     {'output': 'coef=1.2', 'interpretation': 'ok'})
+    sse_events(resp)
+    final = next(c for c in fake_llm.calls if c[1] == 'report')
+    assert 'formal data analysis report' in final[2]
+
+
 def test_generate_report_revision(client, fake_llm):
     fake_llm.set('report_revision', 'A tighter paragraph.')
     resp = post_json(client, '/generate_report', {'revision': {

@@ -69,9 +69,11 @@
                 background: document.getElementById('reportContext').value,
                 length: document.getElementById('reportLength').value,
                 tone: document.getElementById('reportTone').value,
+                format: document.getElementById('reportFormat').value,
                 output: CC.state.lastRun.output,
                 interpretation: CC.state.latestInterpretation,
                 history: CC.state.chatHistory,
+                converse: CC.state.converseHistory,
             });
             const ct = res.headers.get('Content-Type') || '';
             if (!ct.includes('text/event-stream')) {

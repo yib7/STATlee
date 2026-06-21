@@ -408,12 +408,107 @@ def method_prompt(method_name, method_desc, column_context):
 # Report builder (5.17)
 # ---------------------------------------------------------------------------
 
-def report(background, length, tone, terminal_output, interpretation, history):
-    history_text = "\n".join(
+# Shared anti-"AI slop" writing rules so generated reports read like a person
+# wrote them, not a model. Reused by both the full report and selection revision
+# so a revised passage can't quietly reintroduce the tells.
+_PROSE_STYLE = """
+    WRITING STYLE (follow strictly):
+    - Write natural, plain prose that directly addresses what the user asked for.
+      Do not pad, hedge, or summarize the obvious.
+    - Do NOT use em-dashes (the "—" character). Use commas, periods, parentheses,
+      or a colon instead.
+    - Do NOT use the "it's not X, it's Y" / "not only ... but also" antithesis
+      cliche, and avoid other formulaic AI phrasing and inflated transitions
+      ("moreover", "furthermore", "delve", "it is important to note",
+      "in today's world", "navigate the landscape").
+    - No emojis.
+    - Vary sentence length and structure; prefer concrete, data-grounded
+      statements over generic commentary.
+    """
+
+
+def _format_turns(turns):
+    """Flatten a list of {role, text} chat turns into a readable transcript."""
+    return "\n".join(
         f"{m.get('role', 'user').upper()}: {m.get('text', '')}"
-        for m in (history or []))
+        for m in (turns or []))
+
+
+def _is_essay(fmt):
+    return (fmt or '').strip().lower() == 'essay'
+
+
+def _structure_block(fmt):
+    """Structural instructions for the chosen output format: a traditional
+    flowing essay, or the formal sectioned report."""
+    if _is_essay(fmt):
+        return """
+    FORMAT: a traditional essay. Write it as flowing prose with a clear
+    beginning, middle, and end. Open with an introduction that frames the
+    question and states the thesis, develop the argument across body paragraphs
+    that walk through the evidence, and close with a conclusion that ties the
+    findings back to the question. Use a single "# " title at the top. Do NOT
+    use section headers, bullet lists, or tables. Carry the reader through with
+    connected paragraphs.
+    """
+    return """
+    FORMAT: a formal data analysis report. Write it in clean Markdown with a
+    "# " title and "## " sections (Introduction/Background, Methods, Results,
+    Discussion/Conclusion). Lead each results claim with the specific
+    statistics it rests on.
+    """
+
+
+def report_draft(background, length, fmt, terminal_output, interpretation,
+                 history, converse):
+    """First pass (run on the bigger 3.1-pro model): compile every available
+    piece of context, including the converse discussion of the findings, into a
+    grounded working draft that the writing pass turns into a finished piece."""
+    history_text = _format_turns(history)
+    converse_text = _format_turns(converse)
     return f"""
-    You are an academic writing assistant producing a data analysis report.
+    You are a research drafting assistant. Before the final {('essay' if _is_essay(fmt) else 'report')}
+    is written, compile EVERYTHING known about this analysis into a tight
+    working draft for the writer. Pull together the user's background, what was
+    actually asked and run, the hard numbers from the terminal output, the
+    interpretation, and any back-and-forth discussion of the findings in the
+    conversation log below. Decide what the headline results are and what
+    matters most.
+
+    STRICT GROUNDING:
+    - Use ONLY the material below. Carry exact numbers (coefficients, p-values,
+      means, Ns) forward verbatim. NEVER invent statistics.
+    - If something is unsupported or unclear, flag it as a gap rather than
+      papering over it.
+
+    USER-PROVIDED BACKGROUND CONTEXT:
+    {background or '(none provided)'}
+
+    ANALYSIS HISTORY (what was asked / run):
+    {history_text or '(none)'}
+
+    DISCUSSION OF THE FINDINGS (chat between the user and the assistant):
+    {converse_text or '(none)'}
+
+    TERMINAL OUTPUT (the hard data):
+    {terminal_output or '(none)'}
+
+    INTERPRETATION OF RESULTS:
+    {interpretation or '(none)'}
+
+    Produce a structured working draft: the research question, the key findings
+    with their exact numbers, the methods used, the limitations/gaps, and a
+    suggested narrative arc for a {length or 'medium'}-length write-up. This is
+    scaffolding for the writer, not the finished piece.
+    """
+
+
+def report(background, length, tone, fmt, terminal_output, interpretation,
+           history, draft=None):
+    history_text = _format_turns(history)
+    piece = 'essay' if _is_essay(fmt) else 'report'
+    return f"""
+    You are an academic writing assistant producing a data analysis {piece}.
 
     STRICT GROUNDING RULES:
     - Base every claim ONLY on the actual analysis outputs below.
@@ -421,6 +516,14 @@ def report(background, length, tone, terminal_output, interpretation, history):
       terminal output when stating conclusions.
     - If the outputs do not support a conclusion, say so rather than inventing
       one. NEVER fabricate statistics.
+
+    A research assistant has already compiled a working draft from all the
+    available material. Use it as your backbone: keep its findings and exact
+    numbers, but write the finished piece yourself in clean prose. If the draft
+    and the raw outputs ever disagree, trust the raw outputs.
+
+    WORKING DRAFT (scaffolding to write from):
+    {draft or '(none — work directly from the material below)'}
 
     USER-PROVIDED BACKGROUND CONTEXT:
     {background or '(none provided)'}
@@ -436,10 +539,9 @@ def report(background, length, tone, terminal_output, interpretation, history):
 
     REQUESTED LENGTH: {length or 'medium (roughly 500-800 words)'}
     REQUESTED STYLE/TONE: {tone or 'academic'}
-
-    Write the report in clean Markdown with a # title, ## sections
-    (Introduction/Background, Methods, Results, Discussion/Conclusion), and
-    data-cited findings. No emojis. Output ONLY the Markdown report.
+    {_structure_block(fmt)}
+    {_PROSE_STYLE}
+    Output ONLY the {piece} as clean Markdown.
     """
 
 
@@ -458,6 +560,6 @@ def report_revision(report_md, selection, instruction):
 
     INSTRUCTION:
     {instruction}
-
+    {_PROSE_STYLE}
     Output ONLY the revised passage as Markdown.
     """

@@ -54,15 +54,15 @@ def chat():
     history = data.get('history', [])
     codebook = data.get('codebook', {}) or {}
     current_code = (data.get('current_code') or '').strip() or None  # 5.12
-    priority = bool(data.get('priority'))  # workstream B speed/quality toggle
+    pro_mode = bool(data.get('pro'))  # "Pro mode": code-gen on the bigger model
 
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
 
-    # Monetization seam (E): one chokepoint decides whether the (costlier)
-    # priority tier is allowed for this user. No-op unless billing is enabled.
+    # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
+    # request is allowed for this user. No-op unless billing is enabled.
     allowed, deny_msg = billing.check_and_debit(
-        _current_user(), priority=priority, config=_cfg())
+        _current_user(), priority=pro_mode, config=_cfg())
     if not allowed:
         return json_error(deny_msg or 'Out of credits.', 402)
 
@@ -72,7 +72,7 @@ def chat():
     # Structured verdict + default-deny: a malformed/ambiguous reply blocks.
     try:
         mod = service.generate('lite', prompts.moderation(user_prompt),
-                               temperature=0.0, json_mode=True, priority=priority)
+                               temperature=0.0, json_mode=True)
     except Exception:
         logger.exception("Moderation service failed")
         return json_error('Moderation service failed.', 503)
@@ -103,7 +103,7 @@ def chat():
             sel = service.generate(
                 'flash',
                 prompts.feature_selection(column_context, user_prompt),
-                temperature=0.1, json_mode=True, priority=priority)
+                temperature=0.1, json_mode=True)
             selection_usage = sel.usage
             candidates = json.loads(sel.text).get('required_columns', [])
             if isinstance(candidates, list):
@@ -130,10 +130,11 @@ def chat():
         draft_usage, validation_usage = {}, {}
         try:
             # Phase A: stream the draft (5.5) — the slowest step is now visible.
+            # Pro mode routes code generation to the bigger 'pro_max' model.
             yield sse_event({'type': 'phase', 'phase': 'drafting'})
             draft_accumulated = ''
-            for delta in service.stream('draft', draft_prompt,
-                                        temperature=0.1, priority=priority,
+            for delta in service.stream('pro_max' if pro_mode else 'draft',
+                                        draft_prompt, temperature=0.1,
                                         usage_out=draft_usage):
                 draft_accumulated += delta
                 yield sse_event({'type': 'delta', 'text': delta})
@@ -145,7 +146,7 @@ def chat():
             for delta in service.stream(
                     'lite',
                     prompts.validation(target_language, filename, draft_code),
-                    temperature=0.0, priority=priority,
+                    temperature=0.0,
                     usage_out=validation_usage):
                 validated += delta
                 yield sse_event({'type': 'delta', 'text': delta})
@@ -244,7 +245,6 @@ def interpret_results():
     if plots is None:
         plots = [data.get('plot')] if data.get('plot') else []
     code = data.get('code') or ''
-    priority = bool(data.get('priority'))
     if 'success' in data:
         failed = not data.get('success')
     else:
@@ -275,7 +275,7 @@ def interpret_results():
         usage = {}
         try:
             for delta in service.stream('flash', contents, temperature=0.3,
-                                        priority=priority, usage_out=usage):
+                                        usage_out=usage):
                 yield sse_event({'type': 'delta', 'text': delta})
             yield sse_event({'type': 'done', 'debug': failed,
                              'usage': _sum_usage(usage)})

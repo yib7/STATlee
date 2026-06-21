@@ -111,17 +111,21 @@ def test_explicit_model_env_overrides_default(monkeypatch):
 
 
 def test_pro_model_default_is_3_5_flash(monkeypatch):
-    # The premium tier was swapped off 3.1-pro onto the cheaper/faster 3.5-flash.
+    # Default code generation runs on the cheaper/faster 3.5-flash; the bigger
+    # 3.1-pro is reserved for the on-demand "Pro mode" toggle (model_pro_max).
     monkeypatch.setenv('APP_ENV', 'testing')
     monkeypatch.delenv('MODEL_PRO', raising=False)
+    monkeypatch.delenv('MODEL_PRO_MAX', raising=False)
     cfg = Config.from_env()
     assert cfg.model_pro == 'gemini-3.5-flash'
+    assert cfg.model_pro_max == 'gemini-3.1-pro'
 
 
 def test_active_model_prices_cover_every_active_model():
     cfg = Config(env='testing', gemini_api_key='k', flask_secret_key='s')
     prices = cfg.active_model_prices()
-    for model_id in (cfg.model_pro, cfg.model_flash, cfg.model_flash_lite):
+    for model_id in (cfg.model_pro, cfg.model_pro_max,
+                     cfg.model_flash, cfg.model_flash_lite):
         assert model_id in prices, f'missing price for {model_id}'
         assert prices[model_id]['input'] > 0
         assert prices[model_id]['output'] > 0

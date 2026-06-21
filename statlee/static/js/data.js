@@ -208,7 +208,9 @@
             CC.dockCodebook();
             document.getElementById('codebookContainer').classList.add('hidden');
             document.getElementById('codebookList').innerHTML = '';
+            if (CC.dockWrangle) CC.dockWrangle();   // dock any floating cleaning panel before hiding
             document.getElementById('changelogPanel').classList.add('hidden');
+            resetCodebookViewer();   // clear any prior codebook doc, back to empty state
 
             try {
                 const { ok, data } = await CC.postForm('/upload', formData);
@@ -264,8 +266,7 @@
             CC.pipeline.set('codebook_link', 'active');
 
             const fileURL = URL.createObjectURL(file);
-            document.getElementById('pdfViewerFrame').src = fileURL;
-            document.getElementById('tabPdf').style.display = 'flex';
+            showCodebookDocument(fileURL);   // swap empty state -> the document
             CC.switchTab('pdf');
 
             const formData = new FormData();
@@ -281,6 +282,7 @@
                     if (ext.ok && ext.data.status === 'success') {
                         CC.state.pdfMapping = Object.assign({}, CC.state.pdfMapping, ext.data.mapping);
                         if (ext.data.usage) CC.addUsage(ext.data.usage);
+                        CC.renderCodebookUI();   // surface new descriptions on hover (no-op if not yet classified)
                         const n = Object.keys(ext.data.mapping).length;
                         const matched = Object.keys(ext.data.mapping)
                             .filter(k => CC.state.headers.some(h => h.toLowerCase() === k.toLowerCase())).length;
@@ -354,7 +356,12 @@
             CC.state.headers = profile.headers;
             CC.renderTableHeaders(CC.state.headers);
             await CC.fetchDataPage(1);
-            await fetchCodebook(CC.state.filename, true);  // re-profile quietly
+            // Re-classify in the BACKGROUND, not awaited: the edit itself is
+            // already done and shown above. Awaiting this slow LLM re-profile
+            // used to hold the Apply button's spinner spinning for seconds after
+            // a successful edit. Fire-and-forget; it swallows its own errors and
+            // refreshes the codebook chips when it lands.
+            fetchCodebook(CC.state.filename, true);
         }
     }
 
@@ -450,6 +457,37 @@
         });
     }
 
+    // --- codebook viewer tab (empty state <-> loaded document) --------------------------
+    function showCodebookDocument(url) {
+        const frame = document.getElementById('pdfViewerFrame');
+        const empty = document.getElementById('codebookEmptyState');
+        if (frame) { frame.src = url; frame.classList.remove('hidden'); }
+        if (empty) empty.classList.add('hidden');
+    }
+    function resetCodebookViewer() {
+        const frame = document.getElementById('pdfViewerFrame');
+        const empty = document.getElementById('codebookEmptyState');
+        if (frame) { frame.src = ''; frame.classList.add('hidden'); }
+        if (empty) empty.classList.remove('hidden');
+    }
+    // The Codebook tab is always reachable now. Its empty-state buttons let the
+    // user add a codebook (or a survey to generate descriptions) at any time
+    // WITHOUT re-uploading the dataset — they reuse the existing pdfInput flow.
+    function initCodebookTab() {
+        const uploadBtn = document.getElementById('codebookTabUploadBtn');
+        const surveyBtn = document.getElementById('codebookTabSurveyBtn');
+        function pickCodebook(mode) {
+            if (!CC.state.filename) {
+                CC.toast('Upload a dataset first, then add a codebook here.', 'info');
+                return;
+            }
+            pdfMode = mode;
+            document.getElementById('pdfInput').click();
+        }
+        if (uploadBtn) uploadBtn.addEventListener('click', () => pickCodebook('codebook'));
+        if (surveyBtn) surveyBtn.addEventListener('click', () => pickCodebook('survey'));
+    }
+
     // --- data-viewer zoom -----------------------------------------------------------------
     let dataZoom = 1;
     function applyDataZoom() {
@@ -505,5 +543,6 @@
         initReroll();
         initSuggestNow();
         initDataZoom();
+        initCodebookTab();
     });
 }());

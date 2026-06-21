@@ -19,8 +19,11 @@ def test_index_injects_model_price_map(client):
     assert 'CC_BOOT' in html
     assert 'prices' in html
     assert 'gemini-3.5-flash' in html
-    assert 'gemini-3-flash-preview' in html
-    assert 'gemini-3.1-flash-lite-preview' in html
+    assert 'gemini-3.1-flash-lite' in html
+    assert 'gemini-3.1-pro' in html          # Pro mode model is priced for the cost display
+    # Retired models must not linger in the injected price map.
+    assert 'gemini-3-flash-preview' not in html
+    assert 'gemini-3.1-flash-lite-preview' not in html
 
 
 # --- SP3: data-viewer zoom controls -----------------------------------------
@@ -56,6 +59,13 @@ def test_report_is_a_tab_not_a_modal(client):
     assert 'id="reportBtn"' not in html
     # still reachable from the split-pane selector
     assert 'value="report"' in html
+
+
+# --- report format selector: formal report vs traditional essay -------------
+def test_report_has_format_selector(client):
+    html = _index_html(client)
+    assert 'id="reportFormat"' in html
+    assert 'value="essay"' in html
 
 
 # --- SP8: compact codebook grid ---------------------------------------------

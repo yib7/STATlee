@@ -46,12 +46,13 @@ class FakeLLMService:
         ('data mentor', 'interpret'),
         ('analysis guide', 'converse_guide'),
         ('academic mentor', 'converse'),
+        ('research drafting assistant', 'report_draft'),
         ('academic writing assistant', 'report'),
         ('revising one part', 'report_revision'),
     ]
 
     def __init__(self):
-        self.calls = []                 # (role, kind, text, priority) per call
+        self.calls = []                 # (role, kind, text) per call
         self.usage_totals = {}
         self._overrides = {}
         self._defaults = {
@@ -73,6 +74,7 @@ class FakeLLMService:
             'interpret': '### Summary\nThe effect is **significant**.',
             'converse_guide': 'Try framing it as X predicts Y.',
             'converse': 'That p-value means the result is unlikely by chance.',
+            'report_draft': 'DRAFT: question, findings (coef=1.2, p=0.01), gaps.',
             'report': '# Report\n\nThe analysis shows a strong effect.',
             'report_revision': 'The revised passage.',
         }
@@ -113,20 +115,18 @@ class FakeLLMService:
         entry['output'] += 5
 
     # -- LLMService surface ------------------------------------------------
-    def generate(self, role, contents, *, temperature=0.2, json_mode=False,
-                 priority=False):
+    def generate(self, role, contents, *, temperature=0.2, json_mode=False):
         text = self._flatten(contents)
         kind = self._kind(text)
-        self.calls.append((role, kind, text, priority))
+        self.calls.append((role, kind, text))
         self._track(role, kind)
         return llm.LLMResult(text=self._payload(kind),
                              usage={'model': role, 'input': 10, 'output': 5})
 
-    def stream(self, role, contents, *, temperature=0.2, usage_out=None,
-               priority=False):
+    def stream(self, role, contents, *, temperature=0.2, usage_out=None):
         text = self._flatten(contents)
         kind = self._kind(text)
-        self.calls.append((role, kind, text, priority))
+        self.calls.append((role, kind, text))
         self._track(role, kind)
         payload = self._payload(kind)
         # Emit in two chunks to exercise delta accumulation.

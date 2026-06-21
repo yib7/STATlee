@@ -62,6 +62,10 @@ body { font-family: 'Inter', sans-serif; }
 #codebookFloat { position: fixed; top: 90px; right: 30px; width: 330px; max-height: 70vh; z-index: 80; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); border-radius: 0.75rem; }
 #codebookFloat .float-body { overflow-y: auto; padding: 0.9rem; }
 
+/* Floating data-cleaning panel (same draggable pattern as the codebook float) */
+#wrangleFloat { position: fixed; top: 90px; right: 30px; width: 360px; max-height: 75vh; z-index: 80; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); border-radius: 0.75rem; }
+#wrangleFloat .float-body { overflow-y: auto; padding: 0.9rem; }
+
 /* Toasts */
 #toastArea { position: fixed; bottom: 56px; right: 18px; z-index: 120; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
 .cc-toast { padding: 0.7rem 1rem; border-radius: 0.7rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 10px 22px rgba(0,0,0,0.25); animation: fadeInUp 0.3s ease forwards; }
@@ -92,6 +96,12 @@ body { font-family: 'Inter', sans-serif; }
    variable list stops eating vertical space. Descriptions move to hover. */
 .codebook-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.4rem; }
 .codebook-chip { min-width: 0; }
+/* The per-variable description is hidden in compact mode; the Expand toggle adds
+   `.expanded`, which drops to a single column and reveals every description so the
+   full view is readable without hovering chip by chip. */
+.codebook-desc { display: none; }
+.codebook-grid.expanded { grid-template-columns: 1fr; }
+.codebook-grid.expanded .codebook-desc { display: block; }
 
 /* Data-viewer zoom controls (cycle 2) */
 .data-zoom-btn { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; line-height: 1; min-width: 1.75rem; padding: 0.3rem 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.4rem; color: #334155; background: rgba(255,255,255,0.7); transition: background 0.15s, border-color 0.15s; }
@@ -99,6 +109,14 @@ body { font-family: 'Inter', sans-serif; }
 .data-zoom-reset { min-width: 3rem; }
 .dark .data-zoom-btn { border-color: #475569; color: #cbd5e1; background: rgba(30,41,59,0.6); }
 .dark .data-zoom-btn:hover { background: rgba(99,102,241,0.18); border-color: #6366f1; color: #c7d2fe; }
+
+/* Native <select> dropdown legibility (cycle 2 fix). The option list is drawn
+   by the OS, so in dark mode it inherited low-contrast colors (dim grey on grey,
+   e.g. the split-pane "what does this pane show" picker). Force explicit option
+   colors per theme and hint the platform to render dark form controls. */
+select option { background-color: #ffffff; color: #0f172a; }
+.dark select { color-scheme: dark; }
+.dark select option { background-color: #1e293b; color: #e2e8f0; }
 
 /* Focus visibility (5.9). Inputs/selects/textareas carry their own branded
    `focus:ring-2`, so scope the global outline to the controls that don't —

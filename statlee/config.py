@@ -62,12 +62,16 @@ class Config:
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
 
     # --- Model routing (3.4) --------------------------------------------------
-    # Premium tier runs on gemini-3.5-flash (cheaper + faster than 3.1-pro with
-    # near-parity quality); flash/lite unchanged. Tier ordering by cost stays
-    # coherent: pro (1.50/9.00) > flash (0.50/3.00) > lite (0.25/1.50).
-    model_pro: str = 'gemini-3.5-flash'
-    model_flash: str = 'gemini-3-flash-preview'
-    model_flash_lite: str = 'gemini-3.1-flash-lite-preview'
+    # Default code generation runs on gemini-3.5-flash (cheap, fast, near-parity),
+    # with gemini-3.1-flash-lite for the lighter flash/lite roles. The in-app
+    # "Pro mode" toggle re-routes code generation to model_pro_max
+    # (gemini-3.1-pro) for the hardest analyses — a bigger, stronger, costlier
+    # model. Cost ordering: pro_max (2.00/12.00) > pro=flash-default (1.50/9.00) >
+    # flash = lite (0.25/1.50). Override any role independently via MODEL_* env.
+    model_pro: str = 'gemini-3.5-flash'        # default code-gen / 'draft' role
+    model_pro_max: str = 'gemini-3.1-pro'      # "Pro mode" code-gen upgrade
+    model_flash: str = 'gemini-3.1-flash-lite'
+    model_flash_lite: str = 'gemini-3.1-flash-lite'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
     # Conversational data-cleaning ("wrangle") tier. Defaults to the cheapest
     # model since these are short, structured transforms ("delete column 2",
@@ -80,9 +84,9 @@ class Config:
     # only let the client show an approximate session cost. Override by editing
     # this map or constructing Config with your own.
     model_prices: dict = field(default_factory=lambda: {
+        'gemini-3.1-pro': {'input': 2.00, 'output': 12.00},
         'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
-        'gemini-3-flash-preview': {'input': 0.50, 'output': 3.00},
-        'gemini-3.1-flash-lite-preview': {'input': 0.25, 'output': 1.50},
+        'gemini-3.1-flash-lite': {'input': 0.25, 'output': 1.50},
     })
 
     # --- Analysis tunables -----------------------------------------------------
@@ -153,6 +157,7 @@ class Config:
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
             model_pro=os.environ.get('MODEL_PRO', cls.model_pro).strip(),
+            model_pro_max=os.environ.get('MODEL_PRO_MAX', cls.model_pro_max).strip(),
             model_flash=os.environ.get('MODEL_FLASH', cls.model_flash).strip(),
             model_flash_lite=os.environ.get('MODEL_FLASH_LITE', cls.model_flash_lite).strip(),
             converse_role=os.environ.get('CONVERSE_ROLE', 'flash').strip().lower(),
@@ -190,7 +195,8 @@ class Config:
         """Price map (USD per 1M tokens) for the models actually in use, keyed
         by model id — exactly what the client needs to estimate session cost.
         Models with no known price are simply omitted (they contribute 0)."""
-        active = {self.model_pro, self.model_flash, self.model_flash_lite}
+        active = {self.model_pro, self.model_pro_max,
+                  self.model_flash, self.model_flash_lite}
         return {mid: self.model_prices[mid] for mid in active
                 if mid in self.model_prices}
 

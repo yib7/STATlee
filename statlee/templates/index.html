@@ -241,7 +241,7 @@
 
                 <!-- Upload Section -->
                 <div class="animate-fade-in-up" style="animation-delay: 0.2s;">
-                    <label class="block text-sm font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="fileInput">1. Upload Dataset</label>
+                    <label class="block text-sm font-bold text-slate-900 dark:text-slate-300 mb-3 uppercase tracking-wider" for="fileInput">1. Upload &amp; Configure Dataset</label>
                     <div class="relative border-2 border-dashed border-slate-400 dark:border-slate-700 rounded-xl p-6 hover:border-indigo-600 dark:hover:border-indigo-500 transition-colors group bg-white/50 dark:bg-black/20 text-center">
                         <input type="file" id="fileInput" accept=".csv,.tsv,.xlsx,.xls,.dta,.sav" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" aria-label="Upload dataset file"/>
                         <div class="flex flex-col items-center gap-2 text-slate-600 dark:text-slate-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
@@ -268,25 +268,38 @@
                                 <svg id="codebookChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
                             </span>
                         </button>
-                        <button id="codebookPopoutBtn" class="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline shrink-0 inline-flex items-center gap-1" title="Float the codebook so it stays visible on any tab" aria-label="Pop out codebook">Pop out<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17L17 7M9 7h8v8"></path></svg></button>
+                        <div class="flex items-center gap-3 shrink-0">
+                            <button id="codebookExpandBtn" class="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline inline-flex items-center gap-1" title="Show each variable's full description without hovering" aria-label="Toggle expanded codebook view"><span id="codebookExpandLabel">Expand</span><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"></path></svg></button>
+                            <button id="codebookPopoutBtn" class="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline inline-flex items-center gap-1" title="Float the codebook so it stays visible on any tab" aria-label="Pop out codebook">Pop out<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17L17 7M9 7h8v8"></path></svg></button>
+                        </div>
                     </div>
                     <div id="codebookList" class="codebook-grid"></div>
                 </div>
 
                 <!-- Conversational data cleaning + version control (5.16) -->
                 <div id="changelogPanel" class="hidden bg-white/60 dark:bg-black/30 p-5 rounded-xl border border-slate-300 dark:border-slate-700/50 animate-fade-in-up">
-                    <div class="flex items-center justify-between mb-3">
-                        <label class="block text-sm font-bold text-slate-900 dark:text-slate-300 uppercase tracking-wider" for="wrangleInput">Data Cleaning</label>
-                        <div class="flex gap-1.5">
+                    <div class="flex items-center justify-between gap-2 mb-3">
+                        <button id="wrangleToggleBtn" type="button" class="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-300 uppercase tracking-wider group focus:outline-none" aria-label="Toggle data cleaning visibility">
+                            Data Cleaning
+                            <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors normal-case tracking-normal">
+                                <span id="wrangleToggleLabel">Hide</span>
+                                <svg id="wrangleChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
+                            </span>
+                        </button>
+                        <div class="flex items-center gap-1.5 shrink-0">
                             <button id="undoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all inline-flex items-center gap-1" aria-label="Undo last data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h11a4 4 0 010 8h-1M3 10l4-4M3 10l4 4"></path></svg>Undo</button>
                             <button id="redoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-slate-300 dark:border-slate-700 rounded-lg disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all inline-flex items-center gap-1" aria-label="Redo data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10H10a4 4 0 000 8h1M21 10l-4-4M21 10l-4 4"></path></svg>Redo</button>
                             <button id="revertBtn" disabled class="revert-btn px-2.5 py-1 text-[10px] font-mono font-bold uppercase border rounded-lg disabled:opacity-40 transition-all inline-flex items-center gap-1" title="Restore the dataset to its originally-uploaded state (undo-able)" aria-label="Revert dataset to original upload"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M4 9a9 9 0 1 1 1 7"></path></svg>Original</button>
+                            <button id="wranglePopoutBtn" type="button" class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase text-indigo-700 dark:text-indigo-400 hover:underline inline-flex items-center gap-1" title="Float the cleaning tool so it stays visible on any tab" aria-label="Pop out data cleaning">Pop out<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17L17 7M9 7h8v8"></path></svg></button>
                         </div>
                     </div>
-                    <div id="changelogList" class="wrangle-chat flex flex-col gap-2 overflow-y-auto mb-3" aria-live="polite"></div>
-                    <div class="flex gap-2">
-                        <input type="text" id="wrangleInput" class="flex-1 bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-600" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
-                        <button id="wrangleApplyBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider" aria-label="Apply transformation">Apply</button>
+                    <div id="wrangleBody">
+                        <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-3">Cleaning your data first, fixing types, handling missing values, and dropping junk columns, helps STATlee produce accurate, reliable results. It matters most on large datasets, where small inconsistencies quietly compound across thousands of rows.</p>
+                        <div id="changelogList" class="wrangle-chat flex flex-col gap-2 overflow-y-auto mb-3" aria-live="polite"></div>
+                        <div class="flex gap-2">
+                            <input type="text" id="wrangleInput" class="flex-1 bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-600" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
+                            <button id="wrangleApplyBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider" aria-label="Apply transformation">Apply</button>
+                        </div>
                     </div>
                 </div>
 
@@ -331,9 +344,9 @@
                         <label for="refineToggle" class="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer" title="When on, follow-up requests modify the current script instead of regenerating from scratch">Refine current script (keep my edits, apply changes on top)</label>
                     </div>
                     <div class="mt-3 flex items-center gap-2">
-                        <input type="checkbox" id="priorityToggle" class="w-4 h-4 accent-amber-500 cursor-pointer">
-                        <label for="priorityToggle" class="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer" title="Routes generation and interpretation to the faster, highest-quality model tier.">
-                            <svg class="inline w-3.5 h-3.5 -mt-0.5 text-amber-500" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Priority generation
+                        <input type="checkbox" id="proToggle" class="w-4 h-4 accent-amber-500 cursor-pointer">
+                        <label for="proToggle" class="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer" title="Generates code with the larger gemini-3.1-pro model instead of the default gemini-3.5-flash. Better on hard or unusual analyses; slower and more expensive per request.">
+                            <svg class="inline w-3.5 h-3.5 -mt-0.5 text-amber-500" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Pro mode
                             <span class="text-amber-600 dark:text-amber-400 font-semibold">(uses more credits)</span>
                         </label>
                     </div>
@@ -364,15 +377,15 @@
                 <div class="flex space-x-6 overflow-x-auto" role="tablist" aria-label="Workspace views">
                     <button id="tabGenerate" role="tab" class="tab-btn active-tab pb-3 font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('generate')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-                        Source Code
+                        Code
                     </button>
                     <button id="tabData" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('data')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-                        Data Viewer
+                        Data
                     </button>
                     <button id="tabResults" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('results')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                        Analysis Results
+                        Results
                     </button>
                     <button id="tabConverse" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('converse')">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
@@ -382,9 +395,9 @@
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         Report
                     </button>
-                    <button id="tabPdf" role="tab" style="display: none;" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
-                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                        Codebook Viewer
+                    <button id="tabPdf" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        Codebook
                     </button>
                 </div>
                 <div class="flex items-center gap-2 mb-2">
@@ -404,8 +417,8 @@
                 <div id="paneA" class="pane flex-1">
 
                     <!-- CODE GENERATION TAB -->
-                    <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto block">
-                        <div class="bg-surface-3 rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[70%]">
+                    <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto flex flex-col">
+                        <div class="bg-surface-3 rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col flex-1 min-h-0">
                             <div class="bg-surface-2 px-4 py-3 flex items-center gap-2 border-b border-black/50">
                                 <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
                                 <div class="w-3 h-3 rounded-full bg-amber-500/80"></div>
@@ -496,7 +509,28 @@
                                     Codebook Reference
                                 </h3>
                             </div>
-                            <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white" src="" title="Uploaded codebook document"></iframe>
+                            <!-- Empty state: shown until a codebook document is loaded. Lets the
+                                 user add a codebook (or generate descriptions from a survey)
+                                 without re-uploading the dataset. -->
+                            <div id="codebookEmptyState" class="flex-1 flex flex-col items-center justify-center text-center p-10 gap-4">
+                                <svg class="w-12 h-12 text-slate-400 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                <div>
+                                    <p class="text-base font-semibold text-slate-700 dark:text-slate-300">No codebook loaded yet</p>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">Add a codebook (PDF/TXT) or a survey questionnaire to enrich variable descriptions, classification, and suggestions. Your uploaded dataset stays as-is.</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2 justify-center">
+                                    <button id="codebookTabUploadBtn" class="btn-primary py-2.5 px-4 text-sm flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                        Upload codebook
+                                    </button>
+                                    <button id="codebookTabSurveyBtn" class="btn-secondary py-2.5 px-4 text-sm flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                        Upload survey questionnaire
+                                    </button>
+                                </div>
+                                <p class="text-[10px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-500">Upload a dataset first if you haven't</p>
+                            </div>
+                            <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white hidden" src="" title="Uploaded codebook document"></iframe>
                         </div>
                     </div>
 
@@ -515,6 +549,13 @@
                                 <textarea id="reportContext" rows="2" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 outline-none focus:ring-2 focus:ring-indigo-600 resize-none text-sm" placeholder="e.g., Term paper on income and turnout using the 2024 ANES pilot..."></textarea>
                             </div>
                             <div>
+                                <label class="label-eyebrow mb-1" for="reportFormat">Format</label>
+                                <select id="reportFormat" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none" title="Formal report uses titled sections (Intro, Methods, Results, Discussion). Essay is flowing intro / body / conclusion prose.">
+                                    <option value="report" selected>Formal report</option>
+                                    <option value="essay">Essay</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label class="label-eyebrow mb-1" for="reportLength">Length</label>
                                 <select id="reportLength" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
                                     <option value="brief (roughly 250 words)">Brief</option>
@@ -523,15 +564,15 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="label-eyebrow mb-1" for="reportTone">Style</label>
+                                <label class="label-eyebrow mb-1" for="reportTone">Tone</label>
                                 <select id="reportTone" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
                                     <option value="academic" selected>Academic</option>
                                     <option value="executive summary">Executive summary</option>
                                     <option value="plain-language explainer">Plain language</option>
                                 </select>
                             </div>
-                            <div class="flex items-end">
-                                <button id="reportGenerateBtn" class="w-full btn-primary py-2.5 text-sm">Generate Report</button>
+                            <div class="md:col-span-3 flex justify-end">
+                                <button id="reportGenerateBtn" class="btn-primary py-2.5 px-6 text-sm">Generate Report</button>
                             </div>
                         </div>
                         <div class="flex-1 min-h-0 flex flex-col border border-slate-300 dark:border-slate-700/60 rounded-xl overflow-hidden">
@@ -552,12 +593,12 @@
                 <div id="paneB" class="pane hidden flex-1 border-l border-slate-300 dark:border-slate-800/60">
                     <div class="px-4 py-2 flex items-center justify-between border-b border-slate-300 dark:border-slate-800/60 bg-white/40 dark:bg-black/20">
                         <select id="paneBSelect" class="bg-transparent text-xs font-mono font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 outline-none cursor-pointer" aria-label="Choose what this pane shows">
-                            <option value="generate">Source Code</option>
-                            <option value="data">Data Viewer</option>
-                            <option value="results">Analysis Results</option>
+                            <option value="generate">Code</option>
+                            <option value="data">Data</option>
+                            <option value="results">Results</option>
                             <option value="converse">Converse</option>
-                            <option value="report">AI Report</option>
-                            <option value="pdf">Codebook Viewer</option>
+                            <option value="report">Report</option>
+                            <option value="pdf">Codebook</option>
                         </select>
                         <button id="paneBClose" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-lg leading-none px-1" aria-label="Close split pane">&times;</button>
                     </div>

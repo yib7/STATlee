@@ -1,12 +1,13 @@
 """Role-based LLM service with usage tracking (roadmap 3.3 / 3.4).
 
 Every model call in the app goes through this module. Calls are addressed by
-*role* — 'pro', 'flash', 'lite', or 'draft' — and the role→model mapping lives
-in config, so swapping a model is a config change, not a code change.
+*role* — 'pro', 'pro_max', 'flash', 'lite', or 'draft' — and the role→model
+mapping lives in config, so swapping a model is a config change, not a code
+change. Code generation normally uses 'draft'; the "Pro mode" toggle routes it
+to 'pro_max' (a bigger, stronger model) instead.
 
-``LLMService`` owns role resolution, the ``priority`` escalation (workstream B),
-the deterministic-call cache, and usage accounting. The Gemini wire protocol
-lives in ``GeminiBackend``.
+``LLMService`` owns role resolution, the deterministic-call cache, and usage
+accounting. The Gemini wire protocol lives in ``GeminiBackend``.
 """
 import hashlib
 import logging
@@ -15,9 +16,6 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 
 logger = logging.getLogger('statlee.llm')
-
-# Priority escalates a role one tier toward the strongest model.
-PRIORITY_ESCALATION = {'lite': 'flash', 'flash': 'pro', 'draft': 'draft', 'pro': 'pro'}
 
 _GEN_CACHE_MAX = 256
 
@@ -124,12 +122,11 @@ class LLMService:
     # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
-    def _resolve(self, role, priority=False):
+    def _resolve(self, role):
         cfg = self.config
-        if priority:
-            role = PRIORITY_ESCALATION.get(role, role)
         mapping = {
             'pro': cfg.model_pro,
+            'pro_max': cfg.model_pro_max,   # "Pro mode" code-gen upgrade
             'flash': cfg.model_flash,
             'lite': cfg.model_flash_lite,
             'draft': cfg.model_pro,
@@ -179,9 +176,8 @@ class LLMService:
     # ------------------------------------------------------------------
     # Synchronous generation
     # ------------------------------------------------------------------
-    def generate(self, role, contents, *, temperature=0.2, json_mode=False,
-                 priority=False):
-        model = self._resolve(role, priority)
+    def generate(self, role, contents, *, temperature=0.2, json_mode=False):
+        model = self._resolve(role)
         # Only temperature-0 calls are deterministic and therefore cacheable
         # (e.g. moderation / code-moderation), so a hammered prompt can't
         # re-bill the API. Higher-temperature calls always hit the model.
@@ -202,10 +198,9 @@ class LLMService:
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------
-    def stream(self, role, contents, *, temperature=0.2, usage_out=None,
-               priority=False):
+    def stream(self, role, contents, *, temperature=0.2, usage_out=None):
         """Yield text deltas; fill ``usage_out`` (if given) when finished."""
-        model = self._resolve(role, priority)
+        model = self._resolve(role)
         local = {}
         yield from self._backend.stream(
             model, contents, temperature=temperature, usage_out=local)

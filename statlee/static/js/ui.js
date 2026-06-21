@@ -242,6 +242,7 @@
 
     // --- intelligent codebook (render + toggle + pop-out 6.2) ----------------------
     let codebookVisible = true;
+    let codebookExpanded = false;  // expanded view shows each variable's description inline
 
     CC.toggleCodebook = function () {
         const list = document.getElementById('codebookList');
@@ -254,6 +255,16 @@
     };
     window.toggleCodebook = CC.toggleCodebook;
     window.toggleTheme = CC.toggleTheme;
+
+    // Density toggle: compact chips (hover for description) vs. expanded rows that
+    // show every variable's description inline, no hovering required.
+    CC.toggleCodebookDensity = function () {
+        const list = document.getElementById('codebookList');
+        const label = document.getElementById('codebookExpandLabel');
+        codebookExpanded = !codebookExpanded;
+        if (list) list.classList.toggle('expanded', codebookExpanded);
+        if (label) label.textContent = codebookExpanded ? 'Compact' : 'Expand';
+    };
 
     CC.renderCodebookUI = function () {
         const cbContainer = document.getElementById('codebookContainer');
@@ -284,15 +295,23 @@
             // Abbreviate the classification so two chips fit per row.
             const ABBR = { Continuous: 'Cont', Nominal: 'Nom', Ordinal: 'Ord' };
             const safeClass = CC.escapeHtml(ABBR[classification] || classification);
-            // Description (codebook/survey) moves to the hover tooltip to stay compact.
+            // Compact view hides the description behind a hover tooltip; the
+            // expanded view (CSS .expanded) reveals the .codebook-desc line below.
             btn.title = desc ? `${colName} — ${desc}` : colName;
-            btn.className = `codebook-chip px-2.5 py-1.5 rounded-lg border text-left transition-all hover:shadow-md flex items-center justify-between gap-1.5 cursor-pointer group ${colorClasses}`;
+            btn.className = `codebook-chip px-2.5 py-1.5 rounded-lg border text-left transition-all hover:shadow-md flex flex-col gap-1 cursor-pointer group ${colorClasses}`;
+            const descHtml = desc
+                ? `<p class="codebook-desc text-[11px] leading-snug opacity-80">${CC.escapeHtml(desc)}</p>`
+                : `<p class="codebook-desc text-[11px] leading-snug italic opacity-50">No description yet. Add a codebook to fill this in.</p>`;
             btn.innerHTML =
-                `<span class="font-mono text-xs font-bold truncate">${safeCol}</span>` +
-                `<span class="opacity-80 text-[9px] font-bold uppercase tracking-[0.12em] shrink-0">${safeClass}</span>`;
+                `<div class="flex items-center justify-between gap-1.5 w-full">` +
+                    `<span class="font-mono text-xs font-bold truncate">${safeCol}</span>` +
+                    `<span class="opacity-80 text-[9px] font-bold uppercase tracking-[0.12em] shrink-0">${safeClass}</span>` +
+                `</div>` +
+                descHtml;
             btn.onclick = () => CC.viewColumn(colName);
             cbList.appendChild(btn);
         });
+        cbList.classList.toggle('expanded', codebookExpanded);  // preserve density across re-renders
 
         codebookVisible = true;
         cbList.style.display = '';
@@ -351,6 +370,75 @@
         container.appendChild(list);
         float.remove();
         if (Object.keys(CC.state.codebook).length > 0) container.classList.remove('hidden');
+    };
+
+    // --- data cleaning: hide/show + pop-out (mirrors the codebook controls) ----------
+    let wrangleVisible = true;
+
+    CC.toggleWrangle = function () {
+        const body = document.getElementById('wrangleBody');
+        const label = document.getElementById('wrangleToggleLabel');
+        const chevron = document.getElementById('wrangleChevron');
+        if (!body) return;
+        wrangleVisible = !wrangleVisible;
+        body.style.display = wrangleVisible ? '' : 'none';
+        if (label) label.textContent = wrangleVisible ? 'Hide' : 'Show';
+        if (chevron) chevron.style.transform = wrangleVisible ? 'rotate(0deg)' : 'rotate(180deg)';
+    };
+
+    CC.popOutWrangle = function () {
+        if (document.getElementById('wrangleFloat')) return;
+        const body = document.getElementById('wrangleBody');
+        if (!body) return;
+        const float = document.createElement('div');
+        float.id = 'wrangleFloat';
+        float.className = 'glass-panel border border-slate-300 dark:border-slate-700/60';
+        float.innerHTML =
+            '<div id="wrangleFloatHandle" class="cursor-move flex items-center justify-between px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
+            '<span class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300">Data Cleaning</span>' +
+            '<button id="wrangleDockBtn" class="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline" aria-label="Dock data cleaning back to sidebar">Dock</button>' +
+            '</div><div class="float-body"></div>';
+        document.body.appendChild(float);
+        float.querySelector('.float-body').appendChild(body);
+        body.style.display = '';
+        wrangleVisible = true;
+        const lbl = document.getElementById('wrangleToggleLabel');
+        const chev = document.getElementById('wrangleChevron');
+        if (lbl) lbl.textContent = 'Hide';
+        if (chev) chev.style.transform = 'rotate(0deg)';
+
+        document.getElementById('wrangleDockBtn').addEventListener('click', CC.dockWrangle);
+
+        // drag behavior (identical to the codebook float)
+        const handle = document.getElementById('wrangleFloatHandle');
+        let drag = null;
+        handle.addEventListener('mousedown', (e) => {
+            const rect = float.getBoundingClientRect();
+            drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+            document.body.classList.add('select-none');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!drag) return;
+            float.style.left = `${Math.max(0, e.clientX - drag.dx)}px`;
+            float.style.top = `${Math.max(0, e.clientY - drag.dy)}px`;
+            float.style.right = 'auto';
+        });
+        document.addEventListener('mouseup', () => {
+            drag = null;
+            document.body.classList.remove('select-none');
+        });
+        document.getElementById('changelogPanel').classList.add('hidden');
+    };
+
+    CC.dockWrangle = function () {
+        const float = document.getElementById('wrangleFloat');
+        if (!float) return;
+        const body = float.querySelector('#wrangleBody');
+        const panel = document.getElementById('changelogPanel');
+        panel.appendChild(body);
+        float.remove();
+        panel.classList.remove('hidden');
     };
 
     // --- workspace preferences (persisted) + sidebar collapse ----------------------
@@ -414,6 +502,22 @@
             popoutBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 CC.popOutCodebook();
+            });
+        }
+        const expandBtn = document.getElementById('codebookExpandBtn');
+        if (expandBtn) {
+            expandBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                CC.toggleCodebookDensity();
+            });
+        }
+        const wrangleToggleBtn = document.getElementById('wrangleToggleBtn');
+        if (wrangleToggleBtn) wrangleToggleBtn.addEventListener('click', CC.toggleWrangle);
+        const wranglePopoutBtn = document.getElementById('wranglePopoutBtn');
+        if (wranglePopoutBtn) {
+            wranglePopoutBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                CC.popOutWrangle();
             });
         }
     });

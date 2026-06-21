@@ -140,18 +140,42 @@ def generate_report():
             return json_error(
                 'Run an analysis first — the report must be grounded in '
                 'actual results.', 422)
-        prompt = prompts.report(
-            data.get('background'), data.get('length'), data.get('tone'),
-            output, interpretation, data.get('history'))
+        background = data.get('background')
+        length = data.get('length')
+        tone = data.get('tone')
+        fmt = data.get('format')
+        history = data.get('history')
+        converse = data.get('converse')
+        # First pass runs on the bigger 3.1-pro model to compile a grounded draft.
+        draft_prompt = prompts.report_draft(
+            background, length, fmt, output, interpretation, history, converse)
 
     def generate():
-        usage = {}
         try:
-            for delta in service.stream('pro', prompt, temperature=0.4,
-                                        usage_out=usage):
+            if revision:
+                usage = {}
+                for delta in service.stream('pro', prompt, temperature=0.4,
+                                            usage_out=usage):
+                    yield sse_event({'type': 'delta', 'text': delta})
+                yield sse_event({'type': 'done', 'usage': usage_breakdown(usage),
+                                 'revision': True})
+                return
+            # Two-pass authoring: 3.1-pro compiles all the material (results,
+            # interpretation, and the converse discussion of the findings) into a
+            # grounded working draft, then 3.5-flash writes the finished piece.
+            draft_result = service.generate('pro_max', draft_prompt,
+                                            temperature=0.3)
+            final_prompt = prompts.report(
+                background, length, tone, fmt, output, interpretation,
+                history, draft=draft_result.text)
+            stream_usage = {}
+            for delta in service.stream('pro', final_prompt, temperature=0.4,
+                                        usage_out=stream_usage):
                 yield sse_event({'type': 'delta', 'text': delta})
-            yield sse_event({'type': 'done', 'usage': usage_breakdown(usage),
-                             'revision': bool(revision)})
+            yield sse_event({'type': 'done',
+                             'usage': usage_breakdown(draft_result.usage,
+                                                      stream_usage),
+                             'revision': False})
         except Exception:
             logger.exception("Report generation failed")
             yield sse_event({'type': 'error',

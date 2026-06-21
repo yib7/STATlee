@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STATlee — turn data questions into answers, in plain English</title>
+    <title>STATlee: turn data questions into answers, in plain English</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
-    <meta name="description" content="STATlee is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation — no coding required.">
+    <meta name="description" content="STATlee is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation. No coding required.">
     <meta name="theme-color" content="#6366f1">
-    <meta property="og:title" content="STATlee — turn data questions into answers, in plain English">
+    <meta property="og:title" content="STATlee: turn data questions into answers, in plain English">
     <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; STATlee writes, runs, and interprets the statistics for you.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="{{ url_for('static', filename='images/wordmark.svg') }}">
@@ -108,8 +108,10 @@
         .pad { padding: 84px 0; }
         .pad-t { border-top: 1px solid var(--line); }
 
-        /* benefits */
-        .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+        /* benefits: fixed 3-up so 6 tiles land in two even rows of three */
+        .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        @media (max-width: 860px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 560px) { .grid3 { grid-template-columns: 1fr; } }
         .card { background: var(--ink-1); border: 1px solid var(--line); border-radius: 16px; padding: 28px; transition: all .25s; }
         .card:hover { transform: translateY(-4px); border-color: rgba(129,140,248,0.4); }
         .card .ico { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
@@ -186,9 +188,9 @@
             <span class="eyebrow"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> AI data analysis for social scientists</span>
             <h1>Turn data questions into<br><span class="grad-text">answers, in plain English.</span></h1>
             <p class="sub">Stats software shouldn't fight you. Upload your dataset, describe the analysis
-                in plain English, and STATlee writes, runs, and explains the statistics — no Python, no R, no syntax errors.</p>
+                in plain English, and STATlee writes, runs, and explains the statistics. No Python, no R, no syntax errors.</p>
             <div class="hero-cta">
-                <a class="btn btn-primary" href="/">Start analyzing — free →</a>
+                <a class="btn btn-primary" href="/">Start analyzing for free →</a>
                 <a class="btn btn-ghost" href="#how">See how it works</a>
             </div>
             <p class="micro">No install · No credit card · Your data isn't stored when you're signed out</p>
@@ -225,7 +227,7 @@ R-squared:            <span class="g">0.412</span>
                             significant predictor of voter turnout (p &lt; 0.001).</p>
                         <p>For every $10,000 increase in income, predicted turnout rises by about
                             3.4 percentage points, holding age constant.</p>
-                        <p>The model explains roughly <strong>41%</strong> of the variation in turnout —
+                        <p>The model explains roughly <strong>41%</strong> of the variation in turnout,
                             moderate for survey data. Consider adding education as a control.</p>
                     </div>
                 </div>
@@ -250,7 +252,7 @@ R-squared:            <span class="g">0.412</span>
                 <div class="card">
                     <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg></div>
                     <h3>Statistically valid by design</h3>
-                    <p>An intelligent codebook classifies each variable as nominal, ordinal, or continuous —
+                    <p>An intelligent codebook classifies each variable as nominal, ordinal, or continuous,
                         so STATlee won't run a linear model on a categorical outcome.</p>
                 </div>
                 <div class="card">
@@ -262,20 +264,20 @@ R-squared:            <span class="g">0.412</span>
                 <div class="card">
                     <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.247m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.247"></path></svg></div>
                     <h3>Answers you can explain</h3>
-                    <p>Results come back as plain-English interpretation — effect sizes, significance, and
-                        caveats — so you can write up findings with confidence.</p>
+                    <p>Results come back as plain-English interpretation: effect sizes, significance, and
+                        caveats, so you can write up findings with confidence.</p>
                 </div>
                 <div class="card">
                     <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg></div>
                     <h3>Bring any format</h3>
-                    <p>CSV, Excel, Stata (.dta), and SPSS (.sav) — native value labels seed the codebook
+                    <p>CSV, Excel, Stata (.dta), and SPSS (.sav). Native value labels seed the codebook
                         automatically. Wrangle and clean by chatting.</p>
                 </div>
                 <div class="card">
                     <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div>
-                    <h3>Priority generation</h3>
-                    <p>Flip on the priority toggle to route to the fastest, highest-quality model tier when
-                        a question really matters.</p>
+                    <h3>Pro mode</h3>
+                    <p>Flip on Pro mode to generate code with the larger gemini-3.1-pro model when a hard
+                        or unusual analysis needs the extra horsepower.</p>
                 </div>
             </div>
         </div>
@@ -298,7 +300,7 @@ R-squared:            <span class="g">0.412</span>
                 <div class="step">
                     <div class="num">2</div>
                     <h3>Describe the analysis</h3>
-                    <p>Type what you want in plain English — or pick a method from the catalog and let STATlee
+                    <p>Type what you want in plain English, or pick a method from the catalog and let STATlee
                         draft a prompt tailored to your columns.</p>
                 </div>
                 <div class="step">
@@ -334,11 +336,11 @@ R-squared:            <span class="g">0.412</span>
                 <div class="price feat">
                     <span class="badge">Coming soon</span>
                     <div class="name">Pro</div>
-                    <div class="amt">$—<small> / month</small></div>
+                    <div class="amt">TBD<small> / month</small></div>
                     <p style="color:var(--muted);font-size:14px;">For power users and labs.</p>
                     <ul>
                         <li>Everything in Free</li>
-                        <li>Priority generation credits</li>
+                        <li>Pro mode generation credits</li>
                         <li>Higher rate limits</li>
                         <li>Saved project history</li>
                     </ul>
@@ -353,7 +355,7 @@ R-squared:            <span class="g">0.412</span>
         <div class="final">
             <h2>Your next result is one sentence away.</h2>
             <p>Stop wrestling with statistical software. Just ask.</p>
-            <a class="btn btn-primary" href="/" style="font-size:17px;padding:14px 28px;">Launch STATlee — free →</a>
+            <a class="btn btn-primary" href="/" style="font-size:17px;padding:14px 28px;">Launch STATlee for free →</a>
         </div>
     </section>
 
@@ -363,8 +365,8 @@ R-squared:            <span class="g">0.412</span>
                 <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="STATlee logo" style="width:26px;height:26px;">
                 <span class="font-display">STATlee</span>
             </div>
-            <p class="compliance">© 2026 STATlee. AI analysis powered by Google Gemini. STATlee is a
-                research aid — always review generated code and results before relying on them.</p>
+            <p class="compliance">STATlee. AI analysis powered by Google Gemini. STATlee is a
+                research aid, so always review generated code and results before relying on them.</p>
         </div>
     </footer>
 </body>

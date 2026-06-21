@@ -1,6 +1,6 @@
-"""LLM service: priority role escalation and the deterministic-call cache
-(workstream B). These exercise the real ``LLMService`` with the Gemini call
-monkeypatched out, so no network or API key is needed."""
+"""LLM service: role→model resolution and the deterministic-call cache. These
+exercise the real ``LLMService`` with the Gemini call monkeypatched out, so no
+network or API key is needed."""
 import pytest
 
 from statlee import llm
@@ -11,17 +11,20 @@ def _svc():
     return llm.LLMService(Config(env='testing'))
 
 
-def test_priority_escalates_roles_one_tier():
+def test_roles_resolve_to_configured_models():
     svc = _svc()
     cfg = svc.config
-    # Without priority: roles map to their configured tiers.
     assert svc._resolve('lite') == cfg.model_flash_lite
     assert svc._resolve('flash') == cfg.model_flash
-    # With priority: each role steps up toward the strongest model.
-    assert svc._resolve('lite', priority=True) == cfg.model_flash
-    assert svc._resolve('flash', priority=True) == cfg.model_pro
-    # 'pro' is already the top tier — escalation is a no-op.
-    assert svc._resolve('pro', priority=True) == cfg.model_pro
+    assert svc._resolve('pro') == cfg.model_pro
+    assert svc._resolve('draft') == cfg.model_pro       # default code generation
+    # "Pro mode" routes code generation to the bigger pro_max model.
+    assert svc._resolve('pro_max') == cfg.model_pro_max
+
+
+def test_unknown_role_raises():
+    with pytest.raises(ValueError):
+        _svc()._resolve('nope')
 
 
 def test_generate_caches_deterministic_calls(monkeypatch):
@@ -55,9 +58,9 @@ def test_nonzero_temperature_is_not_cached(monkeypatch):
     assert len(seen) == 2
 
 
-def test_priority_call_uses_separate_cache_entry(monkeypatch):
-    """A priority call resolves to a different model, so it must not collide
-    with the non-priority cache entry for the same prompt."""
+def test_different_roles_use_separate_cache_entries(monkeypatch):
+    """pro_max and draft resolve to different models, so an identical prompt
+    under each role must hit the backend twice, not collide in the cache."""
     svc = _svc()
     models = []
 
@@ -66,9 +69,9 @@ def test_priority_call_uses_separate_cache_entry(monkeypatch):
         return llm.LLMResult(text='ok', usage={'model': model})
 
     monkeypatch.setattr(svc._backend, 'generate', fake_gen)
-    svc.generate('lite', 'p', temperature=0.0)
-    svc.generate('lite', 'p', temperature=0.0, priority=True)
-    assert models == [svc.config.model_flash_lite, svc.config.model_flash]
+    svc.generate('draft', 'p', temperature=0.0)
+    svc.generate('pro_max', 'p', temperature=0.0)
+    assert models == [svc.config.model_pro, svc.config.model_pro_max]
 
 
 def test_service_uses_gemini_backend():

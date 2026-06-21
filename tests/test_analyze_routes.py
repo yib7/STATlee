@@ -67,26 +67,28 @@ def test_chat_streams_phases_and_final_code(client, fake_llm):
     assert done and done[0]['code'] == "print('final code')"
 
 
-def test_chat_propagates_priority_flag_to_llm(client, fake_llm):
-    """The UI's priority toggle reaches every model call in the pipeline."""
+def test_chat_pro_mode_routes_codegen_to_pro_max(client, fake_llm):
+    """Pro mode runs code generation (the draft) on the bigger 'pro_max' model;
+    the other pipeline steps stay on their normal cheap roles."""
     upload_csv(client, SAMPLE_CSV)
     resp = post_json(client, '/chat',
                      {'filename': 'test.csv', 'prompt': 'describe the data',
-                      'priority': True})
+                      'pro': True})
     sse_events(resp)
-    # FakeLLMService records (role, kind, text, priority); the draft + validation
-    # streamed calls must carry priority=True.
-    kinds = {c[1]: c[3] for c in fake_llm.calls}
-    assert kinds.get('draft') is True
-    assert kinds.get('validation') is True
+    # FakeLLMService records (role, kind, text); the code-gen call must use pro_max.
+    roles = {c[1]: c[0] for c in fake_llm.calls}
+    assert roles.get('draft') == 'pro_max'
+    assert roles.get('validation') == 'lite'   # cleanup pass unaffected
 
 
-def test_chat_defaults_to_non_priority(client, fake_llm):
+def test_chat_default_uses_draft_model(client, fake_llm):
     upload_csv(client, SAMPLE_CSV)
     resp = post_json(client, '/chat',
                      {'filename': 'test.csv', 'prompt': 'describe the data'})
     sse_events(resp)
-    assert all(c[3] is False for c in fake_llm.calls)
+    roles = {c[1]: c[0] for c in fake_llm.calls}
+    assert roles.get('draft') == 'draft'       # default code-gen, not pro_max
+    assert all(c[0] != 'pro_max' for c in fake_llm.calls)
 
 
 def _generate_script(client, prompt='go'):
