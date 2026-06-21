@@ -21,7 +21,7 @@
 <p align="center">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
-  <a href="https://github.com/Yibarek1/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Yibarek1/STATlee/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Tests" src="https://img.shields.io/badge/tests-154%20passing-3fb950">
   <img alt="AI provider" src="https://img.shields.io/badge/AI-Google%20Gemini-8E75B2?logo=google&logoColor=white">
 </p>
