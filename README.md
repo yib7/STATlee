@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static/images/logo-full.png" alt="STATlee" width="280">
+  <img src="statlee/static/images/logo-full.png" alt="STATlee" width="280">
 </p>
 
 <h1 align="center">Turn data questions into answers, in plain English.</h1>
