@@ -16,7 +16,7 @@ at `Yibarek1/STATlee`. Hosting + pricing are documented (`docs/DEPLOYMENT_PLAYBO
 
 ## Cycles (newest first)
 
-### Cycle 1 — data-editing polish + money-safe hosting playbook — 2026-06-20 — branch `autopilot/data-polish-hosting` → pending merge
+### Cycle 1 — data-editing polish + money-safe hosting playbook — 2026-06-20 — branch `autopilot/data-polish-hosting` → fast-forward merged into `claude/hardcore-hellman-c0fb41` @ `55f7ec6` (local; not pushed)
 
 - SP1 Health baseline — verified 124→ green baseline (tests, ruff, boot); wrangle flow already covered.
 - SP2 Data-editing polish — `WRANGLE_ROLE=lite`; `revert_to_original` + `/revert_dataset`;
