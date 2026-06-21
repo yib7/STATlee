@@ -4,14 +4,19 @@ STATlee is built on excellent open-source libraries and a commercial AI API.
 Thank you to the maintainers of every project below. Each dependency is governed
 by its own license; consult the linked project for full terms.
 
-## AI / API
+STATlee has a pluggable LLM provider (`LLM_PROVIDER`); Gemini is the default, and
+Anthropic and OpenAI are optional. Only the selected provider's SDK is used at
+runtime.
 
 | Service | Use | Terms |
 |---|---|---|
-| **Google Gemini** (via the `google-genai` SDK) | All natural-language → code generation, moderation, and interpretation. | [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) · [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy) |
+| **Google Gemini** (via the `google-genai` SDK) | Default provider: natural-language → code generation, moderation, and interpretation. | [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) · [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy) |
+| **Anthropic Claude** (via the `anthropic` SDK) | Optional provider (`LLM_PROVIDER=anthropic`). | [Anthropic Usage Policies](https://www.anthropic.com/legal/aup) |
+| **OpenAI** (via the `openai` SDK) | Optional provider (`LLM_PROVIDER=openai`). | [OpenAI Usage Policies](https://openai.com/policies/usage-policies/) |
 
-AI analysis is **powered by Google Gemini**. STATlee's moderation gate enforces
-the Gemini Prohibited Use Policy by blocking malware/illegal requests.
+AI analysis is **powered by your configured provider** (Google Gemini by default).
+STATlee's moderation gate enforces the provider's prohibited-use rules by blocking
+malware/illegal requests.
 
 ## Backend (Python)
 
@@ -48,7 +53,7 @@ the Gemini Prohibited Use Policy by blocking malware/illegal requests.
 | Tool | Purpose |
 |---|---|
 | [Docker](https://www.docker.com/) / Docker Compose | Containerized app + sandbox runner |
-| [Render](https://render.com/) | Hosting for the live demo |
+| [Render](https://render.com/) | Reference host in the deployment playbook (not currently deployed) |
 | [pytest](https://pytest.org/) + [ruff](https://docs.astral.sh/ruff/) | Test runner + linter (dev) |
 
 ---

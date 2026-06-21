@@ -2,7 +2,7 @@
 
 The seam is intentionally a no-op today: ``check_and_debit`` always authorizes
 and the new ``User`` columns just exist with safe defaults. These tests pin the
-contract so wiring (the priority toggle) can depend on it, and so a future
+contract so wiring (Pro mode) can depend on it, and so a future
 real implementation has a regression net for the "always allowed today"
 behaviour it will replace.
 """

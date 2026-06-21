@@ -7,7 +7,7 @@
 <p align="center">
   <b>STATlee</b> is AI data analysis for social scientists. Upload a dataset, describe the
   analysis in plain English, and STATlee writes, moderates, sandboxes, runs, and
-  <i>explains</i> the statistics — no Python, no R, no syntax errors.
+  <i>explains</i> the statistics. No Python, no R, no syntax errors.
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@ runnable analysis, charts, and a plain-English write-up you can defend.
 ## What it does
 
 - **Describe it, don't code it.** Natural-language requests become real
-  Python/R that runs and returns results — not just a code snippet.
+  Python/R that runs and returns results, not just a code snippet.
 - **Statistically valid by design.** An *intelligent codebook* classifies each
   variable (nominal / ordinal / continuous) so the model won't run a linear
   model on a categorical outcome. Codebooks can be inferred from a PDF data
@@ -55,18 +55,18 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   adds a non-root, read-only, resource-capped container per run. A **run-guard**
   re-moderates any hand-edited script before it executes.
 - **Answers you can explain.** Dense terminal output and p-values become
-  plain-English Markdown — effect sizes, significance, caveats — and a debugging
+  plain-English Markdown (effect sizes, significance, caveats), and a debugging
   assistant kicks in when a run fails.
 - **Bring any format.** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and
   SPSS (`.sav`); native value labels seed the codebook for free.
-- **Conversational wrangling.** Clean your data by chatting — *"delete the
-  notes column", "filter for age > 30"* — with a back-and-forth transcript, full
+- **Conversational wrangling.** Clean your data by chatting (*"delete the
+  notes column", "filter for age > 30"*) with a back-and-forth transcript, full
   version history (**undo / redo**), and a one-click **revert to the original
   upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
   down. Plus an **AI report builder** grounded strictly in your real outputs and
   one-click **project export** (data + script + plots + report).
-- **Priority generation** toggle routes to the fastest, highest-quality model
-  tier when a question really matters.
+- **Pro mode** toggle generates code with a larger model (`gemini-3.1-pro` by
+  default) for hard or unusual analyses, instead of the standard code model.
 
 ## How it works
 
@@ -84,8 +84,8 @@ Upload data ──▶ Intelligent codebook ──▶ Describe analysis (plain En
 ```
 
 Every model call goes through one **role-based LLM service** (`pro` / `flash` /
-`lite` / `draft`), so swapping a model — or escalating a request to a stronger
-tier for the priority toggle — is a config change, not a code change. Per-request
+`lite` / `draft`), so swapping a model, switching LLM provider, or pointing Pro
+mode at a stronger model is a config change, not a code change. Per-request
 token usage is surfaced live in the UI.
 
 ## Quickstart
@@ -95,7 +95,7 @@ cp .env.example .env          # add your GEMINI_API_KEY
 docker-compose up --build     # then open http://localhost:5000
 ```
 
-Or run locally without Docker (dev only — generated code runs on your host):
+Or run locally without Docker (dev only, generated code runs on your host):
 
 ```bash
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
@@ -105,7 +105,7 @@ APP_ENV=development python wsgi.py                 # http://localhost:5000
 
 ### LLM configuration
 
-STATlee has a **pluggable LLM provider** — pick one with `LLM_PROVIDER` and
+STATlee has a **pluggable LLM provider**: pick one with `LLM_PROVIDER` and
 supply that vendor's key. Switching providers is a one-line config change; no
 route, prompt, or UI code changes (every call routes through one role-based
 service).
@@ -129,12 +129,12 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 178 tests, fully offline (deterministic fake LLM — no API key)
+pytest -q         # 178 tests, fully offline (deterministic fake LLM, no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
 codebook, wrangling, run-guard, converse, export, auth, CSRF, rate-limit keying,
-billing seam, priority routing) is exercised without network or API keys. CI runs
+billing seam, Pro-mode routing) is exercised without network or API keys. CI runs
 ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
@@ -149,23 +149,24 @@ The application lives in the `statlee/` package (entry point: `wsgi.py` →
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
 | `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
-| `statlee/billing.py` | Monetization seam — `check_and_debit` chokepoint (no-op today). |
+| `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (no-op today). |
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
 | `statlee/models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
 | `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
 
-A deeper walkthrough — request lifecycle, security boundaries, data flow — is in
+A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Hosting & pricing
 
-STATlee runs locally for free and is **not currently deployed** — a deliberate,
+STATlee runs locally for free and is **not currently deployed**, a deliberate,
 zero-cost choice. When you want it online, the
 [Deployment Playbook](docs/DEPLOYMENT_PLAYBOOK.md) walks through a **money-safe**
-free-tier deploy: the app's only real cost is the Gemini API, and it ships with
-the controls to cap that spend at a number you choose (a global monthly priority
-ceiling, per-identity rate limits, cheapest-tier defaults, and a startup warning
+free-tier deploy: the app's only real cost is the LLM provider's API (Gemini by
+default), and it ships with the controls to cap that spend at a number you choose
+(a global monthly ceiling on premium calls, per-identity rate limits,
+cheapest-tier defaults, and a startup warning
 if billing is on without a cap). The (illustrative) monetization model and how
 the billing seam backs it are in [Pricing](docs/PRICING.md).
 
@@ -179,9 +180,11 @@ adversarial review is in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
 
 ## Compliance & attribution
 
-STATlee's AI analysis is powered by **[Google Gemini](https://ai.google.dev/)**
-via the Google GenAI SDK, as attributed in the in-app footer. Use is subject to
-the [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) and the
+STATlee's AI analysis is powered by your configured LLM provider,
+**[Google Gemini](https://ai.google.dev/)** by default (with optional Anthropic
+Claude or OpenAI backends), and the in-app footer attributes the active provider.
+Default Gemini use is subject to the
+[Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) and the
 [Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy), which
 STATlee's moderation gate enforces.
 

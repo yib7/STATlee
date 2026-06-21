@@ -26,9 +26,9 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     # --- Monetization seam (workstream E) --------------------------------
-    # No real billing yet. These exist so the priority toggle and a future
-    # paid tier have a place to live; ``billing.check_and_debit`` is the only
-    # code that should read/write ``credits``. See docs/IMPLEMENTATION_PLAN.md.
+    # No real billing yet. These exist so Pro mode and a future paid tier have
+    # a place to live; ``billing.check_and_debit`` is the only code that should
+    # read/write ``credits``.
     plan = db.Column(db.String(32), nullable=False, default='free')
     credits = db.Column(db.Integer, nullable=False, default=0)
 

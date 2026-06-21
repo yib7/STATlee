@@ -2,7 +2,7 @@
 
 A single chokepoint for the question: *"is this request allowed, and what does
 it cost?"* It stays a **no-op that always authorizes** until ``billing_enabled``
-is turned on, so wiring (the priority toggle) can depend on one stable call.
+is turned on, so wiring (Pro mode) can depend on one stable call.
 
 When enabled it does two things:
 - enforces a **global monthly ceiling** on priority (high-tier) requests, so the
