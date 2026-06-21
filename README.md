@@ -39,28 +39,28 @@ runnable analysis, charts, and a plain-English write-up you can defend.
 
 ## What it does
 
-- **💬 Describe it, don't code it.** Natural-language requests become real
+- **Describe it, don't code it.** Natural-language requests become real
   Python/R that runs and returns results — not just a code snippet.
-- **🧭 Statistically valid by design.** An *intelligent codebook* classifies each
+- **Statistically valid by design.** An *intelligent codebook* classifies each
   variable (nominal / ordinal / continuous) so the model won't run a linear
   model on a categorical outcome. Codebooks can be inferred from a PDF data
   dictionary or even the original survey questionnaire.
-- **🔒 Secure sandbox.** Generated code runs in a throwaway, **network-less**
+- **Secure sandbox.** Generated code runs in a throwaway, **network-less**
   working directory with a **secret-free environment**; `SANDBOX_MODE=docker`
   adds a non-root, read-only, resource-capped container per run. A **run-guard**
   re-moderates any hand-edited script before it executes.
-- **📖 Answers you can explain.** Dense terminal output and p-values become
+- **Answers you can explain.** Dense terminal output and p-values become
   plain-English Markdown — effect sizes, significance, caveats — and a debugging
   assistant kicks in when a run fails.
-- **📂 Bring any format.** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and
+- **Bring any format.** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and
   SPSS (`.sav`); native value labels seed the codebook for free.
-- **🧹 Conversational wrangling.** Clean your data by chatting — *"delete the
+- **Conversational wrangling.** Clean your data by chatting — *"delete the
   notes column", "filter for age > 30"* — with a back-and-forth transcript, full
   version history (**undo / redo**), and a one-click **revert to the original
   upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
   down. Plus an **AI report builder** grounded strictly in your real outputs and
   one-click **project export** (data + script + plots + report).
-- **⚡ Priority generation** toggle routes to the fastest, highest-quality model
+- **Priority generation** toggle routes to the fastest, highest-quality model
   tier when a question really matters.
 
 ## How it works

@@ -114,6 +114,8 @@
         .card:hover { transform: translateY(-4px); border-color: rgba(129,140,248,0.4); }
         .card .ico { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
                      background: rgba(99,102,241,0.15); margin-bottom: 18px; font-size: 22px; }
+        .card .ico svg { width: 24px; height: 24px; color: #c4b5fd; }
+        .eyebrow svg { width: 14px; height: 14px; }
         .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
         .card p { color: var(--muted); font-size: 14.5px; }
 
@@ -137,7 +139,9 @@
         .price .amt small { font-size: 15px; color: var(--muted); font-weight: 500; }
         .price ul { list-style: none; margin: 20px 0 0; }
         .price li { font-size: 14.5px; color: #d6d3e6; padding: 7px 0 7px 26px; position: relative; }
-        .price li::before { content: '✓'; position: absolute; left: 0; color: #86efac; font-weight: 700; }
+        /* Pure-CSS checkmark (no emoji) for the "included" markers. */
+        .price li::before { content: ''; position: absolute; left: 3px; top: 11px; width: 5px; height: 9px;
+                            border: solid #86efac; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
         /* final cta */
         .final { text-align: center; background: linear-gradient(140deg, rgba(99,102,241,0.15), rgba(147,51,234,0.12));
@@ -179,7 +183,7 @@
     <!-- Hero -->
     <section class="hero">
         <div class="wrap">
-            <span class="eyebrow">⚡ AI data analysis for social scientists</span>
+            <span class="eyebrow"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> AI data analysis for social scientists</span>
             <h1>Turn data questions into<br><span class="grad-text">answers, in plain English.</span></h1>
             <p class="sub">Stats software shouldn't fight you. Upload your dataset, describe the analysis
                 in plain English, and STATlee writes, runs, and explains the statistics — no Python, no R, no syntax errors.</p>
@@ -238,37 +242,37 @@ R-squared:            <span class="g">0.412</span>
             </div>
             <div class="grid3">
                 <div class="card">
-                    <div class="ico">💬</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg></div>
                     <h3>Describe it, don't code it</h3>
                     <p>Ask for "a multiple regression of turnout on income and age with a residual plot."
                         STATlee generates the script, runs it, and shows the results. No syntax to memorize.</p>
                 </div>
                 <div class="card">
-                    <div class="ico">🧭</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg></div>
                     <h3>Statistically valid by design</h3>
                     <p>An intelligent codebook classifies each variable as nominal, ordinal, or continuous —
                         so STATlee won't run a linear model on a categorical outcome.</p>
                 </div>
                 <div class="card">
-                    <div class="ico">🔒</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg></div>
                     <h3>Runs in a secure sandbox</h3>
                     <p>Every script executes in a throwaway, network-less environment with no access to
                         secrets. Hand-edits are re-checked before they're allowed to run.</p>
                 </div>
                 <div class="card">
-                    <div class="ico">📖</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.247m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.247"></path></svg></div>
                     <h3>Answers you can explain</h3>
                     <p>Results come back as plain-English interpretation — effect sizes, significance, and
                         caveats — so you can write up findings with confidence.</p>
                 </div>
                 <div class="card">
-                    <div class="ico">📂</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg></div>
                     <h3>Bring any format</h3>
                     <p>CSV, Excel, Stata (.dta), and SPSS (.sav) — native value labels seed the codebook
                         automatically. Wrangle and clean by chatting.</p>
                 </div>
                 <div class="card">
-                    <div class="ico">⚡</div>
+                    <div class="ico"><svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div>
                     <h3>Priority generation</h3>
                     <p>Flip on the priority toggle to route to the fastest, highest-quality model tier when
                         a question really matters.</p>

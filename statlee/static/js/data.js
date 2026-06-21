@@ -153,7 +153,7 @@
                 data.suggestions.forEach(suggestion => {
                     const btn = document.createElement('button');
                     btn.className = 'text-sm bg-white/80 hover:bg-white dark:bg-surface-2/50 dark:hover:bg-surface-2 text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-medium w-full';
-                    btn.innerHTML = `<span class="opacity-50 group-hover:opacity-100 transition-opacity transform group-hover:scale-110 group-hover:text-amber-500" aria-hidden="true">✦</span> <span class="leading-relaxed">${CC.escapeHtml(suggestion)}</span>`;
+                    btn.innerHTML = `<svg class="w-4 h-4 shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-amber-500 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> <span class="leading-relaxed">${CC.escapeHtml(suggestion)}</span>`;
                     btn.onclick = () => { document.getElementById('promptInput').value = suggestion; };
                     list.appendChild(btn);
                 });
@@ -331,7 +331,7 @@
                 turn.className = 'wrangle-turn' + (active ? ' active-version' : '');
                 turn.innerHTML =
                     `<div class="wrangle-msg user"><span class="v-badge">v${v.v}</span>${CC.escapeHtml(v.instruction)}</div>` +
-                    `<div class="wrangle-msg applied"><span aria-hidden="true">✓</span> ${CC.escapeHtml(v.summary)}</div>`;
+                    `<div class="wrangle-msg applied"><svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg> ${CC.escapeHtml(v.summary)}</div>`;
                 list.appendChild(turn);
             } else {
                 // A milestone (original upload / reverted) — a centered note.
