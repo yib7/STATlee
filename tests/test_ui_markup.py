@@ -35,3 +35,13 @@ def test_data_viewer_has_zoom_controls(client):
 def test_on_demand_suggest_button_present(client):
     html = _index_html(client)
     assert 'id="suggestNowBtn"' in html
+
+
+# --- SP6: larger analysis-history dialog ------------------------------------
+def test_history_dialog_is_larger(client):
+    html = _index_html(client)
+    i = html.find('id="historyModal"')
+    assert i != -1
+    panel = html[i:i + 500]                # the history dialog's own panel div
+    assert 'max-w-3xl' in panel
+    assert 'max-h-[85vh]' in panel
