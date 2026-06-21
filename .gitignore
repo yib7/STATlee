@@ -31,3 +31,9 @@ instance/
 
 # Preserved pointer to the previous (corrupted) git metadata; see notes.
 .git.corrupt-backup
+
+# Agent/planning artifacts — working notes, not part of the shipped project.
+.autopilot/
+docs/superpowers/
+docs/IMPLEMENTATION_PLAN.md
+docs/CLOSEOUT.md
