@@ -88,6 +88,13 @@ body { font-family: 'Inter', sans-serif; }
 .wrangle-note.active-version { background: rgba(99, 102, 241, 0.16); font-weight: 700; }
 .v-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; opacity: 0.65; flex-shrink: 0; margin-right: 0.3rem; }
 
+/* Data-viewer zoom controls (cycle 2) */
+.data-zoom-btn { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; line-height: 1; min-width: 1.75rem; padding: 0.3rem 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.4rem; color: #334155; background: rgba(255,255,255,0.7); transition: background 0.15s, border-color 0.15s; }
+.data-zoom-btn:hover { background: #eef2ff; border-color: #6366f1; color: #4338ca; }
+.data-zoom-reset { min-width: 3rem; }
+.dark .data-zoom-btn { border-color: #475569; color: #cbd5e1; background: rgba(30,41,59,0.6); }
+.dark .data-zoom-btn:hover { background: rgba(99,102,241,0.18); border-color: #6366f1; color: #c7d2fe; }
+
 /* Focus visibility (5.9). Inputs/selects/textareas carry their own branded
    `focus:ring-2`, so scope the global outline to the controls that don't —
    avoids a doubled ring+outline indicator. */

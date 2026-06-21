@@ -21,3 +21,11 @@ def test_index_injects_model_price_map(client):
     assert 'gemini-3.5-flash' in html
     assert 'gemini-3-flash-preview' in html
     assert 'gemini-3.1-flash-lite-preview' in html
+
+
+# --- SP3: data-viewer zoom controls -----------------------------------------
+def test_data_viewer_has_zoom_controls(client):
+    html = _index_html(client)
+    assert 'id="dataZoomIn"' in html
+    assert 'id="dataZoomOut"' in html
+    assert 'id="dataZoomReset"' in html

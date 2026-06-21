@@ -440,6 +440,36 @@
         });
     }
 
+    // --- data-viewer zoom -----------------------------------------------------------------
+    let dataZoom = 1;
+    function applyDataZoom() {
+        const table = document.getElementById('dataTable');
+        if (table) table.style.zoom = dataZoom;
+        const reset = document.getElementById('dataZoomReset');
+        if (reset) reset.textContent = Math.round(dataZoom * 100) + '%';
+    }
+    function setDataZoom(z) {
+        dataZoom = Math.min(1.8, Math.max(0.6, Math.round(z * 10) / 10));
+        applyDataZoom();
+    }
+    function initDataZoom() {
+        const inB = document.getElementById('dataZoomIn');
+        const outB = document.getElementById('dataZoomOut');
+        const resetB = document.getElementById('dataZoomReset');
+        if (inB) inB.addEventListener('click', () => setDataZoom(dataZoom + 0.1));
+        if (outB) outB.addEventListener('click', () => setDataZoom(dataZoom - 0.1));
+        if (resetB) resetB.addEventListener('click', () => setDataZoom(1));
+        const scroll = document.getElementById('tableScrollContainer');
+        if (scroll) {
+            scroll.addEventListener('wheel', (e) => {
+                if (!e.ctrlKey) return;        // Ctrl+wheel zooms; plain wheel scrolls
+                e.preventDefault();
+                setDataZoom(dataZoom + (e.deltaY < 0 ? 0.1 : -0.1));
+            }, { passive: false });
+        }
+        applyDataZoom();
+    }
+
     // --- suggestion reroll (4.5) -----------------------------------------------------------
     function initReroll() {
         document.getElementById('rerollBtn').addEventListener('click', () => {
@@ -453,5 +483,6 @@
         initWrangle();
         initReset();
         initReroll();
+        initDataZoom();
     });
 }());
