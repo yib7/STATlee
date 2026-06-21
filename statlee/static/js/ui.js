@@ -280,14 +280,16 @@
             const colLower = colName.toLowerCase();
             const matchedKey = Object.keys(CC.state.pdfMapping).find(k => k.toLowerCase() === colLower);
             const desc = matchedKey ? CC.state.pdfMapping[matchedKey] : null;
-            const safeDesc = CC.escapeHtml(desc);
             const safeCol = CC.escapeHtml(colName);
-            const safeClass = CC.escapeHtml(classification);
-            const descHTML = desc
-                ? `<div class="text-[11px] font-normal mt-1 text-slate-700 dark:text-slate-300 line-clamp-3 leading-snug w-full opacity-90 border-t border-slate-400/30 dark:border-slate-500/30 pt-1" title="${safeDesc}">${safeDesc}</div>`
-                : '';
-            btn.className = `px-3 py-2 rounded-lg border text-left transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col items-start cursor-pointer group ${colorClasses}`;
-            btn.innerHTML = `<div class="flex justify-between w-full items-center gap-2"><span class="font-mono text-sm font-bold truncate max-w-[200px]" title="${safeCol}">${safeCol}</span> <span class="opacity-80 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">${safeClass}</span></div>${descHTML}`;
+            // Abbreviate the classification so two chips fit per row.
+            const ABBR = { Continuous: 'Cont', Nominal: 'Nom', Ordinal: 'Ord' };
+            const safeClass = CC.escapeHtml(ABBR[classification] || classification);
+            // Description (codebook/survey) moves to the hover tooltip to stay compact.
+            btn.title = desc ? `${colName} — ${desc}` : colName;
+            btn.className = `codebook-chip px-2.5 py-1.5 rounded-lg border text-left transition-all hover:shadow-md flex items-center justify-between gap-1.5 cursor-pointer group ${colorClasses}`;
+            btn.innerHTML =
+                `<span class="font-mono text-xs font-bold truncate">${safeCol}</span>` +
+                `<span class="opacity-80 text-[9px] font-bold uppercase tracking-[0.12em] shrink-0">${safeClass}</span>`;
             btn.onclick = () => CC.viewColumn(colName);
             cbList.appendChild(btn);
         });

@@ -45,3 +45,11 @@ def test_history_dialog_is_larger(client):
     panel = html[i:i + 500]                # the history dialog's own panel div
     assert 'max-w-3xl' in panel
     assert 'max-h-[85vh]' in panel
+
+
+# --- SP8: compact codebook grid ---------------------------------------------
+def test_codebook_list_uses_compact_grid(client):
+    html = _index_html(client)
+    i = html.find('id="codebookList"')
+    assert i != -1
+    assert 'codebook-grid' in html[i:i + 120]
