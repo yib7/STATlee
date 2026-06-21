@@ -95,21 +95,22 @@ class Config:
     # 2026). DISPLAY ONLY — these never gate, trigger, or change any spend; they
     # only let the client show an approximate session cost. Override by editing
     # this map or constructing Config with your own.
-    # Non-Gemini rows are rough published estimates for the per-provider default
-    # models below — DISPLAY ONLY, never gate spend. Override MODEL_* and this
-    # map together if you pin different models.
+    # Non-Gemini rows are published per-1M rates (verified Jun 2026) for the
+    # per-provider default models below — DISPLAY ONLY, never gate spend.
+    # Override MODEL_* and this map together if you pin different models.
     model_prices: dict = field(default_factory=lambda: {
         'gemini-3.1-pro': {'input': 2.00, 'output': 12.00},
         'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
         'gemini-3.1-flash-lite': {'input': 0.25, 'output': 1.50},
         # Anthropic / Claude defaults
-        'claude-opus-4-8': {'input': 15.00, 'output': 75.00},
+        'claude-opus-4-8': {'input': 5.00, 'output': 25.00},
         'claude-sonnet-4-6': {'input': 3.00, 'output': 15.00},
         'claude-haiku-4-5': {'input': 1.00, 'output': 5.00},
         # OpenAI defaults
-        'gpt-5': {'input': 1.25, 'output': 10.00},
-        'gpt-5-mini': {'input': 0.25, 'output': 2.00},
-        'gpt-5-nano': {'input': 0.05, 'output': 0.40},
+        'gpt-5.5': {'input': 5.00, 'output': 30.00},
+        'gpt-5.4': {'input': 2.50, 'output': 15.00},
+        'gpt-5.4-mini': {'input': 0.75, 'output': 4.50},
+        'gpt-5.4-nano': {'input': 0.20, 'output': 1.25},
     })
 
     # --- Analysis tunables -----------------------------------------------------
@@ -165,8 +166,8 @@ class Config:
     _PROVIDER_MODEL_DEFAULTS = {
         'anthropic': {'pro': 'claude-opus-4-8', 'pro_max': 'claude-opus-4-8',
                       'flash': 'claude-sonnet-4-6', 'lite': 'claude-haiku-4-5'},
-        'openai': {'pro': 'gpt-5', 'pro_max': 'gpt-5',
-                   'flash': 'gpt-5-mini', 'lite': 'gpt-5-nano'},
+        'openai': {'pro': 'gpt-5.4', 'pro_max': 'gpt-5.5',
+                   'flash': 'gpt-5.4-mini', 'lite': 'gpt-5.4-nano'},
     }
 
     # ------------------------------------------------------------------

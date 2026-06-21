@@ -242,10 +242,10 @@ def test_provider_model_defaults_openai(monkeypatch):
     for var in ('MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
         monkeypatch.delenv(var, raising=False)
     cfg = Config.from_env()
-    assert cfg.model_pro == 'gpt-5'
-    assert cfg.model_pro_max == 'gpt-5'
-    assert cfg.model_flash == 'gpt-5-mini'
-    assert cfg.model_flash_lite == 'gpt-5-nano'
+    assert cfg.model_pro == 'gpt-5.4'
+    assert cfg.model_pro_max == 'gpt-5.5'
+    assert cfg.model_flash == 'gpt-5.4-mini'
+    assert cfg.model_flash_lite == 'gpt-5.4-nano'
 
 
 def test_model_env_overrides_provider_default(monkeypatch):
@@ -255,12 +255,12 @@ def test_model_env_overrides_provider_default(monkeypatch):
     monkeypatch.delenv('MODEL_FLASH', raising=False)
     cfg = Config.from_env()
     assert cfg.model_pro == 'gpt-custom'        # explicit override wins
-    assert cfg.model_flash == 'gpt-5-mini'      # unset roles keep provider default
+    assert cfg.model_flash == 'gpt-5.4-mini'    # unset roles keep provider default
 
 
 @pytest.mark.parametrize('provider, expected_pro', [
     ('anthropic', 'claude-opus-4-8'),
-    ('openai', 'gpt-5'),
+    ('openai', 'gpt-5.4'),
 ])
 def test_active_prices_cover_provider_defaults(monkeypatch, provider, expected_pro):
     monkeypatch.setenv('APP_ENV', 'testing')
