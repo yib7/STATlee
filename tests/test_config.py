@@ -110,6 +110,23 @@ def test_explicit_model_env_overrides_default(monkeypatch):
     assert cfg.model_pro == 'gemini-custom'
 
 
+def test_pro_model_default_is_3_5_flash(monkeypatch):
+    # The premium tier was swapped off 3.1-pro onto the cheaper/faster 3.5-flash.
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.delenv('MODEL_PRO', raising=False)
+    cfg = Config.from_env()
+    assert cfg.model_pro == 'gemini-3.5-flash'
+
+
+def test_active_model_prices_cover_every_active_model():
+    cfg = Config(env='testing', gemini_api_key='k', flask_secret_key='s')
+    prices = cfg.active_model_prices()
+    for model_id in (cfg.model_pro, cfg.model_flash, cfg.model_flash_lite):
+        assert model_id in prices, f'missing price for {model_id}'
+        assert prices[model_id]['input'] > 0
+        assert prices[model_id]['output'] > 0
+
+
 def test_limiter_storage_uri_from_env(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'testing')
     monkeypatch.setenv('RATELIMIT_STORAGE_URI', 'redis://localhost:6379/0')

@@ -27,7 +27,7 @@
     <script src="{{ url_for('static', filename='vendor/cm-r.min.js') }}"></script>
 
     <script>
-        window.CC_BOOT = { accounts: {{ 'true' if accounts_enabled else 'false' }} };
+        window.CC_BOOT = { accounts: {{ 'true' if accounts_enabled else 'false' }}, prices: {{ model_prices | tojson }} };
         if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
         } else {

@@ -62,7 +62,10 @@ class Config:
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
 
     # --- Model routing (3.4) --------------------------------------------------
-    model_pro: str = 'gemini-3.1-pro-preview'
+    # Premium tier runs on gemini-3.5-flash (cheaper + faster than 3.1-pro with
+    # near-parity quality); flash/lite unchanged. Tier ordering by cost stays
+    # coherent: pro (1.50/9.00) > flash (0.50/3.00) > lite (0.25/1.50).
+    model_pro: str = 'gemini-3.5-flash'
     model_flash: str = 'gemini-3-flash-preview'
     model_flash_lite: str = 'gemini-3.1-flash-lite-preview'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
@@ -70,6 +73,17 @@ class Config:
     # model since these are short, structured transforms ("delete column 2",
     # "filter for X") — keeps per-edit cost (and the operator's bill) low.
     wrangle_role: str = 'lite'
+
+    # Per-model price estimates (USD per 1M tokens) for the in-app session cost
+    # display (3.4). Web-verified Gemini paid-tier rates (ai.google.dev, Jun
+    # 2026). DISPLAY ONLY — these never gate, trigger, or change any spend; they
+    # only let the client show an approximate session cost. Override by editing
+    # this map or constructing Config with your own.
+    model_prices: dict = field(default_factory=lambda: {
+        'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
+        'gemini-3-flash-preview': {'input': 0.50, 'output': 3.00},
+        'gemini-3.1-flash-lite-preview': {'input': 0.25, 'output': 1.50},
+    })
 
     # --- Analysis tunables -----------------------------------------------------
     feature_selection_threshold: int = 15
@@ -170,6 +184,15 @@ class Config:
         )
         cfg.validate()
         return cfg
+
+    # ------------------------------------------------------------------
+    def active_model_prices(self):
+        """Price map (USD per 1M tokens) for the models actually in use, keyed
+        by model id — exactly what the client needs to estimate session cost.
+        Models with no known price are simply omitted (they contribute 0)."""
+        active = {self.model_pro, self.model_flash, self.model_flash_lite}
+        return {mid: self.model_prices[mid] for mid in active
+                if mid in self.model_prices}
 
     # ------------------------------------------------------------------
     def validate(self):

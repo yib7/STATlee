@@ -27,6 +27,7 @@ def index():
         'index.html',
         csrf_token=session.get('csrf_token', ''),
         accounts_enabled=cfg.accounts_enabled,
+        model_prices=cfg.active_model_prices(),
     )
 
 

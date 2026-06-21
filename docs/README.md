@@ -142,7 +142,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 
 * **Frontend:** Vanilla JavaScript (modular `CC` namespace), HTML5, Tailwind CSS, CodeMirror, vendored/pinned `marked` + `DOMPurify`.
 * **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
-* **AI Integration:** Google GenAI SDK (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`).
+* **AI Integration:** Google GenAI SDK (`gemini-3.5-flash`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`).
 * **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
 * **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod).
 
