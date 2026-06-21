@@ -5,7 +5,22 @@ Format: `[date] <phase> — <decision/question> — <why> — <how to undo>`
 ## Open (need your answer)
 - (none)
 
-## Resolved
+## Resolved (cycle 2 — UI polish, 2026-06-20)
+- [2026-06-20] setup — New cycle on fresh branch `autopilot/ui-polish-cycle2` off the current
+  Gemini-only HEAD `e8829fc` — same divergence reasoning as cycle 1 — **how to undo:** delete branch.
+- [2026-06-20] SP1 — Swapped the `pro`/`draft` model `gemini-3.1-pro-preview` → `gemini-3.5-flash`
+  per the user (cheaper/faster, near-parity). Tier ordering stays coherent (pro still priciest:
+  1.50/9.00 > flash 0.50/3.00 > lite 0.25/1.50) — **how to undo:** set `MODEL_PRO` env or revert config.
+- [2026-06-20] SP1 — Cost prices are **web-verified real Gemini paid-tier rates** (ai.google.dev),
+  seeded as code defaults, display-only (never spends) — **how to undo:** edit `config.model_prices`.
+- [2026-06-20] SP5 — Emoji scrub limited to **product UI + root README** (user choice); internal
+  `/docs` status ticks and all functional typography (→, trees, math) kept — **how to undo:** n/a.
+- [2026-06-20] SP7 — Report promoted to a top tab and the sidebar `Report` button **removed** (user
+  choice) — declutters the toolbar — **how to undo:** re-add `#reportBtn` + `#reportModal`.
+- [2026-06-20] setup — Running phases **inline** again (Agent-tool spawn guard; modest scope) —
+  sanctioned fallback — **how to undo:** n/a.
+
+## Resolved (cycle 1)
 - [2026-06-20] setup — Hosting = **GitHub-only + deploy playbook** (user choice) — keep money risk
   at $0; deploy nothing now — **how to undo:** follow `docs/DEPLOYMENT_PLAYBOOK.md` later.
 - [2026-06-20] setup — Pricing = **resume-showcase only** (user choice); still set the *free*
