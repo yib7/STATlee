@@ -42,6 +42,18 @@ class Config:
     flask_secret_key: str = ''
     app_password: str = ''          # legacy single-password gate (optional)
 
+    # --- LLM provider -------------------------------------------------------
+    # Which vendor backs every model call. Gemini is the default; a self-hoster
+    # can switch to Claude or OpenAI with their own key. Per-provider default
+    # model ids (per role) are applied in from_env(); MODEL_* env still overrides
+    # any single role regardless of provider.
+    llm_provider: str = 'gemini'             # 'gemini' | 'anthropic' | 'openai'
+    anthropic_api_key: str = ''
+    anthropic_max_tokens: int = 8192
+    anthropic_stream_max_tokens: int = 16000
+    openai_api_key: str = ''
+    openai_max_tokens: int = 8192
+
     # --- Server -------------------------------------------------------------
     port: int = 5000
     max_upload_mb: int = 16
@@ -83,10 +95,21 @@ class Config:
     # 2026). DISPLAY ONLY — these never gate, trigger, or change any spend; they
     # only let the client show an approximate session cost. Override by editing
     # this map or constructing Config with your own.
+    # Non-Gemini rows are rough published estimates for the per-provider default
+    # models below — DISPLAY ONLY, never gate spend. Override MODEL_* and this
+    # map together if you pin different models.
     model_prices: dict = field(default_factory=lambda: {
         'gemini-3.1-pro': {'input': 2.00, 'output': 12.00},
         'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
         'gemini-3.1-flash-lite': {'input': 0.25, 'output': 1.50},
+        # Anthropic / Claude defaults
+        'claude-opus-4-8': {'input': 15.00, 'output': 75.00},
+        'claude-sonnet-4-6': {'input': 3.00, 'output': 15.00},
+        'claude-haiku-4-5': {'input': 1.00, 'output': 5.00},
+        # OpenAI defaults
+        'gpt-5': {'input': 1.25, 'output': 10.00},
+        'gpt-5-mini': {'input': 0.25, 'output': 2.00},
+        'gpt-5-nano': {'input': 0.05, 'output': 0.40},
     })
 
     # --- Analysis tunables -----------------------------------------------------
@@ -136,14 +159,44 @@ class Config:
 
     warnings: list = field(default_factory=list)
 
+    # Per-provider default model ids by role, applied in from_env() when the
+    # operator hasn't pinned MODEL_* explicitly. Keeps "set LLM_PROVIDER + key"
+    # working out of the box for each vendor.
+    _PROVIDER_MODEL_DEFAULTS = {
+        'anthropic': {'pro': 'claude-opus-4-8', 'pro_max': 'claude-opus-4-8',
+                      'flash': 'claude-sonnet-4-6', 'lite': 'claude-haiku-4-5'},
+        'openai': {'pro': 'gpt-5', 'pro_max': 'gpt-5',
+                   'flash': 'gpt-5-mini', 'lite': 'gpt-5-nano'},
+    }
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def _provider_model_defaults(cls, provider):
+        """Role→model-id default map for ``provider`` (Gemini fields are the
+        fallback for any provider without a preset)."""
+        preset = cls._PROVIDER_MODEL_DEFAULTS.get(provider)
+        if preset:
+            return preset
+        return {'pro': cls.model_pro, 'pro_max': cls.model_pro_max,
+                'flash': cls.model_flash, 'lite': cls.model_flash_lite}
+
     # ------------------------------------------------------------------
     @classmethod
     def from_env(cls):
+        provider = os.environ.get('LLM_PROVIDER', 'gemini').strip().lower()
+        md = cls._provider_model_defaults(provider)
         cfg = cls(
             env=os.environ.get('APP_ENV', 'development').strip().lower(),
             gemini_api_key=os.environ.get('GEMINI_API_KEY', '').strip(),
             flask_secret_key=os.environ.get('FLASK_SECRET_KEY', '').strip(),
             app_password=os.environ.get('PASSWORD', '').strip(),
+            llm_provider=provider,
+            anthropic_api_key=os.environ.get('ANTHROPIC_API_KEY', '').strip(),
+            anthropic_max_tokens=_env_int('ANTHROPIC_MAX_TOKENS', 8192),
+            anthropic_stream_max_tokens=_env_int(
+                'ANTHROPIC_STREAM_MAX_TOKENS', 16000),
+            openai_api_key=os.environ.get('OPENAI_API_KEY', '').strip(),
+            openai_max_tokens=_env_int('OPENAI_MAX_TOKENS', 8192),
             port=_env_int('PORT', 5000),
             max_upload_mb=_env_int('MAX_UPLOAD_MB', 16),
             upload_root=os.environ.get('UPLOAD_ROOT', '').strip(),
@@ -156,10 +209,10 @@ class Config:
             runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
-            model_pro=os.environ.get('MODEL_PRO', cls.model_pro).strip(),
-            model_pro_max=os.environ.get('MODEL_PRO_MAX', cls.model_pro_max).strip(),
-            model_flash=os.environ.get('MODEL_FLASH', cls.model_flash).strip(),
-            model_flash_lite=os.environ.get('MODEL_FLASH_LITE', cls.model_flash_lite).strip(),
+            model_pro=os.environ.get('MODEL_PRO', md['pro']).strip(),
+            model_pro_max=os.environ.get('MODEL_PRO_MAX', md['pro_max']).strip(),
+            model_flash=os.environ.get('MODEL_FLASH', md['flash']).strip(),
+            model_flash_lite=os.environ.get('MODEL_FLASH_LITE', md['lite']).strip(),
             converse_role=os.environ.get('CONVERSE_ROLE', 'flash').strip().lower(),
             wrangle_role=os.environ.get('WRANGLE_ROLE', 'lite').strip().lower(),
             feature_selection_threshold=_env_int('FEATURE_SELECTION_THRESHOLD', 15),
@@ -207,10 +260,23 @@ class Config:
             raise ValueError(
                 f"APP_ENV must be one of {VALID_ENVS}, got {self.env!r}")
 
+        if self.llm_provider not in ('gemini', 'anthropic', 'openai'):
+            raise ValueError(
+                "LLM_PROVIDER must be 'gemini', 'anthropic', or 'openai'")
+
+        # The API key the selected provider needs. (Anthropic also supports a
+        # keyless local OAuth/subscription login, but a real deploy should use
+        # an API key, so it's still required in production.)
+        key_name, key_val = {
+            'gemini': ('GEMINI_API_KEY', self.gemini_api_key),
+            'anthropic': ('ANTHROPIC_API_KEY', self.anthropic_api_key),
+            'openai': ('OPENAI_API_KEY', self.openai_api_key),
+        }[self.llm_provider]
+
         if self.is_production:
             missing = []
-            if not self.gemini_api_key:
-                missing.append('GEMINI_API_KEY')
+            if not key_val:
+                missing.append(key_name)
             if not self.flask_secret_key:
                 missing.append('FLASK_SECRET_KEY')
             if missing:
@@ -218,9 +284,9 @@ class Config:
                     "Refusing to start in production without: "
                     + ", ".join(missing))
         else:
-            if not self.gemini_api_key and self.env != 'testing':
+            if not key_val and self.env != 'testing':
                 self._warn(
-                    "GEMINI_API_KEY is not set — LLM endpoints will return "
+                    f"{key_name} is not set — LLM endpoints will return "
                     "errors until it is configured.")
             if not self.flask_secret_key and self.env != 'testing':
                 self._warn(

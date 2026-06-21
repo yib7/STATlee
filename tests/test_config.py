@@ -181,3 +181,96 @@ def test_production_shared_limiter_is_quiet():
                  rate_limit_storage_uri='redis://localhost:6379')
     cfg.validate()
     assert not any('RATELIMIT_STORAGE_URI' in w for w in cfg.warnings)
+
+
+# ---------------------------------------------------------------------------
+# LLM provider selection (gemini | anthropic | openai)
+# ---------------------------------------------------------------------------
+def test_provider_defaults_to_gemini(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.delenv('LLM_PROVIDER', raising=False)
+    cfg = Config.from_env()
+    assert cfg.llm_provider == 'gemini'
+    assert cfg.model_pro.startswith('gemini')
+
+
+def test_invalid_provider_raises():
+    with pytest.raises(ValueError, match='LLM_PROVIDER'):
+        Config(env='development', llm_provider='cohere').validate()
+
+
+def test_anthropic_provider_requires_key_in_production():
+    cfg = Config(env='production', llm_provider='anthropic',
+                 anthropic_api_key='', flask_secret_key='s')
+    with pytest.raises(ValueError) as exc:
+        cfg.validate()
+    assert 'ANTHROPIC_API_KEY' in str(exc.value)
+    assert 'GEMINI_API_KEY' not in str(exc.value)   # wrong provider's key not demanded
+
+
+def test_openai_provider_requires_key_in_production():
+    cfg = Config(env='production', llm_provider='openai',
+                 openai_api_key='', flask_secret_key='s')
+    with pytest.raises(ValueError) as exc:
+        cfg.validate()
+    assert 'OPENAI_API_KEY' in str(exc.value)
+
+
+def test_provider_ok_with_its_key_in_production():
+    Config(env='production', llm_provider='anthropic',
+           anthropic_api_key='k', flask_secret_key='s').validate()
+    Config(env='production', llm_provider='openai',
+           openai_api_key='k', flask_secret_key='s').validate()
+
+
+def test_provider_model_defaults_anthropic(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('LLM_PROVIDER', 'anthropic')
+    for var in ('MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
+        monkeypatch.delenv(var, raising=False)
+    cfg = Config.from_env()
+    assert cfg.llm_provider == 'anthropic'
+    assert cfg.model_pro == 'claude-opus-4-8'
+    assert cfg.model_pro_max == 'claude-opus-4-8'
+    assert cfg.model_flash == 'claude-sonnet-4-6'
+    assert cfg.model_flash_lite == 'claude-haiku-4-5'
+
+
+def test_provider_model_defaults_openai(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('LLM_PROVIDER', 'openai')
+    for var in ('MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
+        monkeypatch.delenv(var, raising=False)
+    cfg = Config.from_env()
+    assert cfg.model_pro == 'gpt-5'
+    assert cfg.model_pro_max == 'gpt-5'
+    assert cfg.model_flash == 'gpt-5-mini'
+    assert cfg.model_flash_lite == 'gpt-5-nano'
+
+
+def test_model_env_overrides_provider_default(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('LLM_PROVIDER', 'openai')
+    monkeypatch.setenv('MODEL_PRO', 'gpt-custom')
+    monkeypatch.delenv('MODEL_FLASH', raising=False)
+    cfg = Config.from_env()
+    assert cfg.model_pro == 'gpt-custom'        # explicit override wins
+    assert cfg.model_flash == 'gpt-5-mini'      # unset roles keep provider default
+
+
+@pytest.mark.parametrize('provider, expected_pro', [
+    ('anthropic', 'claude-opus-4-8'),
+    ('openai', 'gpt-5'),
+])
+def test_active_prices_cover_provider_defaults(monkeypatch, provider, expected_pro):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('LLM_PROVIDER', provider)
+    for var in ('MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
+        monkeypatch.delenv(var, raising=False)
+    cfg = Config.from_env()
+    assert cfg.model_pro == expected_pro
+    prices = cfg.active_model_prices()
+    for mid in (cfg.model_pro, cfg.model_pro_max,
+                cfg.model_flash, cfg.model_flash_lite):
+        assert mid in prices, f'missing price for {mid}'
+        assert prices[mid]['input'] > 0 and prices[mid]['output'] > 0

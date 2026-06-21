@@ -22,8 +22,8 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-154%20passing-3fb950">
-  <img alt="AI provider" src="https://img.shields.io/badge/AI-Google%20Gemini-8E75B2?logo=google&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-178%20passing-3fb950">
+  <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
 </p>
 
 <p align="center">
@@ -105,12 +105,21 @@ APP_ENV=development python wsgi.py                 # http://localhost:5000
 
 ### LLM configuration
 
-STATlee uses **Google Gemini**. Set `GEMINI_API_KEY` (get one at
-[Google AI Studio](https://aistudio.google.com/apikey)); it's required in
-production. Model ids per role can be pinned with `MODEL_PRO` / `MODEL_FLASH` /
-`MODEL_FLASH_LITE` but default to current Gemini models. The full feature set —
-including the multimodal paths (PDF codebook extraction, plot interpretation) —
-runs on Gemini.
+STATlee has a **pluggable LLM provider** — pick one with `LLM_PROVIDER` and
+supply that vendor's key. Switching providers is a one-line config change; no
+route, prompt, or UI code changes (every call routes through one role-based
+service).
+
+| `LLM_PROVIDER` | API key | Notes |
+|---|---|---|
+| `gemini` *(default)* | `GEMINI_API_KEY` ([AI Studio](https://aistudio.google.com/apikey)) | Powers the multimodal paths (PDF codebook extraction, plot interpretation). |
+| `anthropic` | `ANTHROPIC_API_KEY` ([Console](https://console.anthropic.com/)) | Claude models; also accepts a local OAuth/subscription login for keyless dev. |
+| `openai` | `OPENAI_API_KEY` ([Platform](https://platform.openai.com/api-keys)) | GPT models. |
+
+The selected provider's key is required in production. Each role's model id
+defaults sensibly per provider and can be pinned independently with `MODEL_PRO`
+/ `MODEL_PRO_MAX` / `MODEL_FLASH` / `MODEL_FLASH_LITE` (see
+[`.env.example`](.env.example) for the per-provider defaults).
 
 See [docs/README.md](docs/README.md) for the full setup, Docker sandbox build,
 and the documented [`.env.example`](.env.example).
@@ -120,7 +129,7 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 154 tests, fully offline (deterministic fake LLM — no API key)
+pytest -q         # 178 tests, fully offline (deterministic fake LLM — no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
@@ -139,7 +148,7 @@ The application lives in the `statlee/` package (entry point: `wsgi.py` →
 | `statlee/app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
-| `statlee/llm.py` | Role-based Gemini service: usage tracking, priority escalation, response cache. |
+| `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
 | `statlee/billing.py` | Monetization seam — `check_and_debit` chokepoint (no-op today). |
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |

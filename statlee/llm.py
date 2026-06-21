@@ -7,7 +7,10 @@ change. Code generation normally uses 'draft'; the "Pro mode" toggle routes it
 to 'pro_max' (a bigger, stronger model) instead.
 
 ``LLMService`` owns role resolution, the deterministic-call cache, and usage
-accounting. The Gemini wire protocol lives in ``GeminiBackend``.
+accounting; the per-provider wire protocol lives in a backend
+(``GeminiBackend`` / ``AnthropicBackend`` / ``OpenAIBackend``) selected from
+``config.llm_provider`` (default ``gemini``). Gemini stays the default; the
+other two let a self-hoster bring their own Claude or OpenAI key.
 """
 import hashlib
 import logging
@@ -109,6 +112,217 @@ class GeminiBackend:
 
 
 # ---------------------------------------------------------------------------
+# Anthropic / Claude backend.
+# ---------------------------------------------------------------------------
+class AnthropicBackend:
+    """Anthropic/Claude backend. Auth resolves from config: an explicit API key
+    (deploy), else a bare client that picks up ANTHROPIC_AUTH_TOKEN or a local
+    `claude`/`ant` OAuth login (local subscription)."""
+
+    JSON_SYSTEM = ("Output only a single valid JSON value — no markdown, "
+                   "no code fences, no prose.")
+
+    def __init__(self, config):
+        self.config = config
+        self._client = None
+
+    def _client_(self):
+        if self._client is None:
+            import anthropic
+            if self.config.anthropic_api_key:
+                self._client = anthropic.Anthropic(
+                    api_key=self.config.anthropic_api_key)
+            else:
+                self._client = anthropic.Anthropic(
+                    default_headers={'anthropic-beta': 'oauth-2025-04-20'})
+        return self._client
+
+    @staticmethod
+    def _content(contents):
+        """Build the Anthropic user-message ``content`` from a str or a list of
+        str / MediaPart items (text, base64 image, or base64 PDF document)."""
+        if isinstance(contents, str):
+            return contents
+        import base64
+        blocks = []
+        for c in contents:
+            if isinstance(c, str):
+                blocks.append({'type': 'text', 'text': c})
+            elif isinstance(c, MediaPart):
+                b64 = base64.b64encode(c.data).decode('ascii')
+                block_type = ('document' if c.mime_type == 'application/pdf'
+                              else 'image')
+                blocks.append({
+                    'type': block_type,
+                    'source': {'type': 'base64',
+                               'media_type': c.mime_type, 'data': b64},
+                })
+            else:
+                raise RuntimeError(
+                    "Unsupported content item for the Anthropic provider: "
+                    f"{type(c).__name__}")
+        return blocks
+
+    @staticmethod
+    def _usage(message, model):
+        u = getattr(message, 'usage', None)
+        return {
+            'model': model,
+            'input': getattr(u, 'input_tokens', 0) or 0,
+            'output': getattr(u, 'output_tokens', 0) or 0,
+        }
+
+    def generate(self, model, contents, *, temperature, json_mode):
+        # temperature is intentionally ignored — sampling params are rejected on
+        # current Claude models; determinism is handled by LLMService's cache.
+        kwargs = {
+            'model': model,
+            'max_tokens': self.config.anthropic_max_tokens,
+            'messages': [{'role': 'user', 'content': self._content(contents)}],
+        }
+        if json_mode:
+            kwargs['system'] = self.JSON_SYSTEM
+        message = self._client_().messages.create(**kwargs)
+        text = next((b.text for b in message.content
+                     if getattr(b, 'type', None) == 'text'), '')
+        usage = self._usage(message, model)
+        logger.info("llm call provider=anthropic model=%s in=%s out=%s",
+                    model, usage['input'], usage['output'])
+        return LLMResult(text=(text or '').strip(), usage=usage)
+
+    def stream(self, model, contents, *, temperature, usage_out):
+        with self._client_().messages.stream(
+                model=model,
+                max_tokens=self.config.anthropic_stream_max_tokens,
+                messages=[{'role': 'user',
+                           'content': self._content(contents)}]) as stream:
+            for delta in stream.text_stream:
+                if delta:
+                    yield delta
+            final = stream.get_final_message()
+        usage = self._usage(final, model)
+        if usage_out is not None:
+            usage_out.update(usage)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI backend.
+# ---------------------------------------------------------------------------
+class OpenAIBackend:
+    """OpenAI backend (Chat Completions). ``MediaPart`` maps to ``image_url``
+    parts (images) and ``file`` parts (base64 PDFs). Some newer models (gpt-5,
+    o-series) reject non-default sampling params, so a ``temperature`` error
+    triggers one retry without it — determinism for cached temp-0 calls is
+    preserved by ``LLMService``'s cache regardless."""
+
+    def __init__(self, config):
+        self.config = config
+        self._client = None
+
+    def _client_(self):
+        if self._client is None:
+            import openai
+            if not self.config.openai_api_key:
+                raise RuntimeError(
+                    "OPENAI_API_KEY is not configured on the server.")
+            self._client = openai.OpenAI(api_key=self.config.openai_api_key)
+        return self._client
+
+    @staticmethod
+    def _content(contents):
+        """Build the Chat Completions message ``content`` from a str or a list
+        of str / MediaPart items (text, image_url, or PDF file part)."""
+        if isinstance(contents, str):
+            return contents
+        import base64
+        parts = []
+        for c in contents:
+            if isinstance(c, str):
+                parts.append({'type': 'text', 'text': c})
+            elif isinstance(c, MediaPart):
+                b64 = base64.b64encode(c.data).decode('ascii')
+                data_uri = f'data:{c.mime_type};base64,{b64}'
+                if c.mime_type == 'application/pdf':
+                    parts.append({'type': 'file', 'file': {
+                        'filename': 'document.pdf', 'file_data': data_uri}})
+                else:
+                    parts.append({'type': 'image_url',
+                                  'image_url': {'url': data_uri}})
+            else:
+                raise RuntimeError(
+                    "Unsupported content item for the OpenAI provider: "
+                    f"{type(c).__name__}")
+        return parts
+
+    @staticmethod
+    def _usage(response, model):
+        u = getattr(response, 'usage', None)
+        return {
+            'model': model,
+            'input': getattr(u, 'prompt_tokens', 0) or 0,
+            'output': getattr(u, 'completion_tokens', 0) or 0,
+        }
+
+    def _create(self, *, model, contents, temperature, json_mode, stream):
+        kwargs = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': self._content(contents)}],
+            'max_completion_tokens': self.config.openai_max_tokens,
+        }
+        if temperature is not None:
+            kwargs['temperature'] = temperature
+        if json_mode:
+            kwargs['response_format'] = {'type': 'json_object'}
+        if stream:
+            kwargs['stream'] = True
+            kwargs['stream_options'] = {'include_usage': True}
+        try:
+            return self._client_().chat.completions.create(**kwargs)
+        except Exception as exc:
+            # gpt-5 / o-series only accept the default temperature; drop it and
+            # retry once rather than failing the call.
+            if temperature is not None and 'temperature' in str(exc).lower():
+                kwargs.pop('temperature', None)
+                return self._client_().chat.completions.create(**kwargs)
+            raise
+
+    def generate(self, model, contents, *, temperature, json_mode):
+        response = self._create(model=model, contents=contents,
+                                temperature=temperature, json_mode=json_mode,
+                                stream=False)
+        text = (response.choices[0].message.content or ''
+                if response.choices else '')
+        usage = self._usage(response, model)
+        logger.info("llm call provider=openai model=%s in=%s out=%s",
+                    model, usage['input'], usage['output'])
+        return LLMResult(text=text.strip(), usage=usage)
+
+    def stream(self, model, contents, *, temperature, usage_out):
+        events = self._create(model=model, contents=contents,
+                              temperature=temperature, json_mode=False,
+                              stream=True)
+        usage = {'model': model, 'input': 0, 'output': 0}
+        for chunk in events:
+            if getattr(chunk, 'usage', None):
+                usage = self._usage(chunk, model)
+            if getattr(chunk, 'choices', None):
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        if usage_out is not None:
+            usage_out.update(usage)
+
+
+def _make_backend(config):
+    provider = (getattr(config, 'llm_provider', 'gemini') or 'gemini').lower()
+    if provider == 'anthropic':
+        return AnthropicBackend(config)
+    if provider == 'openai':
+        return OpenAIBackend(config)
+    return GeminiBackend(config)
+
+
+# ---------------------------------------------------------------------------
 # Service — routing, cache, and usage accounting.
 # ---------------------------------------------------------------------------
 class LLMService:
@@ -117,7 +331,7 @@ class LLMService:
         self._lock = threading.Lock()
         self.usage_totals = defaultdict(lambda: {'calls': 0, 'input': 0, 'output': 0})
         self._gen_cache = OrderedDict()   # deterministic generate() results
-        self._backend = GeminiBackend(config)
+        self._backend = _make_backend(config)
 
     # ------------------------------------------------------------------
     # Routing
