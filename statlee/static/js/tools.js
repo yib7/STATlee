@@ -482,7 +482,6 @@
         document.getElementById('exportBtn').addEventListener('click', exportProject);
         document.getElementById('historyBtn').addEventListener('click', openHistory);
         document.getElementById('catalogBtn').addEventListener('click', () => CC.modal.open('catalogModal'));
-        document.getElementById('reportBtn').addEventListener('click', () => CC.modal.open('reportModal'));
         document.getElementById('issueBtn').addEventListener('click', () => CC.modal.open('issueModal'));
         document.getElementById('issueSubmitBtn').addEventListener('click', submitIssue);
 

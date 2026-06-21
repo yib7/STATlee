@@ -139,50 +139,6 @@
         </div>
     </div>
 
-    <!-- Report builder modal (5.17) -->
-    <div id="reportModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
-        <div class="bg-white/95 dark:bg-surface-1/95 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-white/20 dark:border-slate-700/50 animate-fade-in-up">
-            <div class="flex justify-between items-center mb-4">
-                <h2 id="reportTitle" class="text-xl font-display font-bold text-slate-800 dark:text-white tracking-tight">AI Report Builder</h2>
-                <button data-close-modal="reportModal" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xl leading-none" aria-label="Close report builder">&times;</button>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                <div class="md:col-span-3">
-                    <label class="label-eyebrow mb-1" for="reportContext">Background / context</label>
-                    <textarea id="reportContext" rows="2" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 outline-none focus:ring-2 focus:ring-indigo-600 resize-none text-sm" placeholder="e.g., Term paper on income and turnout using the 2024 ANES pilot..."></textarea>
-                </div>
-                <div>
-                    <label class="label-eyebrow mb-1" for="reportLength">Length</label>
-                    <select id="reportLength" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
-                        <option value="brief (roughly 250 words)">Brief</option>
-                        <option value="medium (roughly 500-800 words)" selected>Medium</option>
-                        <option value="long (roughly 1200-1500 words)">Long</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="label-eyebrow mb-1" for="reportTone">Style</label>
-                    <select id="reportTone" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
-                        <option value="academic" selected>Academic</option>
-                        <option value="executive summary">Executive summary</option>
-                        <option value="plain-language explainer">Plain language</option>
-                    </select>
-                </div>
-                <div class="flex items-end">
-                    <button id="reportGenerateBtn" class="w-full btn-primary py-2.5 text-sm">Generate Report</button>
-                </div>
-            </div>
-            <div class="flex-1 min-h-0 flex flex-col border border-slate-300 dark:border-slate-700/60 rounded-xl overflow-hidden">
-                <textarea id="reportEditor" class="flex-1 min-h-[260px] w-full bg-white/90 dark:bg-surface-1/90 p-4 font-mono text-sm outline-none resize-none" placeholder="The generated report appears here as editable Markdown. Tweak it by hand, or select a passage and click 'Revise selection' for a targeted AI edit." aria-label="Report markdown editor"></textarea>
-                <div id="reportPreview" class="flex-1 min-h-[260px] overflow-y-auto p-5 markdown-body text-base hidden bg-white/90 dark:bg-surface-1/90"></div>
-            </div>
-            <div class="flex gap-2 mt-3 justify-end">
-                <button id="reportPreviewBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Preview</button>
-                <button id="reportReviseBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Revise selection</button>
-                <button id="reportDownloadBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-lg">Download .md</button>
-            </div>
-        </div>
-    </div>
-
     <!-- History modal (5.7) -->
     <div id="historyModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
         <div class="bg-white/95 dark:bg-surface-1/95 backdrop-blur-md rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col border border-white/20 dark:border-slate-700/50 animate-fade-in-up overflow-hidden">
@@ -274,7 +230,6 @@
                     <button id="resetBtn" class="btn-toolbar" title="Start over with a clean workspace" aria-label="New analysis — reset everything">New</button>
                     <button id="historyBtn" class="btn-toolbar" title="Past analyses" aria-label="Open analysis history">History</button>
                     <button id="catalogBtn" class="btn-toolbar" title="Browse statistical tests and plots" aria-label="Open analysis catalog">Catalog</button>
-                    <button id="reportBtn" class="btn-toolbar" title="Build a written report from your results" aria-label="Open report builder">Report</button>
                     <button id="exportBtn" class="btn-toolbar" title="Download data + script + plots + report as a zip" aria-label="Download project archive">Export</button>
                     <button id="issueBtn" class="btn-toolbar" title="Report a problem" aria-label="Report an issue">Support</button>
                     <button id="accountBtn" class="btn-toolbar" title="Sign in to keep your work" aria-label="Account">Account</button>
@@ -423,6 +378,10 @@
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                         Converse
                     </button>
+                    <button id="tabReport" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" onclick="switchTab('report')">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Report
+                    </button>
                     <button id="tabPdf" role="tab" style="display: none;" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all items-center gap-2 whitespace-nowrap" onclick="switchTab('pdf')">
                         <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         Codebook Viewer
@@ -541,6 +500,51 @@
                         </div>
                     </div>
 
+                    <!-- REPORT BUILDER TAB (5.17) -->
+                    <div id="contentReport" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-3">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                            <h3 class="text-sm font-display uppercase text-indigo-700 dark:text-indigo-400 font-bold tracking-widest flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                AI Report Builder
+                            </h3>
+                            <span class="text-[11px] text-slate-500 dark:text-slate-400">Grounded in your latest run — run an analysis first, then generate.</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="md:col-span-3">
+                                <label class="label-eyebrow mb-1" for="reportContext">Background / context</label>
+                                <textarea id="reportContext" rows="2" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 outline-none focus:ring-2 focus:ring-indigo-600 resize-none text-sm" placeholder="e.g., Term paper on income and turnout using the 2024 ANES pilot..."></textarea>
+                            </div>
+                            <div>
+                                <label class="label-eyebrow mb-1" for="reportLength">Length</label>
+                                <select id="reportLength" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
+                                    <option value="brief (roughly 250 words)">Brief</option>
+                                    <option value="medium (roughly 500-800 words)" selected>Medium</option>
+                                    <option value="long (roughly 1200-1500 words)">Long</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="label-eyebrow mb-1" for="reportTone">Style</label>
+                                <select id="reportTone" class="w-full bg-white/80 border border-slate-300 dark:bg-surface-2/80 dark:border-slate-700 rounded-xl py-2 px-3 text-sm outline-none">
+                                    <option value="academic" selected>Academic</option>
+                                    <option value="executive summary">Executive summary</option>
+                                    <option value="plain-language explainer">Plain language</option>
+                                </select>
+                            </div>
+                            <div class="flex items-end">
+                                <button id="reportGenerateBtn" class="w-full btn-primary py-2.5 text-sm">Generate Report</button>
+                            </div>
+                        </div>
+                        <div class="flex-1 min-h-0 flex flex-col border border-slate-300 dark:border-slate-700/60 rounded-xl overflow-hidden">
+                            <textarea id="reportEditor" class="flex-1 min-h-[260px] w-full bg-white/90 dark:bg-surface-1/90 p-4 font-mono text-sm outline-none resize-none" placeholder="The generated report appears here as editable Markdown. Tweak it by hand, or select a passage and click 'Revise selection' for a targeted AI edit." aria-label="Report markdown editor"></textarea>
+                            <div id="reportPreview" class="flex-1 min-h-[260px] overflow-y-auto p-5 markdown-body text-base hidden bg-white/90 dark:bg-surface-1/90"></div>
+                        </div>
+                        <div class="flex gap-2 justify-end">
+                            <button id="reportPreviewBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Preview</button>
+                            <button id="reportReviseBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all">Revise selection</button>
+                            <button id="reportDownloadBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-lg">Download .md</button>
+                        </div>
+                    </div>
+
                 </div>
 
                 <div id="paneDivider" class="hidden" role="separator" aria-orientation="vertical" aria-label="Resize panes"></div>
@@ -552,6 +556,7 @@
                             <option value="data">Data Viewer</option>
                             <option value="results">Analysis Results</option>
                             <option value="converse">Converse</option>
+                            <option value="report">AI Report</option>
                             <option value="pdf">Codebook Viewer</option>
                         </select>
                         <button id="paneBClose" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-lg leading-none px-1" aria-label="Close split pane">&times;</button>

@@ -47,6 +47,17 @@ def test_history_dialog_is_larger(client):
     assert 'max-h-[85vh]' in panel
 
 
+# --- SP7: report promoted to a tab, modal + sidebar button removed ----------
+def test_report_is_a_tab_not_a_modal(client):
+    html = _index_html(client)
+    assert 'id="tabReport"' in html
+    assert 'id="contentReport"' in html
+    assert 'id="reportModal"' not in html
+    assert 'id="reportBtn"' not in html
+    # still reachable from the split-pane selector
+    assert 'value="report"' in html
+
+
 # --- SP8: compact codebook grid ---------------------------------------------
 def test_codebook_list_uses_compact_grid(client):
     html = _index_html(client)

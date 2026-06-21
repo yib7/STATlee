@@ -67,7 +67,7 @@
     };
 
     // --- tabs + split panes (6.1) ------------------------------------------------
-    const VIEWS = ['Generate', 'Data', 'Results', 'Converse', 'Pdf'];
+    const VIEWS = ['Generate', 'Data', 'Results', 'Converse', 'Report', 'Pdf'];
     let activeA = 'generate';
     let paneBView = null;
 
