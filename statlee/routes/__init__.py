@@ -22,7 +22,7 @@ def moderation_blocked(result_text):
     treats anything that is not an explicit ``pass`` — malformed JSON, a missing
     or unexpected ``decision``, an empty body — as *blocked*. That closes the
     prompt-injection path where suppressing a magic word made moderation
-    fail open (see docs/SECURITY_AUDIT.md, residual-risk note).
+    fail open.
 
     Returns ``(blocked: bool, reason: str)``; ``reason`` is empty when allowed.
     """

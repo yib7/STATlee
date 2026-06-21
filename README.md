@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static/images/wordmark.svg" alt="STATlee" width="260">
+  <img src="static/images/logo-full.png" alt="STATlee" width="280">
 </p>
 
 <h1 align="center">Turn data questions into answers, in plain English.</h1>
@@ -12,8 +12,6 @@
 
 <p align="center">
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/SECURITY_AUDIT.md">Security</a> ·
-  <a href="docs/DEPLOYMENT_PLAYBOOK.md">Deploy</a> ·
   <a href="docs/PRICING.md">Pricing</a> ·
   <a href="docs/CREDITS.md">Credits</a>
 </p>
@@ -160,23 +158,20 @@ A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
 
 ## Hosting & pricing
 
-STATlee runs locally for free and is **not currently deployed**, a deliberate,
-zero-cost choice. When you want it online, the
-[Deployment Playbook](docs/DEPLOYMENT_PLAYBOOK.md) walks through a **money-safe**
-free-tier deploy: the app's only real cost is the LLM provider's API (Gemini by
-default), and it ships with the controls to cap that spend at a number you choose
-(a global monthly ceiling on premium calls, per-identity rate limits,
-cheapest-tier defaults, and a startup warning
-if billing is on without a cap). The (illustrative) monetization model and how
-the billing seam backs it are in [Pricing](docs/PRICING.md).
+STATlee runs locally for free and is **not currently deployed** to a public
+website, a deliberate, zero-cost choice. Self-hosted, its only real cost is the
+LLM provider's API (Gemini by default), and it ships with the controls to cap
+that spend at a number you choose: a global monthly ceiling on premium calls,
+per-identity rate limits, cheapest-tier defaults, and a startup warning if
+billing is on without a cap. The (illustrative) monetization model and how the
+billing seam backs it are in [Pricing](docs/PRICING.md).
 
 ## Security
 
 The execution **sandbox** is the real security boundary: secret-free env,
 throwaway dir, optional network-less container, plus a run-guard that
 re-moderates edited scripts. Rate limits are keyed per-identity (client IP /
-account, not a resettable cookie) to protect against bill abuse. The full
-adversarial review is in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
+account, not a resettable cookie) to protect against bill abuse.
 
 ## Compliance & attribution
 

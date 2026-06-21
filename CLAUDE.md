@@ -5,4 +5,5 @@ pluggable LLM backend (Gemini default; Anthropic/OpenAI optional via `LLM_PROVID
 `python -m pytest -q`. Lint: `ruff check .`. Run: `APP_ENV=development python wsgi.py` (needs the
 selected provider's API key in `.env` for live LLM calls).
 
-Architecture: `docs/ARCHITECTURE.md`. Security model: `docs/SECURITY_AUDIT.md`.
+Architecture: `docs/ARCHITECTURE.md`. Safety model: the execution sandbox
+(`statlee/sandbox.py`) plus the run-guard in `statlee/routes/analyze.py`.

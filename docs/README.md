@@ -38,9 +38,9 @@ pattern with focused modules (entry point: `wsgi.py` → `statlee.app:app`):
 
 A deeper architecture walkthrough is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Operations:** taking STATlee live without surprises on your bill is covered in
-the [Deployment Playbook](DEPLOYMENT_PLAYBOOK.md); the (illustrative) pricing
-model and how the billing seam backs it are in [Pricing](PRICING.md).
+**Operations:** the (illustrative) pricing model and how the billing seam backs
+it are in [Pricing](PRICING.md). STATlee is not currently deployed to a public
+website; it runs locally.
 
 ## Getting Started
 
@@ -151,5 +151,4 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 ## Hosting
 
 STATlee is not currently deployed; it runs locally (see the Docker quickstart
-above). The money-safe path to putting it online is documented in the
-[Deployment Playbook](DEPLOYMENT_PLAYBOOK.md).
+above).

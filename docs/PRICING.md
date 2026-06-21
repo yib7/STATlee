@@ -39,8 +39,7 @@ The monetization chokepoint is **one function**, `billing.check_and_debit`
 - **No-op until enabled.** With `BILLING_ENABLED=false` it always authorizes,
   so the trial is free and the wiring is dormant, not absent.
 - **Operator protection.** A global `MONTHLY_PRIORITY_CALL_CEILING` caps premium-tier
-  spend on the server's own key regardless of who calls (see
-  [DEPLOYMENT_PLAYBOOK.md](DEPLOYMENT_PLAYBOOK.md)).
+  spend on the server's own key regardless of who calls.
 - **Per-account credits.** When enabled, a logged-in free-plan user's priority
   request debits `User.credits`; out of credits → a clear "upgrade or wait"
   message. Nothing outside `billing.py` reads or writes `credits`.

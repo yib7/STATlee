@@ -177,5 +177,5 @@ Pro-mode routing. `ruff` lints; CI runs ruff + byte-compile + pytest on push.
 
 - Want the request flow? `app.py` → `routes/analyze.py`.
 - Want the safety model? `sandbox.py` + `storage.resolve_path` + the run-guard in
-  `routes/analyze.py`, then [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+  `routes/analyze.py`.
 - Want to swap a model or add a tier? `config.py` + `llm.py`.

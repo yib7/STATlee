@@ -34,3 +34,5 @@ instance/
 docs/superpowers/
 docs/IMPLEMENTATION_PLAN.md
 docs/CLOSEOUT.md
+# Operator deploy runbook kept local, not shipped in the public repo.
+docs/DEPLOYMENT_PLAYBOOK.md

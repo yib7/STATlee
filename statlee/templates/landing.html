@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>STATlee: turn data questions into answers, in plain English</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mark.png') }}">
     <meta name="description" content="STATlee is AI data analysis for social scientists. Upload your data, describe the analysis in plain English, and get runnable statistics, charts, and interpretation. No coding required.">
     <meta name="theme-color" content="#6366f1">
     <meta property="og:title" content="STATlee: turn data questions into answers, in plain English">
     <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; STATlee writes, runs, and interprets the statistics for you.">
     <meta property="og:type" content="website">
-    <meta property="og:image" content="{{ url_for('static', filename='images/wordmark.svg') }}">
+    <meta property="og:image" content="{{ url_for('static', filename='images/logo-full.png') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -52,7 +52,7 @@
         .nav-in { display: flex; align-items: center; justify-content: space-between; height: 64px; }
         .brand { display: flex; align-items: center; gap: 10px; font-family: 'Syne', sans-serif;
                  font-weight: 800; font-size: 22px; }
-        .brand img { width: 32px; height: 32px; border-radius: 9px; box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+        .brand img { width: 32px; height: 32px; filter: drop-shadow(0 4px 12px rgba(99,102,241,0.45)); }
         .nav-links { display: flex; align-items: center; gap: 28px; }
         .nav-links a.minor { color: var(--muted); font-size: 14px; font-weight: 500; }
         .nav-links a.minor:hover { color: var(--text); }
@@ -70,6 +70,8 @@
 
         /* hero */
         .hero { padding: 96px 0 64px; text-align: center; }
+        .hero-logo { display: block; width: clamp(84px, 12vw, 112px); height: auto;
+                     margin: 0 auto 20px; filter: drop-shadow(0 10px 30px rgba(99,102,241,0.4)); }
         .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
                    color: #c4b5fd; background: rgba(124,58,237,0.14); border: 1px solid rgba(124,58,237,0.3);
                    padding: 6px 14px; border-radius: 999px; margin-bottom: 26px; }
@@ -170,7 +172,7 @@
     <nav>
         <div class="wrap nav-in">
             <a class="brand" href="/welcome">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="STATlee logo">
+                <img src="{{ url_for('static', filename='images/mark.png') }}" alt="STATlee logo">
                 <span class="font-display">STATlee</span>
             </a>
             <div class="nav-links">
@@ -185,6 +187,7 @@
     <!-- Hero -->
     <section class="hero">
         <div class="wrap">
+            <img class="hero-logo" src="{{ url_for('static', filename='images/mark.png') }}" alt="STATlee logo">
             <span class="eyebrow"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> AI data analysis for social scientists</span>
             <h1>Turn data questions into<br><span class="grad-text">answers, in plain English.</span></h1>
             <p class="sub">Stats software shouldn't fight you. Upload your dataset, describe the analysis
@@ -362,7 +365,7 @@ R-squared:            <span class="g">0.412</span>
     <footer>
         <div class="wrap foot-in">
             <div class="brand" style="font-size:18px;">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="STATlee logo" style="width:26px;height:26px;">
+                <img src="{{ url_for('static', filename='images/mark.png') }}" alt="STATlee logo" style="width:26px;height:26px;">
                 <span class="font-display">STATlee</span>
             </div>
             <p class="compliance">STATlee. AI analysis powered by Google Gemini. STATlee is a
