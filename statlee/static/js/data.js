@@ -134,6 +134,8 @@
     CC.fetchSuggestions = async function (filename, previous) {
         const container = document.getElementById('suggestionsContainer');
         const list = document.getElementById('suggestionsList');
+        const nowBtn = document.getElementById('suggestNowBtn');
+        if (nowBtn) nowBtn.classList.add('hidden');   // generating now — hide the prompt
         container.classList.remove('hidden');
         list.innerHTML = `<span class="text-xs text-indigo-700 dark:text-indigo-400 font-mono tracking-widest uppercase font-bold flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Reading data structure...</span>`;
         if (!previous) CC.pipeline.set('suggest', 'active');
@@ -172,7 +174,15 @@
         if (!CC.prefs || CC.prefs.get('autosuggest', true)) {
             await CC.fetchSuggestions(filename);
         } else {
-            CC.pipeline.set('suggest', 'skipped', 'disabled in settings');
+            // Disabled: don't auto-spend, but surface a one-click button so the
+            // user can generate ideas on demand without re-uploading.
+            CC.pipeline.set('suggest', 'skipped', 'disabled — use the button');
+            const container = document.getElementById('suggestionsContainer');
+            const list = document.getElementById('suggestionsList');
+            const nowBtn = document.getElementById('suggestNowBtn');
+            if (container) container.classList.remove('hidden');
+            if (list) list.innerHTML = '';
+            if (nowBtn) nowBtn.classList.remove('hidden');
         }
     }
 
@@ -478,11 +488,22 @@
         });
     }
 
+    // On-demand suggestions when auto-suggest is off (no re-upload needed).
+    function initSuggestNow() {
+        const btn = document.getElementById('suggestNowBtn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            if (!CC.state.filename) return;
+            CC.fetchSuggestions(CC.state.filename);
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initUpload();
         initWrangle();
         initReset();
         initReroll();
+        initSuggestNow();
         initDataZoom();
     });
 }());

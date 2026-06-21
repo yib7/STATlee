@@ -29,3 +29,9 @@ def test_data_viewer_has_zoom_controls(client):
     assert 'id="dataZoomIn"' in html
     assert 'id="dataZoomOut"' in html
     assert 'id="dataZoomReset"' in html
+
+
+# --- SP4: on-demand suggestion button ---------------------------------------
+def test_on_demand_suggest_button_present(client):
+    html = _index_html(client)
+    assert 'id="suggestNowBtn"' in html
