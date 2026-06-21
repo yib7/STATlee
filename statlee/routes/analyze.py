@@ -14,6 +14,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .. import billing, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
+from ..usage import usage_breakdown
 from . import json_error, moderation_blocked, sse_event, sse_stream, strip_code_fences
 
 logger = logging.getLogger('statlee.analyze')
@@ -34,14 +35,9 @@ def _current_user():
 
 
 def _sum_usage(*usages):
-    total = {'input': 0, 'output': 0, 'calls': 0}
-    for u in usages:
-        if not u:
-            continue
-        total['input'] += u.get('input', 0)
-        total['output'] += u.get('output', 0)
-        total['calls'] += 1
-    return total
+    # Delegate to the shared aggregator so every client payload also carries a
+    # per-model breakdown for the session-cost display (3.4).
+    return usage_breakdown(*usages)
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +317,7 @@ def method_prompt():
         return jsonify({'status': 'success',
                         'prompt': payload.get('prompt', ''),
                         'rationale': payload.get('rationale', ''),
-                        'usage': result.usage})
+                        'usage': usage_breakdown(result.usage)})
     except Exception:
         logger.exception("method_prompt failed")
         return json_error('Could not draft a prompt for that method.', 500)

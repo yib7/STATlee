@@ -22,8 +22,11 @@
             user: null,
             currentPage: 1,
             totalPages: 1,
-            usage: { input: 0, output: 0, calls: 0 },
+            usage: { input: 0, output: 0, calls: 0, by_model: {} },
         },
+        // Per-model price estimates (USD per 1M tokens) injected by the server
+        // for the session-cost display. Display only — never triggers spend.
+        prices: (window.CC_BOOT && window.CC_BOOT.prices) || {},
         consoleErrors: [],
     };
 
@@ -135,19 +138,63 @@
     };
 
     // --- usage accounting (3.4 cost display) -----------------------------------
+    CC.fmtUSD = function (usd) {
+        if (!usd || usd <= 0) return '$0.00';
+        if (usd < 0.01) return '<$0.01';
+        return '$' + usd.toFixed(usd < 1 ? 3 : 2);
+    };
+
+    /** Approximate session cost in USD from the per-model token tally and the
+     *  injected price map. Models without a known price contribute nothing. */
+    CC.sessionCostUSD = function () {
+        const by = CC.state.usage.by_model || {};
+        let usd = 0;
+        Object.keys(by).forEach((model) => {
+            const p = CC.prices[model];
+            if (!p) return;
+            usd += (by[model].input / 1e6) * (p.input || 0)
+                 + (by[model].output / 1e6) * (p.output || 0);
+        });
+        return usd;
+    };
+
     CC.addUsage = function (usage) {
         if (!usage) return;
         CC.state.usage.input += usage.input || 0;
         CC.state.usage.output += usage.output || 0;
         CC.state.usage.calls += usage.calls || 1;
+        // Merge the per-model split so the tooltip can price each model.
+        const incoming = usage.by_model || {};
+        const by = CC.state.usage.by_model;
+        Object.keys(incoming).forEach((model) => {
+            const acc = by[model] || (by[model] = { input: 0, output: 0, calls: 0 });
+            acc.input += incoming[model].input || 0;
+            acc.output += incoming[model].output || 0;
+            acc.calls += incoming[model].calls || 0;
+        });
         const badge = document.getElementById('usageBadge');
-        if (badge) {
-            const total = CC.state.usage.input + CC.state.usage.output;
-            badge.textContent = `${(total / 1000).toFixed(1)}k tok · ${CC.state.usage.calls} calls`;
-            badge.title = `Session LLM usage — input: ${CC.state.usage.input.toLocaleString()} tokens, ` +
-                `output: ${CC.state.usage.output.toLocaleString()} tokens, calls: ${CC.state.usage.calls}`;
-            badge.classList.remove('hidden');
+        if (!badge) return;
+        const total = CC.state.usage.input + CC.state.usage.output;
+        const cost = CC.sessionCostUSD();
+        badge.textContent = `${(total / 1000).toFixed(1)}k tok · ${CC.state.usage.calls} calls`;
+        // Hover tooltip: totals + approximate session cost + per-model lines.
+        const lines = [
+            'Session LLM usage',
+            `Input ${CC.state.usage.input.toLocaleString()} · Output ${CC.state.usage.output.toLocaleString()} tokens · ${CC.state.usage.calls} calls`,
+            `Estimated cost ≈ ${CC.fmtUSD(cost)}  (Gemini list prices; display only)`,
+        ];
+        const models = Object.keys(by);
+        if (models.length) {
+            lines.push('');
+            models.forEach((model) => {
+                const m = by[model];
+                const p = CC.prices[model];
+                const c = p ? (m.input / 1e6) * (p.input || 0) + (m.output / 1e6) * (p.output || 0) : 0;
+                lines.push(`${model}: ${m.input.toLocaleString()}/${m.output.toLocaleString()} in/out · ${p ? '≈ ' + CC.fmtUSD(c) : 'no price'}`);
+            });
         }
+        badge.title = lines.join('\n');
+        badge.classList.remove('hidden');
     };
 
     // --- toasts ------------------------------------------------------------------

@@ -97,6 +97,29 @@ def test_suggest_returns_three_and_reroll_bypasses_cache(client, fake_llm):
     assert after == before + 1
 
 
+def test_suggest_usage_includes_per_model_breakdown(client, fake_llm):
+    # The session-cost tooltip needs a per-model split, not just totals.
+    # Use the reroll path (previous provided) so it bypasses the shared cache
+    # and actually makes a billable call that reports usage.
+    upload_csv(client, SAMPLE_CSV)
+    body = post_json(client, '/suggest',
+                     {'filename': 'test.csv', 'previous': ['Suggestion 1']}).get_json()
+    usage = body['usage']
+    assert 'by_model' in usage
+    assert usage['by_model']                      # at least one model
+    assert usage['calls'] >= 1
+
+
+def test_wrangle_response_reports_usage(client, fake_llm):
+    # Wrangling is a billable call too; its cost must reach the client.
+    upload_csv(client, SAMPLE_CSV)
+    body = post_json(client, '/wrangle',
+                     {'filename': 'test.csv', 'instruction': 'drop missing rows'}).get_json()
+    assert 'usage' in body
+    assert 'by_model' in body['usage']
+    assert body['usage']['calls'] >= 1
+
+
 def test_wrangle_creates_new_version(client, fake_llm):
     # Fake wrangle plan drops missing rows; SAMPLE_CSV has 2 rows with NaNs.
     fake_llm.set('wrangle', '{"code": "df = df.dropna()", '

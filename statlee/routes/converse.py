@@ -10,6 +10,7 @@ from flask import Blueprint, current_app, request
 
 from .. import llm, prompts
 from ..extensions import limiter
+from ..usage import usage_breakdown
 from . import json_error, moderation_blocked, sse_event, sse_stream
 
 logger = logging.getLogger('statlee.converse')
@@ -57,11 +58,7 @@ def converse():
             for delta in service.stream(cfg.converse_role, prompt,
                                         temperature=0.6, usage_out=usage):
                 yield sse_event({'type': 'delta', 'text': delta})
-            done_usage = {
-                'input': usage.get('input', 0) + mod.usage.get('input', 0),
-                'output': usage.get('output', 0) + mod.usage.get('output', 0),
-                'calls': 2,
-            }
+            done_usage = usage_breakdown(usage, mod.usage)
             yield sse_event({'type': 'done', 'usage': done_usage})
         except Exception:
             logger.exception("Converse stream failed")

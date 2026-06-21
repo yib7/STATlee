@@ -22,6 +22,7 @@ from werkzeug.utils import secure_filename
 
 from .. import datatools, llm, prompts, sandbox, storage
 from ..extensions import db, limiter
+from ..usage import usage_breakdown
 from . import json_error, moderation_blocked
 
 logger = logging.getLogger('statlee.datasets')
@@ -259,7 +260,7 @@ def extract_pdf_codebook():
         if not isinstance(mapping, dict):
             raise ValueError('mapping is not an object')
         return jsonify({'status': 'success', 'mapping': mapping,
-                        'usage': result.usage})
+                        'usage': usage_breakdown(result.usage)})
     except Exception:
         logger.exception("PDF extraction error")
         return json_error('Failed to extract definitions from the document.', 500)
@@ -347,7 +348,7 @@ def classify_variables():
         codebook = json.loads(result.text)
         _cache_put(_analysis_cache, (sha, 'classify'), codebook, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'codebook': codebook,
-                        'usage': result.usage})
+                        'usage': usage_breakdown(result.usage)})
     except Exception:
         logger.exception("Classification error")
         return json_error('Variable classification failed.', 500)
@@ -389,7 +390,7 @@ def suggest_analysis():
         if not previous:
             _cache_put(_analysis_cache, cache_key, suggestions, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'suggestions': suggestions,
-                        'usage': result.usage})
+                        'usage': usage_breakdown(result.usage)})
     except Exception:
         logger.exception("Suggestion error")
         return json_error('Could not generate suggestions.', 500)
@@ -482,6 +483,7 @@ def wrangle():
             'summary': plan.get('summary') or instruction,
             'profile': datatools.profile_dataframe(new_df),
             'changelog': storage.dataset_changelog(filename),
+            'usage': usage_breakdown(mod.usage, result.usage),
         })
     except Exception:
         logger.exception("Failed to persist wrangled version")

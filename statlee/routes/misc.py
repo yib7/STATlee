@@ -7,6 +7,7 @@ from flask_login import current_user
 
 from .. import llm, prompts
 from ..extensions import db, limiter
+from ..usage import usage_breakdown
 from . import json_error, sse_event, sse_stream
 
 logger = logging.getLogger('statlee.misc')
@@ -149,7 +150,7 @@ def generate_report():
             for delta in service.stream('pro', prompt, temperature=0.4,
                                         usage_out=usage):
                 yield sse_event({'type': 'delta', 'text': delta})
-            yield sse_event({'type': 'done', 'usage': usage,
+            yield sse_event({'type': 'done', 'usage': usage_breakdown(usage),
                              'revision': bool(revision)})
         except Exception:
             logger.exception("Report generation failed")

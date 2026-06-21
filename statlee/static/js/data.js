@@ -380,6 +380,7 @@
                     filename: CC.state.filename, instruction,
                 });
                 if (ok && data.status === 'success') {
+                    if (data.usage) CC.addUsage(data.usage);
                     CC.toast(`Applied: ${data.summary}`, 'success');
                     await afterVersionChange(data.profile, data.changelog);
                 } else {
