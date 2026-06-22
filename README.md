@@ -22,6 +22,7 @@
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Tests" src="https://img.shields.io/badge/tests-178%20passing-3fb950">
   <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
+  <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
 
 <p align="center">
@@ -190,5 +191,8 @@ relying on them.**
 
 ## License
 
-STATlee is released under the [MIT License](LICENSE). See
+STATlee is **source-available** under the [Elastic License 2.0](LICENSE): you're
+free to use, modify, and self-host it, but you may **not** offer it to third
+parties as a hosted or managed service. This keeps the source open to read and
+learn from while reserving the right to run it commercially. See
 [CREDITS.md](docs/CREDITS.md) for third-party dependency licenses.
