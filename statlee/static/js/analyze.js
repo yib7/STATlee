@@ -6,7 +6,7 @@
     'use strict';
 
     // "Pro mode" toggle: when on, the backend runs code generation on the
-    // bigger gemini-3.1-pro model instead of the default. Read once per request.
+    // bigger gemini-3.1-pro-preview model instead of the default. Read once per request.
     CC.proOn = function () {
         const el = document.getElementById('proToggle');
         return !!(el && el.checked);

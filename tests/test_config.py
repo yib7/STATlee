@@ -118,7 +118,7 @@ def test_pro_model_default_is_3_5_flash(monkeypatch):
     monkeypatch.delenv('MODEL_PRO_MAX', raising=False)
     cfg = Config.from_env()
     assert cfg.model_pro == 'gemini-3.5-flash'
-    assert cfg.model_pro_max == 'gemini-3.1-pro'
+    assert cfg.model_pro_max == 'gemini-3.1-pro-preview'
 
 
 def test_active_model_prices_cover_every_active_model():

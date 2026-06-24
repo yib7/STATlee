@@ -64,7 +64,7 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
   down. Plus an **AI report builder** grounded strictly in your real outputs and
   one-click **project export** (data + script + plots + report).
-- **Pro mode** toggle generates code with a larger model (`gemini-3.1-pro` by
+- **Pro mode** toggle generates code with a larger model (`gemini-3.1-pro-preview` by
   default) for hard or unusual analyses, instead of the standard code model.
 
 ## How it works

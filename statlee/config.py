@@ -77,11 +77,11 @@ class Config:
     # Default code generation runs on gemini-3.5-flash (cheap, fast, near-parity),
     # with gemini-3.1-flash-lite for the lighter flash/lite roles. The in-app
     # "Pro mode" toggle re-routes code generation to model_pro_max
-    # (gemini-3.1-pro) for the hardest analyses — a bigger, stronger, costlier
+    # (gemini-3.1-pro-preview) for the hardest analyses — a bigger, stronger, costlier
     # model. Cost ordering: pro_max (2.00/12.00) > pro=flash-default (1.50/9.00) >
     # flash = lite (0.25/1.50). Override any role independently via MODEL_* env.
     model_pro: str = 'gemini-3.5-flash'        # default code-gen / 'draft' role
-    model_pro_max: str = 'gemini-3.1-pro'      # "Pro mode" code-gen upgrade
+    model_pro_max: str = 'gemini-3.1-pro-preview'      # "Pro mode" code-gen upgrade
     model_flash: str = 'gemini-3.1-flash-lite'
     model_flash_lite: str = 'gemini-3.1-flash-lite'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
@@ -99,7 +99,7 @@ class Config:
     # per-provider default models below — DISPLAY ONLY, never gate spend.
     # Override MODEL_* and this map together if you pin different models.
     model_prices: dict = field(default_factory=lambda: {
-        'gemini-3.1-pro': {'input': 2.00, 'output': 12.00},
+        'gemini-3.1-pro-preview': {'input': 2.00, 'output': 12.00},
         'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
         'gemini-3.1-flash-lite': {'input': 0.25, 'output': 1.50},
         # Anthropic / Claude defaults
