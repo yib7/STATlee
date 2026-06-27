@@ -174,6 +174,9 @@ throwaway dir, optional network-less container, plus a run-guard that
 re-moderates edited scripts. Rate limits are keyed per-identity (client IP /
 account, not a resettable cookie) to protect against bill abuse.
 
+Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
+privately. Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
 ## Compliance & attribution
 
 STATlee's AI analysis is powered by your configured LLM provider,
