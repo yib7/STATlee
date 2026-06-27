@@ -1,0 +1,321 @@
+respondent_id,age,income_k,education,region,hours_social_media,party,voted
+1001,24,50.8,High School,South,5.7,Independent,0
+1002,70,122.3,Master,Northeast,3.9,Republican,1
+1003,62,56.1,High School,Midwest,5.0,Independent,1
+1004,47,64.2,High School,South,5.2,Independent,1
+1005,47,62.2,Bachelor,Northeast,4.5,Democrat,1
+1006,76,72.9,Associate,South,4.7,Democrat,1
+1007,23,42.5,Master,South,7.7,Democrat,0
+1008,65,90.4,Master,South,4.6,Republican,1
+1009,31,44.9,Associate,Midwest,6.7,Independent,1
+1010,24,46.7,PhD,Midwest,7.3,Democrat,0
+1011,53,46.6,High School,Midwest,5.8,Independent,0
+1012,84,80.5,Bachelor,Midwest,3.8,Republican,1
+1013,68,91.8,High School,Midwest,4.5,Democrat,1
+1014,69,118.2,PhD,South,4.4,Democrat,1
+1015,66,54.6,High School,West,3.1,Republican,0
+1016,71,61.3,High School,South,4.5,Republican,1
+1017,52,56.4,Associate,South,3.6,Republican,1
+1018,26,64.6,PhD,Midwest,5.4,Democrat,1
+1019,75,63.8,Master,South,4.8,Republican,1
+1020,48,59.9,Bachelor,South,5.8,Democrat,1
+1021,52,59.8,Master,Midwest,6.1,Independent,1
+1022,43,48.4,Master,West,5.0,Democrat,1
+1023,30,60.7,Bachelor,West,4.9,Democrat,0
+1024,81,79.9,Associate,South,3.1,Republican,1
+1025,71,45.6,Bachelor,South,3.9,Republican,1
+1026,61,67.3,Bachelor,West,4.4,Republican,1
+1027,45,68.5,Associate,South,6.2,Republican,1
+1028,73,78.4,High School,West,3.4,Independent,1
+1029,55,88.4,Bachelor,South,5.0,Republican,1
+1030,48,45.0,High School,Northeast,4.1,Republican,1
+1031,48,63.5,PhD,Northeast,5.4,Republican,1
+1032,33,26.8,High School,West,5.8,Democrat,0
+1033,24,34.5,High School,Northeast,5.5,Republican,0
+1034,55,83.8,Master,South,4.4,Democrat,1
+1035,78,87.5,High School,South,3.3,Republican,1
+1036,22,41.1,High School,Northeast,6.1,Democrat,1
+1037,76,75.1,Bachelor,South,5.2,Independent,1
+1038,74,60.6,Master,Midwest,3.6,Republican,1
+1039,36,34.7,High School,Northeast,5.4,Independent,0
+1040,60,63.9,Associate,West,2.5,Republican,0
+1041,29,49.2,Bachelor,West,5.1,Democrat,0
+1042,69,78.3,PhD,South,3.7,Independent,1
+1043,65,77.1,Bachelor,Northeast,3.5,Republican,1
+1044,42,35.8,High School,Midwest,6.5,Independent,0
+1045,22,25.3,High School,Northeast,6.2,Republican,0
+1046,84,70.2,High School,South,4.4,Republican,0
+1047,48,39.8,High School,West,5.1,Independent,0
+1048,78,84.6,Bachelor,West,3.5,Republican,1
+1049,64,57.5,High School,Midwest,4.1,Democrat,1
+1050,70,54.2,Bachelor,South,3.9,Republican,0
+1051,69,64.7,Bachelor,Midwest,5.5,Republican,0
+1052,31,79.5,Bachelor,Midwest,3.8,Independent,1
+1053,42,29.8,High School,South,3.5,Democrat,0
+1054,49,39.8,Master,Midwest,4.5,Republican,1
+1055,51,38.1,Bachelor,Northeast,4.9,Independent,0
+1056,20,47.5,Bachelor,Northeast,7.0,Republican,0
+1057,55,48.8,High School,South,5.1,Republican,1
+1058,28,32.4,High School,Northeast,5.7,Republican,0
+1059,68,115.9,Master,Northeast,4.9,Democrat,1
+1060,64,29.5,Associate,West,5.1,Republican,0
+1061,80,79.4,Associate,West,3.6,Democrat,0
+1062,68,113.8,Bachelor,South,4.9,Democrat,1
+1063,42,43.2,Bachelor,West,5.5,Republican,0
+1064,83,89.7,PhD,West,2.7,Republican,1
+1065,45,34.7,High School,Northeast,5.8,Independent,0
+1066,40,52.2,Master,South,5.5,Democrat,1
+1067,79,56.2,High School,South,3.5,Democrat,1
+1068,43,89.1,Bachelor,Northeast,6.6,Independent,1
+1069,23,81.5,Bachelor,Midwest,4.0,Democrat,1
+1070,49,41.0,High School,South,3.7,Democrat,0
+1071,72,98.4,High School,South,2.7,Democrat,1
+1072,30,44.0,Associate,Northeast,5.6,Republican,0
+1073,49,132.4,PhD,Northeast,4.7,Independent,1
+1074,26,49.1,Bachelor,West,4.7,Republican,0
+1075,64,92.6,PhD,Northeast,3.3,Republican,1
+1076,50,80.4,Master,South,4.1,Democrat,1
+1077,40,119.6,Associate,South,7.6,Democrat,1
+1078,33,80.3,Master,South,7.4,Republican,1
+1079,56,40.1,High School,Midwest,4.2,Democrat,0
+1080,63,69.2,High School,South,3.9,Democrat,1
+1081,81,81.0,Master,Northeast,2.3,Democrat,1
+1082,47,61.9,Master,South,3.3,Democrat,1
+1083,28,43.2,High School,West,5.9,Republican,0
+1084,74,77.5,Bachelor,Midwest,2.8,Republican,1
+1085,60,74.7,Bachelor,Midwest,4.3,Democrat,0
+1086,65,81.2,Master,Midwest,2.7,Republican,1
+1087,24,54.2,Bachelor,Midwest,5.5,Independent,0
+1088,39,54.7,Associate,Northeast,5.6,Republican,0
+1089,70,38.1,Associate,South,4.2,Independent,0
+1090,74,81.7,Associate,South,4.1,Republican,1
+1091,47,47.1,Bachelor,South,3.9,Independent,1
+1092,72,56.6,Master,West,4.6,Democrat,1
+1093,75,67.2,Associate,South,2.9,Democrat,1
+1094,44,43.3,High School,Midwest,5.8,Democrat,0
+1095,79,50.7,High School,West,3.4,Republican,1
+1096,37,71.2,Bachelor,South,4.3,Democrat,1
+1097,34,43.8,Master,West,5.4,Democrat,0
+1098,64,47.6,High School,Midwest,4.5,Republican,1
+1099,61,43.8,High School,West,4.9,Democrat,0
+1100,27,50.3,Bachelor,South,5.9,Democrat,0
+1101,74,63.6,High School,South,5.1,Democrat,1
+1102,31,46.9,Master,South,6.8,Republican,0
+1103,72,81.7,Associate,Northeast,3.6,Democrat,0
+1104,18,28.5,High School,South,7.2,Democrat,1
+1105,72,49.9,Master,West,5.5,Democrat,1
+1106,71,33.0,High School,Midwest,5.6,Republican,0
+1107,71,57.0,High School,Northeast,2.7,Independent,0
+1108,63,49.6,High School,South,3.4,Republican,1
+1109,50,44.3,High School,Northeast,6.2,Republican,0
+1110,65,53.4,High School,Northeast,3.2,Independent,0
+1111,36,40.4,High School,West,4.4,Independent,0
+1112,71,74.5,High School,South,3.4,Republican,1
+1113,55,35.4,High School,South,5.0,Independent,0
+1114,49,45.4,Bachelor,Midwest,4.9,Independent,0
+1115,52,47.6,Bachelor,Northeast,4.2,Independent,0
+1116,56,62.8,Associate,South,4.0,Republican,1
+1117,20,54.0,Associate,Midwest,5.8,Democrat,1
+1118,27,45.2,Bachelor,Midwest,5.3,Democrat,0
+1119,34,31.7,Master,West,7.8,Republican,0
+1120,25,36.5,Master,Midwest,6.4,Republican,0
+1121,47,34.8,High School,South,5.8,Republican,0
+1122,63,45.1,High School,Midwest,3.8,Republican,0
+1123,62,46.6,High School,West,4.1,Republican,1
+1124,50,46.1,High School,Midwest,4.3,Independent,1
+1125,76,71.4,Bachelor,West,1.2,Democrat,0
+1126,56,77.7,Associate,West,3.4,Democrat,0
+1127,23,25.4,High School,West,4.6,Independent,0
+1128,70,51.5,Associate,Northeast,1.9,Independent,1
+1129,57,77.1,Bachelor,Midwest,3.5,Independent,1
+1130,61,33.6,High School,South,5.5,Independent,0
+1131,56,84.7,Master,South,4.6,Independent,1
+1132,55,49.8,High School,Midwest,5.8,Democrat,0
+1133,24,55.9,Master,West,6.6,Republican,0
+1134,56,76.3,High School,West,5.3,Democrat,0
+1135,72,71.2,Master,South,3.0,Republican,1
+1136,38,117.5,Master,Midwest,6.0,Independent,1
+1137,58,80.7,PhD,Midwest,5.2,Democrat,1
+1138,20,39.2,Master,South,5.9,Republican,0
+1139,41,59.8,Bachelor,Northeast,5.9,Democrat,0
+1140,47,45.8,Bachelor,Northeast,5.6,Democrat,1
+1141,84,66.7,Bachelor,Midwest,2.7,Democrat,0
+1142,32,39.9,High School,South,4.8,Democrat,0
+1143,36,65.3,Bachelor,West,4.5,Independent,0
+1144,45,51.1,Bachelor,South,5.2,Republican,1
+1145,85,121.1,Master,West,3.4,Independent,1
+1146,76,95.3,Associate,South,2.9,Republican,1
+1147,20,57.0,Associate,West,6.4,Democrat,0
+1148,33,62.9,Bachelor,Northeast,6.3,Democrat,1
+1149,73,85.3,High School,South,4.3,Independent,1
+1150,21,17.5,High School,West,7.7,Democrat,0
+1151,76,63.0,Associate,West,4.7,Independent,1
+1152,37,37.2,Associate,West,4.6,Democrat,0
+1153,80,64.2,High School,Northeast,4.9,Republican,1
+1154,37,40.4,Associate,South,5.1,Independent,1
+1155,47,50.5,Associate,Northeast,6.0,Democrat,0
+1156,63,104.6,Associate,Northeast,4.3,Democrat,1
+1157,26,39.5,Associate,Midwest,5.7,Independent,0
+1158,55,74.5,Bachelor,Midwest,3.0,Democrat,0
+1159,52,43.8,High School,Midwest,4.6,Republican,0
+1160,71,95.1,PhD,West,2.4,Republican,1
+1161,85,92.0,Master,Midwest,4.0,Democrat,1
+1162,63,80.2,Bachelor,West,5.6,Independent,0
+1163,45,71.9,Associate,Northeast,4.4,Independent,1
+1164,45,96.5,Bachelor,South,5.4,Democrat,0
+1165,46,76.8,Master,Midwest,4.4,Independent,0
+1166,73,89.9,Bachelor,West,3.2,Democrat,1
+1167,39,48.2,Master,Northeast,6.1,Democrat,0
+1168,29,50.8,Bachelor,South,5.9,Republican,0
+1169,40,75.6,Bachelor,Midwest,7.0,Independent,0
+1170,19,36.4,High School,Northeast,6.0,Democrat,0
+1171,25,52.9,Bachelor,South,7.0,Democrat,1
+1172,24,40.1,High School,West,6.3,Republican,0
+1173,70,85.6,Bachelor,Midwest,4.6,Independent,1
+1174,67,114.7,Master,South,3.6,Democrat,1
+1175,65,58.4,High School,West,4.1,Democrat,1
+1176,49,57.1,Bachelor,South,4.8,Republican,0
+1177,66,59.8,High School,West,3.3,Democrat,0
+1178,28,22.7,Bachelor,South,6.6,Democrat,0
+1179,79,68.5,High School,Midwest,4.0,Democrat,0
+1180,52,29.8,PhD,South,5.3,Republican,0
+1181,81,38.7,High School,South,4.7,Republican,0
+1182,28,78.9,PhD,West,7.3,Independent,0
+1183,51,83.6,Master,Northeast,4.5,Republican,1
+1184,65,51.9,Bachelor,Northeast,4.5,Republican,0
+1185,51,59.9,Master,South,4.3,Independent,1
+1186,48,104.9,Master,Midwest,5.0,Republican,1
+1187,29,61.2,PhD,West,5.4,Republican,0
+1188,43,78.2,High School,West,6.7,Independent,1
+1189,34,54.8,Bachelor,South,6.0,Democrat,0
+1190,38,43.7,High School,South,5.3,Republican,0
+1191,64,112.1,Bachelor,Northeast,5.3,Republican,1
+1192,60,53.0,High School,Midwest,2.4,Democrat,1
+1193,59,51.8,Bachelor,West,2.6,Republican,1
+1194,42,57.4,Bachelor,Midwest,6.0,Democrat,0
+1195,83,72.0,Associate,Midwest,3.3,Democrat,1
+1196,23,33.3,Bachelor,South,6.5,Republican,0
+1197,41,54.6,Bachelor,West,4.2,Democrat,1
+1198,26,48.3,Master,South,6.1,Independent,0
+1199,41,76.0,Bachelor,Northeast,7.2,Independent,0
+1200,83,82.5,Bachelor,South,4.0,Independent,1
+1201,42,71.3,PhD,Northeast,5.5,Democrat,1
+1202,79,59.7,High School,Northeast,3.1,Democrat,1
+1203,51,49.1,High School,Northeast,4.5,Democrat,1
+1204,65,64.0,High School,South,2.2,Democrat,0
+1205,49,47.7,Bachelor,Midwest,5.2,Independent,1
+1206,36,35.0,Associate,South,6.4,Republican,1
+1207,69,100.9,Bachelor,South,2.5,Democrat,1
+1208,83,72.8,Bachelor,West,2.7,Independent,0
+1209,35,31.2,Associate,Midwest,4.6,Democrat,0
+1210,70,94.7,Master,South,3.0,Democrat,1
+1211,35,63.0,Bachelor,South,5.7,Democrat,0
+1212,66,35.4,High School,West,2.2,Republican,0
+1213,71,70.5,Associate,South,4.4,Independent,1
+1214,48,65.7,Associate,South,5.7,Democrat,0
+1215,68,61.6,High School,West,3.8,Independent,1
+1216,36,45.2,High School,South,3.4,Independent,0
+1217,23,45.0,PhD,Midwest,5.4,Independent,0
+1218,24,44.2,Associate,Midwest,7.3,Democrat,0
+1219,48,49.2,Associate,Midwest,2.5,Democrat,1
+1220,79,69.5,Bachelor,South,3.1,Independent,1
+1221,26,64.3,Bachelor,South,5.0,Democrat,1
+1222,48,121.8,PhD,South,5.7,Republican,1
+1223,65,133.6,Master,Northeast,3.5,Republican,1
+1224,31,63.8,Associate,West,6.2,Democrat,1
+1225,67,62.0,Associate,South,4.6,Independent,0
+1226,38,82.8,PhD,Midwest,7.2,Independent,1
+1227,72,93.8,Bachelor,West,3.6,Republican,0
+1228,57,88.4,PhD,West,4.9,Republican,1
+1229,55,50.2,High School,South,3.3,Independent,1
+1230,30,77.6,Master,South,7.0,Republican,1
+1231,49,62.0,Bachelor,West,4.3,Republican,1
+1232,76,48.8,High School,Midwest,3.1,Independent,1
+1233,19,41.4,Bachelor,West,6.4,Republican,0
+1234,69,88.4,Bachelor,West,2.5,Democrat,1
+1235,51,46.2,High School,West,5.1,Democrat,1
+1236,66,69.7,Associate,Northeast,5.0,Democrat,1
+1237,63,96.2,Master,Midwest,4.5,Republican,1
+1238,47,39.6,High School,Northeast,3.6,Republican,0
+1239,38,59.3,Associate,Midwest,5.4,Republican,1
+1240,60,66.8,Associate,West,5.1,Democrat,0
+1241,27,29.7,Associate,South,4.4,Independent,0
+1242,57,114.5,Master,South,3.6,Independent,1
+1243,24,50.7,Master,Northeast,7.0,Democrat,0
+1244,62,32.8,High School,West,4.5,Republican,0
+1245,60,65.0,PhD,Northeast,4.8,Republican,1
+1246,23,43.4,Master,Northeast,7.9,Republican,0
+1247,69,56.9,High School,South,4.4,Democrat,1
+1248,46,65.2,Master,Northeast,5.7,Independent,1
+1249,71,52.0,High School,South,6.3,Independent,1
+1250,20,77.4,PhD,South,6.2,Republican,0
+1251,30,57.9,Bachelor,South,5.2,Independent,1
+1252,51,70.1,Bachelor,Northeast,5.2,Independent,1
+1253,30,38.8,High School,Northeast,6.3,Democrat,1
+1254,40,79.7,Master,South,4.9,Republican,0
+1255,62,28.9,High School,Northeast,3.4,Republican,0
+1256,27,29.8,High School,Midwest,8.1,Independent,1
+1257,64,28.9,High School,Northeast,4.5,Democrat,1
+1258,25,50.4,Bachelor,South,5.5,Republican,1
+1259,29,34.0,High School,South,6.8,Independent,0
+1260,57,102.5,Master,South,4.5,Democrat,1
+1261,71,104.8,Bachelor,Northeast,3.6,Independent,1
+1262,29,36.0,High School,Northeast,6.5,Democrat,0
+1263,38,33.9,High School,West,4.3,Independent,0
+1264,80,71.1,High School,Northeast,3.7,Independent,1
+1265,85,71.5,Bachelor,South,4.9,Democrat,1
+1266,57,76.4,Master,South,5.0,Independent,0
+1267,48,58.7,High School,South,4.7,Democrat,1
+1268,41,57.9,Master,South,4.9,Republican,0
+1269,59,63.3,High School,West,4.1,Republican,1
+1270,58,93.1,Master,West,4.3,Independent,1
+1271,38,50.5,Master,South,5.2,Democrat,0
+1272,19,61.1,Bachelor,South,7.3,Democrat,0
+1273,28,62.6,Bachelor,South,4.4,Republican,0
+1274,83,93.4,Master,South,4.0,Republican,1
+1275,46,35.1,High School,Midwest,4.8,Republican,0
+1276,50,35.8,High School,South,5.2,Democrat,0
+1277,49,38.8,High School,South,3.9,Democrat,0
+1278,71,87.5,Bachelor,West,5.0,Independent,1
+1279,22,36.9,Bachelor,Northeast,7.4,Democrat,0
+1280,23,55.1,Bachelor,South,7.1,Democrat,0
+1281,36,45.8,Master,Midwest,4.2,Independent,0
+1282,51,43.6,High School,Northeast,5.6,Democrat,1
+1283,63,73.0,Bachelor,Northeast,4.6,Republican,1
+1284,51,91.5,High School,Northeast,3.4,Democrat,0
+1285,47,29.9,High School,West,5.0,Independent,0
+1286,81,121.8,Bachelor,Northeast,3.7,Republican,1
+1287,28,72.5,PhD,Northeast,6.5,Independent,0
+1288,56,75.1,Bachelor,Northeast,4.8,Democrat,0
+1289,54,49.4,High School,Northeast,5.0,Republican,1
+1290,50,72.0,Bachelor,Midwest,6.2,Independent,1
+1291,72,55.3,High School,South,4.9,Democrat,1
+1292,36,97.5,Master,Midwest,3.0,Democrat,1
+1293,82,71.5,Bachelor,Midwest,3.0,Democrat,1
+1294,40,55.1,High School,West,5.3,Independent,0
+1295,55,40.4,High School,Northeast,3.1,Republican,1
+1296,53,46.5,High School,West,4.8,Republican,0
+1297,75,70.6,PhD,Midwest,4.8,Republican,1
+1298,47,60.1,Associate,Northeast,4.1,Republican,0
+1299,37,98.1,Master,Midwest,5.9,Republican,0
+1300,19,45.6,Bachelor,West,5.6,Republican,0
+1301,42,56.0,Bachelor,South,4.7,Republican,1
+1302,74,43.0,High School,West,5.0,Democrat,0
+1303,18,60.0,PhD,South,6.0,Independent,0
+1304,78,44.8,Associate,Midwest,3.9,Independent,1
+1305,54,51.0,Bachelor,West,3.0,Democrat,1
+1306,27,54.3,Bachelor,South,7.7,Republican,1
+1307,38,82.5,Bachelor,West,6.0,Democrat,1
+1308,55,185.2,PhD,South,4.5,Independent,1
+1309,39,33.6,High School,West,6.0,Independent,0
+1310,25,74.5,Bachelor,Midwest,4.9,Independent,0
+1311,63,66.1,Associate,Northeast,5.3,Democrat,0
+1312,63,59.2,Associate,South,4.0,Democrat,0
+1313,26,36.6,High School,South,5.9,Democrat,0
+1314,37,39.1,High School,Northeast,5.1,Democrat,0
+1315,34,38.0,High School,Northeast,5.2,Democrat,0
+1316,62,54.6,Associate,South,4.9,Democrat,1
+1317,67,43.2,Associate,Northeast,4.3,Independent,0
+1318,67,47.3,Bachelor,Northeast,4.6,Democrat,0
+1319,81,96.8,Bachelor,Midwest,3.3,Democrat,0
+1320,70,60.7,Associate,Midwest,4.4,Independent,1

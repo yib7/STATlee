@@ -26,6 +26,14 @@
 </p>
 
 <p align="center">
+  <img src="docs/images/demo.gif" alt="STATlee end-to-end demo: upload a dataset, ask a question in plain English, watch it generate and run the code, then see the chart and a written report" width="900">
+</p>
+
+<p align="center">
+  <sub>Upload data, ask in plain English, get runnable code, a chart, and a written report. Try it with the included <a href="docs/examples/sample_survey.csv">sample survey dataset</a>.</sub>
+</p>
+
+<p align="center">
   <img src="docs/images/app.png" alt="STATlee workspace: dataset upload, plain-English analysis prompt, and the Code / Data / Results / Converse / Report / Codebook tabs" width="900">
 </p>
 
