@@ -4,6 +4,22 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-06-28
+
+Maintenance and presentation release. The application's behavior is unchanged
+from 1.0.0; this batches the README demo, a sample dataset, and a CI tooling bump.
+
+### Added
+- Animated end-to-end demo GIF in the README (upload, plain-English request,
+  generated code, chart, and written report).
+- `docs/examples/sample_survey.csv`, a synthetic sample dataset so a new user
+  gets a first result without supplying their own data.
+
+### Changed
+- CI bumped to `actions/checkout@v5` and `actions/setup-python@v6`, clearing the
+  GitHub Node 20 runtime deprecation. Test matrix (3.11 / 3.12) and steps are
+  unchanged.
+
 ## [1.0.0] - 2026-06-23
 
 First public release. STATlee turns a plain-English request over an uploaded
@@ -52,4 +68,5 @@ dataset into generated, moderated, sandboxed, and explained statistics.
 - 178 tests covering the full HTTP surface with an injected fake LLM, so the
   suite runs offline with no API key.
 
+[1.0.1]: https://github.com/yib7/STATlee/releases/tag/v1.0.1
 [1.0.0]: https://github.com/yib7/STATlee/releases/tag/v1.0.0
