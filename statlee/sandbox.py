@@ -86,11 +86,11 @@ def _truncate(text, limit):
     return text or ''
 
 
-def _docker_cmd(image, run_dir, script_name, is_python, memory_mb):
+def _docker_cmd(image, run_dir, script_name, is_python, memory_mb, name):
     """Sibling-container invocation (0.3, option A)."""
     interpreter = 'python' if is_python else 'Rscript'
     return [
-        'docker', 'run', '--rm',
+        'docker', 'run', '--rm', '--name', name,
         '--network', 'none',
         '--read-only',
         '--user', '1000:1000',
@@ -127,7 +127,9 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
             f.write(code)
 
         if mode == 'docker':
-            cmd = _docker_cmd(runner_image, run_dir, script_name, is_python, memory_mb)
+            container = os.path.basename(run_dir)
+            cmd = _docker_cmd(runner_image, run_dir, script_name, is_python,
+                              memory_mb, container)
             popen_kwargs = {}
         else:
             interpreter = sys.executable if is_python else 'Rscript'
@@ -150,6 +152,9 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
                 output += f"\n--- Output/Warnings ---\n{proc.stderr}"
             result.output = _truncate(output.strip(), output_limit)
         except subprocess.TimeoutExpired:
+            if mode == 'docker':
+                subprocess.run(['docker', 'kill', container],
+                               capture_output=True, timeout=10)
             result.timed_out = True
             result.returncode = -1
             result.output = (

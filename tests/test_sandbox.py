@@ -1,6 +1,7 @@
 """Execution sandbox: secret scrubbing (0.1), output capture, multi-plot
 collection (5.2), timeouts, and named-file collection (used by /wrangle)."""
 import os
+import subprocess
 
 from statlee import sandbox
 
@@ -37,6 +38,55 @@ def test_timeout_is_reported():
     assert res.timed_out is True
     assert not res.success
     assert 'timed out' in res.output.lower()
+
+
+def test_subprocess_mode_timeout_has_no_docker_kill(monkeypatch):
+    """Subprocess-mode timeout must not attempt a docker kill (and must not
+    raise NameError referencing an undefined `container`)."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get('timeout'))
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    res = sandbox.run_in_sandbox("print('x')", 'Python', timeout=1, mode='subprocess')
+
+    assert res.timed_out is True
+    assert not res.success
+    assert len(calls) == 1  # only the interpreter invocation, no docker kill
+
+
+def test_docker_mode_kills_container_on_timeout(monkeypatch):
+    """On docker-mode timeout, the orphaned container must be killed by name
+    BEFORE the run_dir is removed, so `docker kill` isn't racing an already
+    -deleted bind mount (P1-2)."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ['docker', 'run']:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get('timeout'))
+        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    res = sandbox.run_in_sandbox(
+        "print('x')", 'Python', timeout=1, mode='docker')
+
+    assert res.timed_out is True
+    assert not res.success
+
+    docker_run_calls = [c for c in calls if c[:2] == ['docker', 'run']]
+    kill_calls = [c for c in calls if c[:2] == ['docker', 'kill']]
+    assert len(docker_run_calls) == 1
+    assert len(kill_calls) == 1
+
+    # The container name passed to `docker run --name <name>` must match
+    # the one passed to `docker kill <name>`.
+    run_cmd = docker_run_calls[0]
+    name_idx = run_cmd.index('--name') + 1
+    container_name = run_cmd[name_idx]
+    assert kill_calls[0] == ['docker', 'kill', container_name]
 
 
 def test_nonzero_exit_is_failure():
