@@ -40,6 +40,33 @@ def test_register_duplicate_conflict(client):
     assert resp.status_code == 409
 
 
+def test_register_race_duplicate_commit_returns_409(client, monkeypatch):
+    """Two concurrent registrations for the same email both pass the SELECT
+    pre-check; the second commit hits the unique constraint. That must yield
+    a clean 409, not a generic 500, and the session must be rolled back."""
+    from statlee.extensions import db
+
+    real_commit = db.session.commit
+    calls = {'n': 0}
+
+    def flaky_commit():
+        calls['n'] += 1
+        if calls['n'] == 1:
+            from sqlalchemy.exc import IntegrityError
+            raise IntegrityError('INSERT', {}, Exception('UNIQUE constraint failed'))
+        return real_commit()
+
+    monkeypatch.setattr(db.session, 'commit', flaky_commit)
+    resp = post_json(client, '/register',
+                     {'email': 'race@x.com', 'password': 'longenough1'})
+    assert resp.status_code == 409
+    assert 'already exists' in resp.get_json()['error'].lower()
+    # Session was rolled back and is usable again for a fresh registration.
+    resp2 = post_json(client, '/register',
+                      {'email': 'race2@x.com', 'password': 'longenough1'})
+    assert resp2.status_code == 201
+
+
 def test_login_wrong_password(client):
     post_json(client, '/register', {'email': 'c@d.com', 'password': 'longenough1'})
     post_json(client, '/logout', {})

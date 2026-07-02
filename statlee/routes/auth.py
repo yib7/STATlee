@@ -120,7 +120,11 @@ def register():
     else:
         user.email_verified = True
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return json_error('An account with that email already exists.', 409)
     logger.info("New account registered: %s (id=%s)", email, user.id)
 
     if cfg.require_email_verification:
