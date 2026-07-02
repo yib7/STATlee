@@ -8,6 +8,8 @@ from flask_limiter.util import get_remote_address
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
 
+from .identity import current_user_or_none
+
 
 def _rate_limit_key():
     """Per-identity rate-limit key.
@@ -22,9 +24,9 @@ def _rate_limit_key():
     requires ProxyFix; see ``TRUST_PROXY_HOPS`` in app.py / config.py.)
     """
     try:
-        from flask_login import current_user
-        if current_user and getattr(current_user, 'is_authenticated', False):
-            return f"user_{current_user.id}"
+        u = current_user_or_none()
+        if u is not None:
+            return f"user_{u.id}"
     except Exception:  # login manager not ready (scripts/tests)
         pass
     return get_remote_address()

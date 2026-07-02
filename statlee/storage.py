@@ -20,6 +20,8 @@ import time
 from flask import current_app, session
 from werkzeug.utils import secure_filename
 
+from .identity import current_user_or_none
+
 logger = logging.getLogger('statlee.storage')
 
 MANIFEST_PREFIX = '.versions__'
@@ -50,9 +52,9 @@ def current_identity():
     sessions get ``anon_<sid>`` (cleaned up by TTL).
     """
     try:
-        from flask_login import current_user
-        if current_user and getattr(current_user, 'is_authenticated', False):
-            return f"user_{current_user.id}"
+        u = current_user_or_none()
+        if u is not None:
+            return f"user_{u.id}"
     except Exception:  # login manager not initialised (tests/scripts)
         pass
     sid = session.get('sid')

@@ -3,10 +3,10 @@ import logging
 import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
-from flask_login import current_user
 
 from .. import llm, prompts
 from ..extensions import db, limiter
+from ..identity import current_user_or_none
 from ..usage import usage_breakdown
 from . import json_error, sse_event, sse_stream
 
@@ -70,10 +70,9 @@ def report_issue():
         return json_error('Please describe the issue.')
 
     from ..models import IssueReport
+    u = current_user_or_none()
     report = IssueReport(
-        user_id=(current_user.id
-                 if current_user and getattr(current_user, 'is_authenticated', False)
-                 else None),
+        user_id=(u.id if u else None),
         description=description[:10000],
         code=(data.get('code') or '')[:20000],
         output=(data.get('output') or '')[:20000],

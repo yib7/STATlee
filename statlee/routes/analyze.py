@@ -14,6 +14,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .. import billing, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
+from ..identity import current_user_or_none
 from ..usage import usage_breakdown
 from . import json_error, moderation_blocked, sse_event, sse_stream, strip_code_fences
 
@@ -24,14 +25,6 @@ bp = Blueprint('analyze', __name__)
 
 def _cfg():
     return current_app.config['STATLEE']
-
-
-def _current_user():
-    """The logged-in User model, or None for anonymous callers."""
-    from flask_login import current_user
-    if current_user and getattr(current_user, 'is_authenticated', False):
-        return current_user
-    return None
 
 
 def _sum_usage(*usages):
@@ -78,7 +71,7 @@ def chat():
     # AFTER moderation so a blocked/failed request never costs a credit or a
     # unit of the operator's monthly priority ceiling.
     allowed, deny_msg = billing.check_and_debit(
-        _current_user(), priority=pro_mode, config=_cfg())
+        current_user_or_none(), priority=pro_mode, config=_cfg())
     if not allowed:
         return json_error(deny_msg or 'Out of credits.', 402)
 

@@ -11,9 +11,10 @@ import re
 import secrets
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
-from flask_login import current_user, login_user, logout_user
+from flask_login import login_user, logout_user
 
 from ..extensions import db
+from ..identity import current_user_or_none
 from ..models import AnalysisRun, User
 from . import json_error
 
@@ -31,11 +32,12 @@ def _cfg():
 def is_authorized():
     """Single authorization decision used by the app-level gate."""
     cfg = _cfg()
-    if current_user and getattr(current_user, 'is_authenticated', False):
+    u = current_user_or_none()
+    if u:
         # A logged-in account is only authorized once its email is confirmed,
         # when verification is required.
         if (cfg.require_email_verification
-                and not getattr(current_user, 'email_verified', False)):
+                and not getattr(u, 'email_verified', False)):
             return False
         return True
     if cfg.require_login:
@@ -51,9 +53,9 @@ def check_auth():
     mode = 'accounts' if cfg.require_login else (
         'password' if cfg.app_password else 'open')
     user = None
-    if current_user and getattr(current_user, 'is_authenticated', False):
-        user = {'email': current_user.email,
-                'plan': current_user.plan, 'credits': current_user.credits}
+    u = current_user_or_none()
+    if u:
+        user = {'email': u.email, 'plan': u.plan, 'credits': u.credits}
     if is_authorized():
         return jsonify({
             'status': 'authorized', 'mode': mode, 'user': user,
@@ -202,11 +204,12 @@ def logout():
 
 @bp.route('/history', methods=['GET'])
 def history_list():
-    if not (current_user and getattr(current_user, 'is_authenticated', False)):
+    u = current_user_or_none()
+    if not u:
         return jsonify({'runs': [], 'persisted': False})
     runs = db.session.execute(
         db.select(AnalysisRun)
-        .filter_by(user_id=current_user.id)
+        .filter_by(user_id=u.id)
         .order_by(AnalysisRun.created_at.desc())
         .limit(50)).scalars().all()
     return jsonify({'runs': [r.to_dict() for r in runs], 'persisted': True})
@@ -214,12 +217,13 @@ def history_list():
 
 @bp.route('/history', methods=['POST'])
 def history_save():
-    if not (current_user and getattr(current_user, 'is_authenticated', False)):
+    u = current_user_or_none()
+    if not u:
         # Anonymous sessions keep history client-side only ("data not stored").
         return jsonify({'saved': False})
     data = request.get_json(silent=True) or {}
     run = AnalysisRun(
-        user_id=current_user.id,
+        user_id=u.id,
         dataset_name=(data.get('dataset_name') or '')[:255],
         language=(data.get('language') or 'Python')[:16],
         prompt=(data.get('prompt') or '')[:10000],
