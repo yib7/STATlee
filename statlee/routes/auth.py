@@ -12,6 +12,7 @@ import secrets
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 from flask_login import login_user, logout_user
+from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..identity import current_user_or_none
@@ -124,7 +125,7 @@ def register():
     db.session.add(user)
     try:
         db.session.commit()
-    except Exception:
+    except IntegrityError:
         db.session.rollback()
         return json_error('An account with that email already exists.', 409)
     logger.info("New account registered: %s (id=%s)", email, user.id)
