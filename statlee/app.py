@@ -77,6 +77,9 @@ def create_app(config=None):
     # Authoritative limiter store (memory:// by default; a shared store such as
     # redis:// makes the limits hold across gunicorn workers and restarts).
     app.config['RATELIMIT_STORAGE_URI'] = cfg.rate_limit_storage_uri
+    # Applies to every route with no explicit @limiter.limit(...); those
+    # decorators still override this per-route.
+    app.config['RATELIMIT_DEFAULT'] = cfg.rate_limit_default
     app.config['TESTING'] = cfg.is_testing
 
     # 1.5 — session cookie hardening
