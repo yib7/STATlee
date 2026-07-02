@@ -66,6 +66,33 @@ def test_data_page_filter(client):
     assert all(r['group'] == 'B' for r in body['data'])
 
 
+def test_data_page_rejects_non_integer_page(client):
+    """P1-5: malformed 'page' must return a structured 400, not a 500."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'page': 'abc'})
+    assert resp.status_code == 400
+    assert 'error' in resp.get_json()
+
+
+def test_data_page_rejects_non_integer_per_page(client):
+    """P1-5: malformed 'per_page' must return a structured 400, not a 500."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'per_page': 'x'})
+    assert resp.status_code == 400
+    assert 'error' in resp.get_json()
+
+
+def test_data_page_rejects_non_dict_filters(client):
+    """P1-5: a list (or any non-dict) 'filters' must return a structured 400."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'filters': ['a', 'b']})
+    assert resp.status_code == 400
+    assert 'error' in resp.get_json()
+
+
 def test_classify_variables_uses_llm_and_caches(client, fake_llm):
     fake_llm.set('classify', '{"age": "Continuous", "group": "Nominal"}')
     upload_csv(client, SAMPLE_CSV)
@@ -222,6 +249,21 @@ def test_export_bundles_zip(client):
     assert 'script.py' in names
     assert 'report.md' in names
     assert any(n.startswith('data/') for n in names)
+
+
+def test_export_skips_non_dict_history_items(client):
+    """P1-5: a malformed (non-dict) history item must not 500 the export."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/export', {
+        'filename': 'test.csv', 'language': 'Python',
+        'code': "print('hi')",
+        'history': ['oops', {'role': 'user', 'text': 'analyze it'}],
+        'interpretation': 'It works.',
+    })
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    report_text = zf.read('report.md').decode('utf-8')
+    assert 'analyze it' in report_text
 
 
 def test_reset_clears_workspace(client):

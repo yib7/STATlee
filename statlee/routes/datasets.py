@@ -274,9 +274,14 @@ def extract_pdf_codebook():
 def data_page():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')
-    page = int(data.get('page', 1))
-    per_page = min(int(data.get('per_page', 100)), 500)
-    filters = data.get('filters', {}) or {}
+    try:
+        page = int(data.get('page', 1))
+        per_page = max(1, min(int(data.get('per_page', 100)), 500))
+    except (TypeError, ValueError):
+        return json_error("'page' and 'per_page' must be integers.")
+    filters = data.get('filters') or {}
+    if not isinstance(filters, dict):
+        return json_error("'filters' must be an object.")
 
     if not filename:
         return json_error('Missing filename')
@@ -585,7 +590,7 @@ def export_project():
         if history:
             lines.append('## Analysis requests')
             lines.extend(f"- {msg.get('text', '')}" for msg in history
-                         if (msg.get('role') or '') == 'user')
+                         if isinstance(msg, dict) and (msg.get('role') or '') == 'user')
             lines.append('')
         if last_output:
             lines += ['## Terminal output', '```', last_output, '```', '']
