@@ -244,3 +244,38 @@ def test_require_login_blocks_protected_routes(tmp_path, fake_llm, require_login
     # A protected route is blocked before reaching its handler.
     resp = post_json(c, '/data_page', {'filename': 'x.csv'})
     assert resp.status_code == 401
+
+
+def _master_password_app(tmp_path, fake_llm):
+    """An app instance gated by the legacy single APP_PASSWORD (no accounts)."""
+    from statlee import llm
+    from statlee.app import create_app
+    from statlee.config import Config
+    cfg = Config(
+        env='testing', upload_root=str(tmp_path / 'u'),
+        database_url='sqlite:///' + str(tmp_path / 'a.db').replace('\\', '/'),
+        flask_secret_key='k', rate_limit_enabled=False,
+        app_password='correct-horse-battery-staple')
+    cfg.validate()
+    app = create_app(cfg)
+    llm.set_service(fake_llm)
+    return app
+
+
+def test_master_password_login_success(tmp_path, fake_llm):
+    app = _master_password_app(tmp_path, fake_llm)
+    c = app.test_client()
+    resp = post_json(c, '/login', {'password': 'correct-horse-battery-staple'})
+    assert resp.status_code == 200
+    assert resp.get_json()['status'] == 'success'
+    # The session is now authorized for protected routes (P2-8 regression
+    # guard: secrets.compare_digest must still recognize the right password).
+    assert c.get('/check_auth').get_json()['status'] == 'authorized'
+
+
+def test_master_password_login_wrong_password(tmp_path, fake_llm):
+    app = _master_password_app(tmp_path, fake_llm)
+    c = app.test_client()
+    resp = post_json(c, '/login', {'password': 'wrong'})
+    assert resp.status_code == 401
+    assert c.get('/check_auth').status_code == 401

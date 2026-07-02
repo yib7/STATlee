@@ -88,7 +88,7 @@ def login():
     # Legacy master-password mode
     if not cfg.app_password:
         return jsonify({'status': 'success'}), 200
-    if data.get('password') == cfg.app_password:
+    if secrets.compare_digest(str(data.get('password') or ''), str(cfg.app_password)):
         session['authenticated'] = True
         return jsonify({'status': 'success'}), 200
     return json_error('Invalid password', 401)
