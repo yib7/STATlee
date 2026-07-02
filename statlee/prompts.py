@@ -121,6 +121,8 @@ def draft(filename, headers, codebook, language, metadata_summary,
 
     prompt = system + "\n\n--- CONVERSATION HISTORY ---\n"
     for msg in history or []:
+        if not isinstance(msg, dict):
+            continue
         prompt += f"{msg.get('role', 'user').upper()}: {msg.get('text', '')}\n"
     prompt += f"\n--- CURRENT REQUEST ---\n{user_prompt}\nDRAFT SCRIPT:"
     return prompt
@@ -431,7 +433,7 @@ def _format_turns(turns):
     """Flatten a list of {role, text} chat turns into a readable transcript."""
     return "\n".join(
         f"{m.get('role', 'user').upper()}: {m.get('text', '')}"
-        for m in (turns or []))
+        for m in (turns or []) if isinstance(m, dict))
 
 
 def _is_essay(fmt):
