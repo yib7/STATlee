@@ -150,6 +150,26 @@ def create_app(config=None):
             return jsonify({'error': 'Unauthorized. Please log in.'}), 401
         return None
 
+    # P1-6 — anonymous-data TTL cleanup previously only fired from the two
+    # upload routes, so it never ran at all for a session that uploads once
+    # and then just browses/analyzes. Run it opportunistically on any
+    # request instead, throttled to once per 15 minutes so it stays cheap;
+    # best-effort (a missing storage root or mid-flight FS error must never
+    # break a real request).
+    _cleanup_state = {'ts': 0.0}
+
+    @app.before_request
+    def ttl_cleanup():
+        import time as _time
+        now = _time.time()
+        if now - _cleanup_state['ts'] > 900:
+            _cleanup_state['ts'] = now
+            try:
+                from . import storage
+                storage.cleanup_old_files(cfg.file_ttl_seconds)
+            except Exception:
+                logger.exception("TTL cleanup failed")
+
     @app.after_request
     def stamp_request_id(response):
         response.headers['X-Request-ID'] = g.get('request_id', '-')

@@ -136,3 +136,131 @@ def test_reset_identity_clears_workspace(app):
         assert not os.path.exists(path)
     finally:
         ctx.pop()
+
+
+# ---------------------------------------------------------------------------
+# P1-3 — atomic JSON writes / corrupt-manifest tracing
+# ---------------------------------------------------------------------------
+
+def test_load_manifest_logs_warning_on_corrupt_json(app, caplog):
+    """A truncated/invalid manifest must not fail silently: `_load_manifest`
+    should return None AND leave a trace in the logs (the caller falls back
+    to re-registering a fresh v1 manifest, silently losing history)."""
+    ctx = _req(app)
+    try:
+        path = storage._manifest_path('study.csv')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('{not valid json')
+
+        with caplog.at_level('WARNING', logger='statlee.storage'):
+            result = storage._load_manifest('study.csv')
+
+        assert result is None
+        assert any('study.csv' in r.message or path in r.message
+                    or 'Corrupt' in r.message or 'corrupt' in r.message
+                    for r in caplog.records)
+    finally:
+        ctx.pop()
+
+
+def test_write_json_atomic_leaves_original_intact_on_failed_write(app, monkeypatch):
+    """If json.dump raises partway through a save, the previously-written
+    destination file must be untouched (no truncation, no history loss)."""
+    ctx = _req(app)
+    try:
+        path = storage.resolve_path('atomic.json')
+        original = {'versions': [{'v': 1}], 'active': 1}
+        storage._write_json_atomic(path, original)
+        with open(path, encoding='utf-8') as f:
+            assert json.load(f) == original
+
+        def boom(*_a, **_kw):
+            raise RuntimeError('simulated crash mid-write')
+
+        monkeypatch.setattr(json, 'dump', boom)
+        try:
+            storage._write_json_atomic(path, {'versions': [], 'active': 999})
+        except RuntimeError:
+            pass
+
+        # The real destination must still hold the ORIGINAL, complete content.
+        with open(path, encoding='utf-8') as f:
+            assert json.load(f) == original
+    finally:
+        ctx.pop()
+
+
+def test_save_manifest_survives_simulated_crash(app, monkeypatch):
+    """End-to-end: a manifest saved via _save_manifest survives a simulated
+    failed re-save (the add_dataset_version silent-reset scenario)."""
+    ctx = _req(app)
+    try:
+        path = storage.resolve_path('crash.csv')
+        pd.DataFrame({'x': [1, 2, 3]}).to_csv(path, index=False)
+        manifest = storage.register_dataset('crash.csv')
+        assert manifest['active'] == 1
+
+        def boom(*_a, **_kw):
+            raise RuntimeError('simulated crash mid-write')
+
+        monkeypatch.setattr(json, 'dump', boom)
+        try:
+            storage._save_manifest('crash.csv', {'versions': [], 'active': 999})
+        except RuntimeError:
+            pass
+
+        monkeypatch.undo()
+        reloaded = storage._load_manifest('crash.csv')
+        assert reloaded is not None
+        assert reloaded['active'] == 1
+        assert len(reloaded['versions']) == 1
+    finally:
+        ctx.pop()
+
+
+# ---------------------------------------------------------------------------
+# P1-6 — TTL cleanup prunes empty subdirs
+# ---------------------------------------------------------------------------
+
+def test_cleanup_old_files_prunes_empty_subdirs(app):
+    """A leftover empty .last_run/ subdir (after its file ages out) must not
+    strand the identity dir forever — the whole anon_ dir should be removed
+    once every file and subdir underneath it is gone."""
+    ctx = _req(app, 'anon-cleanup-sid')
+    try:
+        identity = storage.current_identity()
+        assert identity.startswith('anon_')
+        root = storage.identity_root()
+
+        run_dir = os.path.join(root, storage.LAST_RUN_DIR)
+        os.makedirs(run_dir, exist_ok=True)
+        stale_file = os.path.join(run_dir, 'output.txt')
+        with open(stale_file, 'w', encoding='utf-8') as f:
+            f.write('old run output')
+
+        old_time = time.time() - 999999
+        os.utime(stale_file, (old_time, old_time))
+
+        storage.cleanup_old_files(ttl_seconds=1)
+    finally:
+        ctx.pop()
+
+    assert not os.path.isdir(run_dir)
+    assert not os.path.isdir(root)
+
+
+def test_cleanup_old_files_removes_empty_subdir_even_without_stale_files(app):
+    """An already-empty subdir (e.g. a stray .last_run/ with no files) should
+    be pruned so it doesn't keep the identity dir non-empty forever."""
+    ctx = _req(app, 'anon-empty-subdir-sid')
+    try:
+        root = storage.identity_root()
+        empty_dir = os.path.join(root, storage.LAST_RUN_DIR)
+        os.makedirs(empty_dir, exist_ok=True)
+
+        storage.cleanup_old_files(ttl_seconds=7200)
+    finally:
+        ctx.pop()
+
+    assert not os.path.isdir(empty_dir)
+    assert not os.path.isdir(root)

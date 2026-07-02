@@ -350,6 +350,11 @@ def cleanup_old_files(ttl_seconds=7200):
                         logger.info("Cleaned up old file: %s", fp)
                 except OSError:
                     pass
+            try:
+                if dirpath != identity_dir and not os.listdir(dirpath):
+                    os.rmdir(dirpath)
+            except OSError:
+                pass
         try:
             if not os.listdir(identity_dir):
                 os.rmdir(identity_dir)

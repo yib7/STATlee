@@ -139,3 +139,22 @@ def test_undecorated_route_429s_past_the_default_limit(config, reset_limiter_sta
     assert first.status_code == 200
     assert second.status_code == 200
     assert third.status_code == 429
+
+
+def test_ttl_cleanup_runs_on_any_request_but_is_throttled(client, monkeypatch):
+    """P1-6: anonymous-data TTL cleanup must fire on ordinary traffic (not
+    only from the two upload routes), but throttled so it doesn't run on
+    every single request — two requests inside the 15-minute window should
+    trigger `cleanup_old_files` at most once."""
+    from statlee import storage
+
+    calls = []
+    monkeypatch.setattr(
+        storage, 'cleanup_old_files', lambda *a, **kw: calls.append((a, kw)))
+
+    first = client.get('/health')
+    second = client.get('/health')
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(calls) == 1
