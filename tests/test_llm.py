@@ -90,6 +90,23 @@ def test_gemini_translates_mediapart_to_part():
     assert isinstance(out[1], gtypes.Part)
 
 
+def test_gemini_client_has_http_timeout(monkeypatch):
+    """A stalled Gemini connection must not hang a worker thread forever —
+    the client is built with an explicit http_options timeout (P1-1)."""
+    genai = pytest.importorskip('google.genai')
+    captured = {}
+    monkeypatch.setattr(
+        genai, 'Client',
+        lambda **k: captured.update(k) or types.SimpleNamespace(**k))
+
+    backend = llm.GeminiBackend(Config(env='testing', gemini_api_key='dummy-key'))
+    backend._client_()
+
+    assert 'http_options' in captured
+    http_options = captured['http_options']
+    assert http_options.timeout == 120_000
+
+
 # ---------------------------------------------------------------------------
 # Backend selection
 # ---------------------------------------------------------------------------

@@ -51,10 +51,13 @@ class GeminiBackend:
     def _client_(self):
         if self._client is None:
             from google import genai
+            from google.genai import types
             if not self.config.gemini_api_key:
                 raise RuntimeError(
                     "GEMINI_API_KEY is not configured on the server.")
-            self._client = genai.Client(api_key=self.config.gemini_api_key)
+            self._client = genai.Client(
+                api_key=self.config.gemini_api_key,
+                http_options=types.HttpOptions(timeout=120_000))  # ms
         return self._client
 
     @staticmethod
