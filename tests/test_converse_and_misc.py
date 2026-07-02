@@ -90,6 +90,13 @@ def test_generate_report_default_format_is_sectioned(client, fake_llm):
     assert 'formal data analysis report' in final[2]
 
 
+def test_generate_report_rejects_non_dict_revision(client):
+    """P1-5: a truthy non-dict 'revision' must return a structured 400, not 500."""
+    resp = post_json(client, '/generate_report', {'revision': 'yes'})
+    assert resp.status_code == 400
+    assert 'error' in resp.get_json()
+
+
 def test_generate_report_revision(client, fake_llm):
     fake_llm.set('report_revision', 'A tighter paragraph.')
     resp = post_json(client, '/generate_report', {'revision': {

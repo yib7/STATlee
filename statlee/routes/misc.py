@@ -124,6 +124,8 @@ def _email_report(cfg, report):
 def generate_report():
     data = request.get_json(silent=True) or {}
     revision = data.get('revision')
+    if revision is not None and not isinstance(revision, dict):
+        return json_error("'revision' must be an object.")
     service = llm.get_service()
 
     if revision:
