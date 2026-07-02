@@ -28,6 +28,17 @@ APPROVED_SCRIPT = '.approved_script.json'
 LAST_RUN_DIR = '.last_run'
 
 
+def _write_json_atomic(path, obj):
+    """Write JSON via a temp file + ``os.replace`` (atomic on POSIX and
+    Windows) so a crash mid-write can never leave a truncated/partial file
+    at ``path`` — the previous, complete version stays intact until the
+    new one is fully written."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
+
+
 # ---------------------------------------------------------------------------
 # Identity & roots
 # ---------------------------------------------------------------------------
@@ -96,12 +107,14 @@ def _load_manifest(filename, identity=None):
         with open(path, encoding='utf-8') as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
+        logger.warning(
+            "Corrupt/unreadable manifest %s; returning None "
+            "(history may be re-initialized)", path)
         return None
 
 
 def _save_manifest(filename, manifest, identity=None):
-    with open(_manifest_path(filename, identity), 'w', encoding='utf-8') as f:
-        json.dump(manifest, f)
+    _write_json_atomic(_manifest_path(filename, identity), manifest)
 
 
 def register_dataset(filename, identity=None):
@@ -241,8 +254,7 @@ def _meta_path(filename, identity=None):
 
 
 def save_dataset_meta(filename, meta, identity=None):
-    with open(_meta_path(filename, identity), 'w', encoding='utf-8') as f:
-        json.dump(meta, f)
+    _write_json_atomic(_meta_path(filename, identity), meta)
 
 
 def load_dataset_meta(filename, identity=None):
@@ -262,8 +274,7 @@ def load_dataset_meta(filename, identity=None):
 
 def save_approved_script(code, language, identity=None):
     path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump({'code': code, 'language': language}, f)
+    _write_json_atomic(path, {'code': code, 'language': language})
 
 
 def load_approved_script(identity=None):
