@@ -76,6 +76,26 @@ def test_history_persists_for_logged_in_user(client):
     assert runs['runs'][0]['prompt'] == 'run OLS'
 
 
+def test_history_save_truncates_oversized_fields(client):
+    post_json(client, '/register', {'email': 'trunc@x.com', 'password': 'longenough1'})
+    saved = post_json(client, '/history', {
+        'prompt': 'p' * 10500,
+        'code': 'c' * 20500,
+        'output': 'o' * 20500,
+        'interpretation': 'i' * 20500,
+        'dataset_name': 'd' * 300,
+        'language': 'l' * 30,
+    })
+    assert saved.get_json()['saved'] is True
+    run = client.get('/history').get_json()['runs'][0]
+    assert len(run['prompt']) == 10000
+    assert len(run['code']) == 20000
+    assert len(run['output']) == 20000
+    assert len(run['interpretation']) == 20000
+    assert len(run['dataset_name']) == 255
+    assert len(run['language']) == 16
+
+
 def _verify_app(tmp_path, fake_llm):
     """An app instance with email verification required."""
     from statlee import llm

@@ -213,10 +213,10 @@ def history_save():
         user_id=current_user.id,
         dataset_name=(data.get('dataset_name') or '')[:255],
         language=(data.get('language') or 'Python')[:16],
-        prompt=data.get('prompt'),
-        code=data.get('code'),
-        output=data.get('output'),
-        interpretation=data.get('interpretation'),
+        prompt=(data.get('prompt') or '')[:10000],
+        code=(data.get('code') or '')[:20000],
+        output=(data.get('output') or '')[:20000],
+        interpretation=(data.get('interpretation') or '')[:20000],
     )
     db.session.add(run)
     db.session.commit()
