@@ -49,13 +49,14 @@ def normalize_to_csv(src_path):
     if ext == '.tsv':
         df = pd.read_csv(src_path, sep='\t')
     elif ext in ('.xlsx', '.xls'):
+        engine_pkg = 'openpyxl' if ext == '.xlsx' else 'xlrd'
         try:
             df = pd.read_excel(src_path)
         except ImportError as e:
             raise MissingDependencyError(
-                "Excel support requires the 'openpyxl' package on the server. "
-                "Please upload a CSV instead, or ask the administrator to "
-                "install openpyxl.") from e
+                f"Excel support requires the '{engine_pkg}' package on the "
+                "server. Please upload a CSV instead, or ask the administrator "
+                f"to install {engine_pkg}.") from e
     elif ext in ('.dta', '.sav'):
         try:
             import pyreadstat

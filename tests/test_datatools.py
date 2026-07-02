@@ -48,6 +48,34 @@ def test_normalize_unsupported_raises(tmp_path):
         datatools.normalize_to_csv(str(src))
 
 
+def test_normalize_xls_missing_engine_names_xlrd(tmp_path, monkeypatch):
+    """.xls is read via the xlrd engine (openpyxl only covers .xlsx), so the
+    remediation message must name xlrd, not openpyxl."""
+    src = tmp_path / 'd.xls'
+    src.write_bytes(b'not really an xls')
+
+    def _raise(*args, **kwargs):
+        raise ImportError("Missing optional dependency 'xlrd'.")
+
+    monkeypatch.setattr(pd, 'read_excel', _raise)
+    with pytest.raises(datatools.MissingDependencyError) as exc_info:
+        datatools.normalize_to_csv(str(src))
+    assert 'xlrd' in str(exc_info.value)
+
+
+def test_normalize_xlsx_missing_engine_names_openpyxl(tmp_path, monkeypatch):
+    src = tmp_path / 'd.xlsx'
+    src.write_bytes(b'not really an xlsx')
+
+    def _raise(*args, **kwargs):
+        raise ImportError("Missing optional dependency 'openpyxl'.")
+
+    monkeypatch.setattr(pd, 'read_excel', _raise)
+    with pytest.raises(datatools.MissingDependencyError) as exc_info:
+        datatools.normalize_to_csv(str(src))
+    assert 'openpyxl' in str(exc_info.value)
+
+
 def test_file_sha256_is_stable(tmp_path):
     src = _write_csv(tmp_path)
     assert datatools.file_sha256(src) == datatools.file_sha256(src)
