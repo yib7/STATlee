@@ -59,13 +59,6 @@ def chat():
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
 
-    # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
-    # request is allowed for this user. No-op unless billing is enabled.
-    allowed, deny_msg = billing.check_and_debit(
-        _current_user(), priority=pro_mode, config=_cfg())
-    if not allowed:
-        return json_error(deny_msg or 'Out of credits.', 402)
-
     service = llm.get_service()
 
     # Gate 1: moderation (synchronous — must 403 before any stream starts).
@@ -79,6 +72,15 @@ def chat():
     blocked, reason = moderation_blocked(mod.text)
     if blocked:
         return json_error(f'Request denied. {reason}', 403)
+
+    # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
+    # request is allowed for this user. No-op unless billing is enabled. Runs
+    # AFTER moderation so a blocked/failed request never costs a credit or a
+    # unit of the operator's monthly priority ceiling.
+    allowed, deny_msg = billing.check_and_debit(
+        _current_user(), priority=pro_mode, config=_cfg())
+    if not allowed:
+        return json_error(deny_msg or 'Out of credits.', 402)
 
     filepath = storage.active_dataset_path(filename)
     if not filepath or not os.path.exists(filepath):

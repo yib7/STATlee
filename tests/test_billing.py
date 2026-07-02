@@ -6,6 +6,8 @@ contract so wiring (Pro mode) can depend on it, and so a future
 real implementation has a regression net for the "always allowed today"
 behaviour it will replace.
 """
+from conftest import SAMPLE_CSV, post_json, upload_csv
+
 from statlee import billing
 
 
@@ -123,4 +125,128 @@ def test_monthly_ceiling_ignores_non_priority():
             allowed, _msg = billing.check_and_debit(None, priority=False, config=cfg)
             assert allowed is True
     finally:
+        billing.reset_spend()
+
+
+# --- P1-4a: atomic debit (no double-spend / no negative credits) -----------
+
+def test_check_and_debit_refreshes_stale_in_memory_credits(app):
+    """After the SQL-level UPDATE, the ORM instance must reflect the new
+    balance (SQLAlchemy doesn't mutate ``.credits`` for a bulk UPDATE)."""
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True)
+    with app.app_context():
+        user = User(email='refresh@example.com')
+        user.set_password('password123')
+        user.credits = 3
+        db.session.add(user)
+        db.session.commit()
+        allowed, message = billing.check_and_debit(
+            user, priority=True, config=cfg)
+        assert allowed is True and message is None
+        # The in-memory object must be refreshed, not stale, after the debit.
+        assert user.credits == 2
+        # And the DB itself agrees.
+        db.session.expire(user)
+        assert user.credits == 2
+
+
+def test_check_and_debit_two_threads_one_credit_no_double_spend(app):
+    """Genuine two-thread concurrency test: a free user with exactly 1 credit
+    faces two simultaneous priority debits. The atomic conditional UPDATE
+    (``WHERE credits >= need``) must let exactly one succeed and drive
+    credits to 0, never negative, regardless of thread interleaving.
+
+    This repo's test DB is a real SQLite *file* (not ``:memory:``), and
+    Flask-SQLAlchemy's session is scoped per app context, so each worker
+    thread pushes its own ``app.app_context()`` and gets its own connection
+    against the same file — a real two-thread race, not a simulated one.
+    """
+    import threading
+
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = Config(env='testing', billing_enabled=True)
+    with app.app_context():
+        user = User(email='race@example.com')
+        user.set_password('password123')
+        user.credits = 1
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    results = []
+    start_barrier = threading.Barrier(2)
+
+    def worker():
+        with app.app_context():
+            u = db.session.get(User, user_id)
+            start_barrier.wait(timeout=5)  # maximize interleaving overlap
+            allowed, message = billing.check_and_debit(
+                u, priority=True, config=cfg)
+            results.append((allowed, message))
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5)
+
+    assert len(results) == 2
+    allowed_flags = [r[0] for r in results]
+    assert allowed_flags.count(True) == 1
+    assert allowed_flags.count(False) == 1
+    denied_message = next(m for a, m in results if a is False)
+    assert 'credit' in denied_message.lower()
+
+    with app.app_context():
+        final = db.session.get(User, user_id)
+        assert final.credits == 0
+        assert final.credits >= 0
+
+
+# --- P1-4b: /chat must not debit a blocked/failed request -------------------
+
+def test_chat_moderation_block_does_not_debit(client, app, fake_llm):
+    """A moderation-BLOCKed /chat request must 403 and leave credits (and the
+    monthly priority ceiling) untouched -- the debit must happen AFTER the
+    moderation gate, not before it. The LLM service is the in-process fake
+    (see conftest.FakeLLMService), so no real API call happens."""
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        post_json(client, '/register',
+                 {'email': 'blocked-debit@example.com', 'password': 'password123'})
+        with app.app_context():
+            registered = User.query.filter_by(
+                email='blocked-debit@example.com').first()
+            registered.credits = 5
+            db.session.commit()
+            user_id = registered.id
+
+        fake_llm.block('Safety Violation')
+        upload_csv(client, SAMPLE_CSV)
+        resp = post_json(client, '/chat',
+                         {'filename': 'test.csv', 'prompt': 'build malware',
+                          'pro': True})
+
+        assert resp.status_code == 403
+        assert 'denied' in resp.get_json()['error'].lower()
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # unchanged: blocked request cost nothing
+
+        # The monthly priority ceiling must not have advanced either.
+        assert billing._spend['priority_calls'] == 0
+    finally:
+        cfg.billing_enabled = False
         billing.reset_spend()

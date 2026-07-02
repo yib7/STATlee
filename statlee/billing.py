@@ -78,12 +78,28 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
         return False, ('The service has hit its monthly priority-usage ceiling. '
                        'Try again later, or run without priority.')
 
-    # Per-account credit debit for logged-in free-plan users.
+    # Per-account credit debit for logged-in free-plan users. This is a single
+    # atomic conditional UPDATE (check-and-debit in one statement) rather than
+    # a read-then-write: two concurrent requests racing this function can't
+    # both pass a Python-level `if credits < need` check and then both debit,
+    # which would double-spend or drive credits negative. The `credits >= need`
+    # clause in the WHERE makes the row only update when there's still enough
+    # balance, so whichever request's UPDATE commits first wins and the other
+    # necessarily sees rowcount == 0.
     if user is not None and getattr(user, 'plan', 'free') == 'free' and need:
-        if getattr(user, 'credits', 0) < need:
+        from .extensions import db
+        from .models import User
+        rows = db.session.execute(
+            db.update(User)
+            .where(User.id == user.id, User.credits >= need)
+            .values(credits=User.credits - need)).rowcount
+        db.session.commit()
+        if not rows:
             return False, ('Out of credits — upgrade or wait for your monthly '
                            'reset.')
-        user.credits -= need
-        from .extensions import db
-        db.session.commit()
+        # The UPDATE above is a bulk/Core statement — SQLAlchemy does not sync
+        # it back onto the in-memory ORM instance, so `user.credits` is stale
+        # here. Refresh it so any downstream read (this request's response
+        # payload, /check_auth, etc.) sees the real post-debit balance.
+        db.session.refresh(user)
     return True, None
