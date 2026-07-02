@@ -67,6 +67,20 @@ def test_wrangle_role_from_env(monkeypatch):
     assert cfg.wrangle_role == 'flash'
 
 
+def test_exec_output_limit_default():
+    assert Config.exec_output_limit == 256 * 1024
+    cfg = Config(env='testing')
+    cfg.validate()
+    assert cfg.exec_output_limit == 256 * 1024
+
+
+def test_exec_output_limit_from_env(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('EXEC_OUTPUT_LIMIT', '1024')
+    cfg = Config.from_env()
+    assert cfg.exec_output_limit == 1024
+
+
 def test_production_subprocess_sandbox_warns():
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  sandbox_mode='subprocess')

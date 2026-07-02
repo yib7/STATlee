@@ -186,6 +186,25 @@ def test_wrangle_uses_configured_lite_role(client, fake_llm):
     assert all(role == 'lite' for role, *_ in wrangle_calls)
 
 
+def test_wrangle_passes_configured_output_limit(client, fake_llm, monkeypatch):
+    # /wrangle must honor exec_output_limit like /run does (P2-6), instead of
+    # falling back to run_in_sandbox's own default.
+    from statlee import sandbox as sandbox_mod
+
+    captured = {}
+    real_run_in_sandbox = sandbox_mod.run_in_sandbox
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return real_run_in_sandbox(*args, **kwargs)
+
+    monkeypatch.setattr(sandbox_mod, 'run_in_sandbox', spy)
+    upload_csv(client, SAMPLE_CSV)
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    assert captured.get('output_limit') == 256 * 1024
+
+
 def test_revert_dataset_restores_original(client, fake_llm):
     upload_csv(client, SAMPLE_CSV)                       # v1: 4 rows
     post_json(client, '/wrangle',

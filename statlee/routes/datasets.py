@@ -461,6 +461,7 @@ def wrangle():
         script, 'Python', dataset_path=active_path,
         dataset_name=dataset_basename,
         timeout=cfg.exec_timeout, memory_mb=cfg.exec_memory_mb,
+        output_limit=cfg.exec_output_limit,
         mode=cfg.sandbox_mode, runner_image=cfg.runner_image,
         collect=('__wrangled.csv',))
 

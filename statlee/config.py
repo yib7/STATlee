@@ -210,6 +210,7 @@ class Config:
             runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
+            exec_output_limit=_env_int('EXEC_OUTPUT_LIMIT', 256 * 1024),
             model_pro=os.environ.get('MODEL_PRO', md['pro']).strip(),
             model_pro_max=os.environ.get('MODEL_PRO_MAX', md['pro_max']).strip(),
             model_flash=os.environ.get('MODEL_FLASH', md['flash']).strip(),
