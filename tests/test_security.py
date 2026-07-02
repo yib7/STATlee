@@ -116,37 +116,26 @@ def test_ratelimit_default_config_key_is_wired(config):
     assert application.config['RATELIMIT_DEFAULT'] == config.rate_limit_default
 
 
-def test_undecorated_route_429s_past_the_default_limit(config):
+def test_undecorated_route_429s_past_the_default_limit(config, reset_limiter_state):
     """/check_auth carries no @limiter.limit decorator, so it only gets a cap
     via the RATELIMIT_DEFAULT config key. With a low default, the 3rd request
     within the window must be rejected with 429."""
     from statlee.app import create_app
-    from statlee.extensions import limiter
 
-    # The module-level Limiter singleton caches its default-limits group from
-    # the *first* app that ever initialised it and never re-derives it (see
-    # flask_limiter._extension.Limiter.init_app: it only sets default limits
-    # `if not self.limit_manager._default_limits`). Every other test in this
-    # suite runs with rate limiting disabled (init_app returns early), so this
-    # is the first test to touch that state — reset it for test isolation
-    # rather than depending on collection order.
-    limiter.limit_manager._default_limits = []
-    limiter.initialized = False
-
+    # reset_limiter_state clears the module-level Limiter singleton's cached
+    # default-limits group before this test runs (see the fixture docstring
+    # for why: flask_limiter 4.1.1 only derives that group once per process)
+    # and resets it again afterward so this test's 2-per-minute default can't
+    # leak into any test that runs later.
     config.rate_limit_enabled = True
     config.rate_limit_default = '2 per minute'
     application = create_app(config)
     test_client = application.test_client()
 
-    try:
-        first = test_client.get('/check_auth')
-        second = test_client.get('/check_auth')
-        third = test_client.get('/check_auth')
+    first = test_client.get('/check_auth')
+    second = test_client.get('/check_auth')
+    third = test_client.get('/check_auth')
 
-        assert first.status_code == 200
-        assert second.status_code == 200
-        assert third.status_code == 429
-    finally:
-        # Don't leak a 2-per-minute default into tests that run after this one.
-        limiter.limit_manager._default_limits = []
-        limiter.initialized = False
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 429

@@ -181,6 +181,32 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture
+def reset_limiter_state():
+    """Reset the module-level Flask-Limiter singleton before and after a test.
+
+    ``statlee.extensions.limiter`` is a single ``Limiter`` instance shared by
+    every ``create_app()`` call in the process. flask_limiter 4.1.1's
+    ``init_app()`` only populates ``limit_manager._default_limits`` once (it's
+    gated on ``if not self.limit_manager._default_limits and conf_limits``)
+    and unconditionally rebuilds ``_storage`` on every call — so a later
+    ``create_app()`` with a different ``RATELIMIT_DEFAULT`` won't pick it up
+    unless that cached state is cleared first, and whatever this test sets
+    would otherwise leak into every test that runs after it. Any test that
+    enables rate limiting with a custom ``RATELIMIT_DEFAULT`` should request
+    this fixture for isolation.
+    """
+    from statlee.extensions import limiter
+
+    def _reset():
+        limiter.limit_manager._default_limits = []
+        limiter.initialized = False
+
+    _reset()
+    yield
+    _reset()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
