@@ -132,6 +132,11 @@ def register():
             _send_verification_email(cfg, user.email, user.verification_token)
         except Exception:
             logger.exception("Failed to send verification email to %s", email)
+            return jsonify({
+                'status': 'verification_email_failed',
+                'message': 'Account created, but the verification email could not '
+                           'be sent. Please contact the site operator.',
+            }), 202
         return jsonify({
             'status': 'verification_required',
             'message': 'Account created. Check your email to confirm it before '

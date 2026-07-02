@@ -160,6 +160,40 @@ def test_register_requires_verification_when_enabled(tmp_path, fake_llm):
     assert user.verification_token
 
 
+def test_register_verification_email_send_failure_is_distinct(tmp_path, fake_llm, monkeypatch):
+    """If sending the verification email raises, the user must NOT be told
+    to 'check your email' — that inbox got nothing. The account is still
+    created, but the response/status must be distinguishable."""
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+
+    import statlee.routes.auth as auth_mod
+
+    def boom(cfg, email, token):
+        raise RuntimeError('smtp exploded')
+
+    monkeypatch.setattr(auth_mod, '_send_verification_email', boom)
+    resp = post_json(c, '/register', {'email': 'failmail@x.com', 'password': 'password123'})
+    assert resp.status_code == 202
+    body = resp.get_json()
+    assert body['status'] == 'verification_email_failed'
+    assert body['status'] != 'verification_required'
+    # Account was still created.
+    user = _user_by_email(app, 'failmail@x.com')
+    assert user is not None
+    assert user.email_verified is False
+
+
+def test_register_verification_email_dev_no_smtp_is_not_a_failure(tmp_path, fake_llm):
+    """No SMTP configured (dev mode) logs the link and returns normally —
+    that is NOT a send failure."""
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    resp = post_json(c, '/register', {'email': 'devmode@x.com', 'password': 'password123'})
+    assert resp.status_code == 202
+    assert resp.get_json()['status'] == 'verification_required'
+
+
 def test_login_blocked_until_verified(tmp_path, fake_llm):
     app = _verify_app(tmp_path, fake_llm)
     c = app.test_client()
