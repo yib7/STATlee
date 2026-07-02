@@ -203,12 +203,13 @@
             if (ok && data.persisted && data.runs.length) {
                 const seen = new Set(entries.map(e => (e.code || '') + (e.ts || '')));
                 data.runs.forEach(r => {
+                    const ts = r.created_at ? Date.parse(r.created_at) : 0;
+                    if (seen.has((r.code || '') + ts)) return;
                     entries.push({
                         prompt: r.prompt, code: r.code, language: r.language,
                         dataset_name: r.dataset_name, output: r.output,
                         interpretation: r.interpretation,
-                        ts: r.created_at ? Date.parse(r.created_at) : 0,
-                        server: true,
+                        ts, server: true,
                     });
                 });
                 serverNote = '<p class="px-4 pb-2 text-[10px] font-mono uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Account history synced</p>';
