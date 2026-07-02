@@ -227,7 +227,7 @@ def converse(message, history, context, code, guide_mode=False):
 
     history_text = "".join(
         f"{m.get('role', 'user').upper()}: {m.get('text', '')}\n"
-        for m in (history or []))
+        for m in (history or []) if isinstance(m, dict))
     return f"""{persona}
     HARD CONSTRAINTS:
     - Your role is strictly limited to explaining concepts, interpreting

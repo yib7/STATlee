@@ -18,3 +18,12 @@ def test_format_turns_skips_non_dict_items():
     text = prompts._format_turns(turns)
     assert 'the effect is significant' in text
     assert 'oops' not in text
+
+
+def test_converse_skips_non_dict_history_items():
+    history = ['oops', {'role': 'user', 'text': 'hi'}]
+    prompt = prompts.converse(
+        message='what does this mean?', history=history, context='',
+        code=None)
+    assert 'HI' in prompt
+    assert 'oops' not in prompt
