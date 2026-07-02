@@ -30,7 +30,7 @@ Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate
         ├─ sandbox.py    isolated code execution
         ├─ datatools.py  ingestion + profiling
         ├─ billing.py    monetization seam (no-op today)
-        ├─ models.py     SQLAlchemy: User / Dataset / AnalysisRun / IssueReport
+        ├─ models.py     SQLAlchemy: User / AnalysisRun / IssueReport
         └─ config.py     validated, env-driven settings
 ```
 

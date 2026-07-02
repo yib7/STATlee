@@ -38,8 +38,6 @@ class User(UserMixin, db.Model):
     email_verified = db.Column(db.Boolean, nullable=False, default=False)
     verification_token = db.Column(db.String(64), nullable=True, index=True)
 
-    datasets = db.relationship('Dataset', backref='user', lazy=True,
-                               cascade='all, delete-orphan')
     runs = db.relationship('AnalysisRun', backref='user', lazy=True,
                            cascade='all, delete-orphan')
 
@@ -48,17 +46,6 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-
-
-class Dataset(db.Model):
-    __tablename__ = 'datasets'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    filename = db.Column(db.String(255), nullable=False)
-    original_name = db.Column(db.String(255), nullable=False)
-    sha256 = db.Column(db.String(64), nullable=False)
-    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
 
 class AnalysisRun(db.Model):

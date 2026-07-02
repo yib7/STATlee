@@ -17,11 +17,10 @@ from collections import OrderedDict
 
 import pandas as pd
 from flask import Blueprint, current_app, jsonify, request, send_file
-from flask_login import current_user
 from werkzeug.utils import secure_filename
 
 from .. import datatools, llm, prompts, sandbox, storage
-from ..extensions import db, limiter
+from ..extensions import limiter
 from ..usage import usage_breakdown
 from . import json_error, moderation_blocked
 
@@ -141,13 +140,6 @@ def upload_file():
         'original_name': file.filename,
         'labels': labels,
     })
-
-    if current_user and getattr(current_user, 'is_authenticated', False):
-        from ..models import Dataset
-        db.session.add(Dataset(
-            user_id=current_user.id, filename=csv_name,
-            original_name=file.filename[:255], sha256=sha256))
-        db.session.commit()
 
     return jsonify({
         'message': 'File uploaded',

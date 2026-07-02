@@ -16,6 +16,18 @@ def test_upload_accepts_csv(client):
     assert body['sha256']
 
 
+def test_upload_as_logged_in_user_succeeds_without_dataset_model(client):
+    """The write-only Dataset table was removed (P2-7): a logged-in user's
+    upload must still succeed, and no such model should exist anymore."""
+    post_json(client, '/register', {'email': 'uploader@x.com', 'password': 'longenough1'})
+    resp = upload_csv(client, SAMPLE_CSV)
+    assert resp.status_code == 200
+    assert resp.get_json()['filename'] == 'test.csv'
+
+    import statlee.models as models_mod
+    assert not hasattr(models_mod, 'Dataset')
+
+
 def test_upload_returns_initial_changelog(client):
     # The data-cleaning panel needs the v1 changelog to render on first upload.
     body = upload_csv(client, SAMPLE_CSV).get_json()
