@@ -4,6 +4,49 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-02
+
+Correctness and hardening release. A full-codebase audit closed 16 issues across
+rate limiting, the LLM and sandbox layer, storage integrity, input validation, and
+billing. No breaking changes for end users. The test suite grew from 178 to 216.
+
+### Added
+- `RATE_LIMIT_DEFAULT` is now enforced as a global fallback limit. It was parsed
+  from the environment but never applied, so endpoints without an explicit limit
+  (including `/login` and `/register`) were unthrottled.
+- `EXEC_OUTPUT_LIMIT` is now read from the environment, and the data-wrangling
+  sandbox applies the same output cap as analysis runs.
+- `xlrd` dependency so `.xls` uploads work; the format was advertised but failed
+  on every deployment.
+
+### Fixed
+- `.xls` uploads now succeed, and the dependency error names the correct engine.
+- The Gemini client now has an HTTP timeout, so a stalled upstream call can no
+  longer pin a worker thread until the whole worker is killed.
+- The Docker execution sandbox terminates a timed-out container instead of leaving
+  it running with its full memory and CPU allowance.
+- Version-history, metadata, and approved-script files are written atomically, so a
+  crash mid-write can no longer silently reset a dataset's cleaning history.
+- Anonymous-file TTL cleanup now runs on ordinary traffic (not only on upload) and
+  removes empty leftover subdirectories.
+- Malformed JSON request bodies on several endpoints now return a clear 400 instead
+  of a 500.
+- Duplicate registration returns 409 instead of 500; a failed verification email
+  now reports a distinct message instead of silently locking the account out.
+- Per-account history fields are length-capped, and the history modal no longer
+  shows the same run twice.
+
+### Security
+- Credit debiting is now a single atomic operation and runs only after the
+  moderation gate, preventing double-spend or negative balances and charges for
+  blocked requests (applies when billing is enabled).
+- The legacy master-password comparison is now constant-time.
+
+### Removed
+- The unused, write-only `Dataset` table (it was never read back). On a pre-existing
+  database the now-unreferenced `datasets` table remains but is harmless; it is
+  simply no longer created or written.
+
 ## [1.0.1] - 2026-06-28
 
 Maintenance and presentation release. The application's behavior is unchanged
@@ -68,5 +111,6 @@ dataset into generated, moderated, sandboxed, and explained statistics.
 - 178 tests covering the full HTTP surface with an injected fake LLM, so the
   suite runs offline with no API key.
 
+[1.1.0]: https://github.com/yib7/STATlee/releases/tag/v1.1.0
 [1.0.1]: https://github.com/yib7/STATlee/releases/tag/v1.0.1
 [1.0.0]: https://github.com/yib7/STATlee/releases/tag/v1.0.0
