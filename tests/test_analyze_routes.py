@@ -39,6 +39,12 @@ def test_moderation_blocked_helper_fails_closed():
         True, 'malware')
     assert moderation_blocked('')[0] is True
     assert moderation_blocked('{"decision": "maybe"}')[0] is True
+    # P1-6: `decision` is matched case-insensitively on purpose — a differently
+    # cased "pass" must still pass (safe direction), and a non-pass token still
+    # blocks regardless of case.
+    assert moderation_blocked('{"decision": "Pass"}') == (False, '')
+    assert moderation_blocked('{"decision": "PASS"}') == (False, '')
+    assert moderation_blocked('{"decision": "Block", "reason": "x"}') == (True, 'x')
 
 
 def test_run_guard_blocks_malformed_code_moderation(client, fake_llm):

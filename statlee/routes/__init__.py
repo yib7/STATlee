@@ -24,6 +24,15 @@ def moderation_blocked(result_text):
     prompt-injection path where suppressing a magic word made moderation
     fail open.
 
+    Case handling (P1-6): the prompt schema (``prompts._VERDICT_SHAPE``)
+    specifies lowercase ``"pass"``/``"block"``, but ``decision`` is compared
+    case-INSENSITIVELY on purpose. This is deliberate slack, not a bug: it is
+    the safe direction to differ — a model that returns ``"Pass"`` or ``"PASS"``
+    is honored as a pass rather than fail-closed into blocking a legitimate
+    request, while any non-pass token (however cased) still blocks. Do NOT
+    tighten this to an exact-case match; that would let a stray capital letter
+    reject valid analyses.
+
     Returns ``(blocked: bool, reason: str)``; ``reason`` is empty when allowed.
     """
     try:
