@@ -1,9 +1,45 @@
 """Execution sandbox: secret scrubbing (0.1), output capture, multi-plot
 collection (5.2), timeouts, and named-file collection (used by /wrangle)."""
 import os
+import shutil
 import subprocess
 
+import pytest
+
 from statlee import sandbox
+
+
+# ---------------------------------------------------------------------------
+# Real-Docker integration (P2-10). All other sandbox tests use subprocess mode
+# or a mocked subprocess.run; this one exercises the genuine SANDBOX_MODE=docker
+# path end to end. It is skipped unless (a) the Docker daemon is reachable and
+# (b) the runner image has been built (`docker build -f runner.Dockerfile -t
+# statlee-runner .`), so CI/dev hosts without Docker stay green.
+RUNNER_IMAGE = os.environ.get('RUNNER_IMAGE', 'statlee-runner')
+
+
+def _docker_ready(image):
+    """True only if the daemon answers AND the runner image is present."""
+    if shutil.which('docker') is None:
+        return False
+    try:
+        info = subprocess.run(['docker', 'info'], capture_output=True,
+                              timeout=15)
+        if info.returncode != 0:
+            return False
+        img = subprocess.run(['docker', 'image', 'inspect', image],
+                             capture_output=True, timeout=15)
+        return img.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+docker_required = pytest.mark.skipif(
+    not _docker_ready(RUNNER_IMAGE),
+    reason=(f"Docker daemon unreachable or runner image {RUNNER_IMAGE!r} not "
+            "built; skipping the real-sandbox integration test. Build it with "
+            "`docker build -f runner.Dockerfile -t statlee-runner .` and start "
+            "Docker to run it."))
 
 
 def test_runs_python_and_captures_stdout():
@@ -119,3 +155,40 @@ def test_run_dir_is_cleaned_up(tmp_path):
     res = sandbox.run_in_sandbox("print('x')", 'Python')
     assert res.success
     # No assertion on temp internals beyond success; cleanup is in a finally.
+
+
+# ---------------------------------------------------------------------------
+# Real-Docker integration test (P2-10) — skipped unless Docker + image present.
+# ---------------------------------------------------------------------------
+
+@docker_required
+def test_docker_sandbox_runs_and_reads_dataset(tmp_path):
+    """End-to-end SANDBOX_MODE=docker: a real sibling container runs generated
+    Python against the mounted dataset and returns its stdout. Verifies the
+    full network-less, non-root, resource-capped launch path, not a mock."""
+    data = tmp_path / 'data.csv'
+    data.write_text('a,b\n1,2\n3,4\n')
+    code = ("import pandas as pd\n"
+            "df = pd.read_csv('data.csv')\n"
+            "print('SUM', int(df['a'].sum()))\n")
+    res = sandbox.run_in_sandbox(
+        code, 'Python', dataset_path=str(data), dataset_name='data.csv',
+        mode='docker', runner_image=RUNNER_IMAGE, timeout=120)
+    assert res.success, res.output
+    assert 'SUM 4' in res.output
+
+
+@docker_required
+def test_docker_sandbox_has_no_network(tmp_path):
+    """The runner container is launched with --network none; an outbound
+    connection attempt must fail rather than reach the internet."""
+    code = ("import socket\n"
+            "try:\n"
+            "    socket.create_connection(('8.8.8.8', 53), timeout=3)\n"
+            "    print('NETWORK_OPEN')\n"
+            "except OSError:\n"
+            "    print('NETWORK_BLOCKED')\n")
+    res = sandbox.run_in_sandbox(
+        code, 'Python', mode='docker', runner_image=RUNNER_IMAGE, timeout=120)
+    assert 'NETWORK_BLOCKED' in res.output
+    assert 'NETWORK_OPEN' not in res.output
