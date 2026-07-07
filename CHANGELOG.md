@@ -4,7 +4,7 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-07-07
 
 Follow-up correctness and hardening cycle. Closes a second audit pass with one
 P0 sandbox-safety fix and a set of P1/P2 fixes across the wrangle, billing,
@@ -144,6 +144,7 @@ dataset into generated, moderated, sandboxed, and explained statistics.
 - 178 tests covering the full HTTP surface with an injected fake LLM, so the
   suite runs offline with no API key.
 
+[1.2.0]: https://github.com/yib7/STATlee/releases/tag/v1.2.0
 [1.1.0]: https://github.com/yib7/STATlee/releases/tag/v1.1.0
 [1.0.1]: https://github.com/yib7/STATlee/releases/tag/v1.0.1
 [1.0.0]: https://github.com/yib7/STATlee/releases/tag/v1.0.0
