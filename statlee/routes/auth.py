@@ -14,7 +14,7 @@ from flask import Blueprint, current_app, jsonify, redirect, request, session, u
 from flask_login import login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 
-from ..extensions import db
+from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..models import AnalysisRun, User
 from . import json_error
@@ -175,6 +175,7 @@ def _send_verification_email(cfg, email, token):
 
 
 @bp.route('/verify_email', methods=['GET'])
+@limiter.limit(lambda: _cfg().rate_limit_verify)
 def verify_email():
     """Confirm an account from the emailed link, then log the user in."""
     token = (request.args.get('token') or '').strip()

@@ -222,6 +222,28 @@ def test_verify_email_rejects_bad_token(tmp_path, fake_llm):
     assert app.test_client().get('/verify_email?token=nope').status_code == 400
 
 
+def test_verify_email_is_rate_limited(tmp_path, fake_llm, reset_limiter_state):
+    """P2-11: /verify_email must be rate limited so the token endpoint can't be
+    hammered. With a 2/min cap, the third request in a window gets a 429."""
+    from statlee import llm
+    from statlee.app import create_app
+    from statlee.config import Config
+    cfg = Config(
+        env='testing', upload_root=str(tmp_path / 'u'),
+        database_url='sqlite:///' + str(tmp_path / 'a.db').replace('\\', '/'),
+        flask_secret_key='k', rate_limit_enabled=True,
+        rate_limit_verify='2 per minute',
+        accounts_enabled=True, require_email_verification=True)
+    cfg.validate()
+    app = create_app(cfg)
+    llm.set_service(fake_llm)
+    c = app.test_client()
+
+    codes = [c.get('/verify_email?token=nope').status_code for _ in range(3)]
+    assert codes[:2] == [400, 400]   # under the cap: normal (bad-token) response
+    assert codes[2] == 429           # over the cap: rate limited
+
+
 @pytest.mark.parametrize('require_login', [True])
 def test_require_login_blocks_protected_routes(tmp_path, fake_llm, require_login):
     """REQUIRE_LOGIN=true makes the sandbox closed: protected routes 401 until

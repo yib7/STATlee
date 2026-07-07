@@ -135,6 +135,10 @@ class Config:
     rate_limit_default: str = '120 per minute'
     rate_limit_run: str = '10 per minute'
     rate_limit_chat: str = '20 per minute'
+    # Guards the token-consuming /verify_email endpoint against brute force
+    # (token entropy is high, so this is defense-in-depth, not the primary
+    # control).
+    rate_limit_verify: str = '5 per minute'
     # Backing store for rate-limit counters. Default 'memory://' is per-process:
     # with >1 gunicorn worker the buckets are NOT shared (each worker enforces
     # its own copy) and they reset on every restart, which weakens the
@@ -229,6 +233,7 @@ class Config:
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),
             rate_limit_chat=os.environ.get('RATE_LIMIT_CHAT', '20 per minute'),
+            rate_limit_verify=os.environ.get('RATE_LIMIT_VERIFY', '5 per minute'),
             rate_limit_storage_uri=(
                 os.environ.get('RATELIMIT_STORAGE_URI')
                 or os.environ.get('REDIS_URL') or 'memory://').strip(),
