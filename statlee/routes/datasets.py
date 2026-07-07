@@ -454,6 +454,30 @@ def wrangle():
         return json_error(plan.get('error')
                           or 'Could not translate that instruction.', 422)
 
+    # Run-guard (0.4): the LLM-generated transform code is itself re-moderated
+    # before execution, exactly as /run does for user-edited scripts. Moderating
+    # only the user instruction (above) is not enough — a jailbroken or
+    # misbehaving model can emit code doing network access, env exfiltration, or
+    # shell execution regardless of a benign-looking instruction. Default-deny:
+    # a malformed/ambiguous verdict blocks (see moderation_blocked()).
+    try:
+        code_verdict = service.generate(
+            'lite', prompts.code_moderation(plan['code'], 'Python'),
+            temperature=0.0, json_mode=True)
+    except Exception:
+        logger.exception("Wrangle code-moderation failed")
+        return json_error('Could not verify the generated transform.', 503)
+    blocked, reason = moderation_blocked(code_verdict.text)
+    if blocked:
+        return json_error(
+            f'The generated transform was rejected by the safety check. {reason}',
+            403)
+
+    # Record the moderated transform in the approved-script store so /wrangle
+    # upholds the same "every executed LLM-generated script is moderated and
+    # recorded" invariant as the /chat -> /run path (0.4 run-guard).
+    storage.save_approved_script(plan['code'], 'Python')
+
     dataset_basename = os.path.basename(active_path)
     script = WRANGLE_HARNESS.format(src=dataset_basename,
                                     code=plan['code'])
@@ -481,7 +505,8 @@ def wrangle():
             'summary': plan.get('summary') or instruction,
             'profile': datatools.profile_dataframe(new_df),
             'changelog': storage.dataset_changelog(filename),
-            'usage': usage_breakdown(mod.usage, result.usage),
+            'usage': usage_breakdown(mod.usage, result.usage,
+                                     code_verdict.usage),
         })
     except Exception:
         logger.exception("Failed to persist wrangled version")

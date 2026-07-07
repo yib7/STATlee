@@ -244,6 +244,69 @@ def test_wrangle_blocked_by_moderation(client, fake_llm):
     assert resp.status_code == 403
 
 
+def test_wrangle_blocked_when_generated_code_fails_run_guard(client, fake_llm):
+    """P0/P1: the run-guard must re-moderate the LLM-*generated* transform code,
+    not just the user instruction. A jailbroken model that emits unsafe code
+    (network access, env exfiltration, ...) must 403 and never reach the
+    sandbox -- the same guarantee /run enforces on edited scripts."""
+    from statlee import sandbox as sandbox_mod
+
+    ran = {'called': False}
+
+    def spy(*args, **kwargs):
+        ran['called'] = True
+        raise AssertionError('sandbox must not run code the run-guard blocked')
+
+    import statlee.routes.datasets as datasets_mod
+    orig = datasets_mod.sandbox.run_in_sandbox
+    datasets_mod.sandbox.run_in_sandbox = spy
+    try:
+        # Instruction passes the first (relevance) gate, but the generated code
+        # is rejected by code-moderation.
+        fake_llm.block_code('network access')
+        upload_csv(client, SAMPLE_CSV)
+        resp = post_json(client, '/wrangle',
+                         {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    finally:
+        datasets_mod.sandbox.run_in_sandbox = orig
+
+    assert resp.status_code == 403
+    assert 'network access' in resp.get_json()['error'].lower()
+    assert ran['called'] is False
+
+
+def test_wrangle_records_approved_script(client, app, fake_llm):
+    """After a successful wrangle, the executed transform enters the
+    approved-script store, upholding the invariant that every executed
+    LLM-generated script has been moderated and recorded (P1)."""
+    from statlee import storage
+
+    fake_llm.set('wrangle', '{"code": "df = df.dropna()", '
+                            '"summary": "Dropped missing rows", "error": null}')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/wrangle',
+                     {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    assert resp.status_code == 200
+
+    with client.session_transaction() as sess:
+        identity = f"anon_{sess['sid']}"
+    with app.app_context():
+        approved = storage.load_approved_script(identity=identity)
+    assert approved is not None
+    assert 'df.dropna()' in approved['code']
+
+
+def test_wrangle_runs_code_moderation_on_generated_code(client, fake_llm):
+    """The generated transform must pass through the code-moderation (run-guard)
+    gate, i.e. a 'strict security reviewer' LLM call happens on /wrangle."""
+    upload_csv(client, SAMPLE_CSV)
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+    code_mod_calls = [c for c in fake_llm.calls if c[1] == 'code_moderation']
+    assert code_mod_calls, 'expected a code-moderation (run-guard) LLM call'
+    assert all(role == 'lite' for role, *_ in code_mod_calls)
+
+
 def test_version_control_undo_redo_over_http(client, fake_llm):
     upload_csv(client, SAMPLE_CSV)
     post_json(client, '/wrangle',
