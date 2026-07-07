@@ -250,3 +250,50 @@ def test_chat_moderation_block_does_not_debit(client, app, fake_llm):
     finally:
         cfg.billing_enabled = False
         billing.reset_spend()
+
+
+# --- P1-3: a mid-stream failure after the debit must refund the credit ------
+
+def test_chat_stream_failure_after_debit_refunds_credit(client, app, fake_llm):
+    """/chat debits a priority credit before streaming starts. If the code-gen
+    stream then fails mid-generation, the credit must be refunded rather than
+    silently lost -- the user got no usable output for their credit."""
+    from conftest import sse_events
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        post_json(client, '/register',
+                  {'email': 'stream-fail@example.com', 'password': 'password123'})
+        with app.app_context():
+            registered = User.query.filter_by(
+                email='stream-fail@example.com').first()
+            registered.credits = 5
+            db.session.commit()
+            user_id = registered.id
+
+        # Make the code-gen stream blow up mid-generation.
+        def boom(*args, **kwargs):
+            raise RuntimeError('stream exploded')
+            yield  # pragma: no cover - generator marker
+        fake_llm.stream = boom
+
+        upload_csv(client, SAMPLE_CSV)
+        resp = post_json(client, '/chat',
+                         {'filename': 'test.csv', 'prompt': 'summarize',
+                          'pro': True})
+
+        # The stream still returns 200 (SSE) but ends in an error event.
+        events = sse_events(resp)
+        assert any(e.get('type') == 'error' for e in events)
+
+        # The debited credit must have been returned.
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # debit refunded after stream failure
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()

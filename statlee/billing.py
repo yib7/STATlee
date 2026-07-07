@@ -51,6 +51,30 @@ def _within_monthly_ceiling(ceiling):
         return True
 
 
+def refund(user, *, priority=False, cost=None, config=None):
+    """Reverse a debit made by ``check_and_debit`` (e.g. the request failed
+    after the credit was taken, so the user got nothing for it).
+
+    A no-op with the same gating as ``check_and_debit``: only credits a
+    logged-in free-plan user, only when billing is enabled and a non-zero cost
+    was actually debited. The per-process monthly priority ceiling is a coarse
+    guardrail and is deliberately NOT rolled back here — over-counting it fails
+    safe (toward the operator's protection), and it self-resets each month.
+    """
+    if config is None or not getattr(config, 'billing_enabled', False):
+        return
+    need = cost if cost is not None else (PRIORITY_COST if priority else 0)
+    if user is not None and getattr(user, 'plan', 'free') == 'free' and need:
+        from .extensions import db
+        from .models import User
+        db.session.execute(
+            db.update(User)
+            .where(User.id == user.id)
+            .values(credits=User.credits + need))
+        db.session.commit()
+        db.session.refresh(user)
+
+
 def check_and_debit(user, *, priority=False, cost=None, config=None):
     """Authorize a request and (when billing is enabled) debit credits.
 

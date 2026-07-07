@@ -70,8 +70,9 @@ def chat():
     # request is allowed for this user. No-op unless billing is enabled. Runs
     # AFTER moderation so a blocked/failed request never costs a credit or a
     # unit of the operator's monthly priority ceiling.
+    billing_user = current_user_or_none()
     allowed, deny_msg = billing.check_and_debit(
-        current_user_or_none(), priority=pro_mode, config=_cfg())
+        billing_user, priority=pro_mode, config=_cfg())
     if not allowed:
         return json_error(deny_msg or 'Out of credits.', 402)
 
@@ -157,6 +158,14 @@ def chat():
                              'language': target_language, 'usage': usage})
         except Exception:
             logger.exception("Code generation stream failed")
+            # The credit (if any) was debited before streaming began; the stream
+            # produced no usable script, so refund it rather than charge for
+            # nothing (P1-3). Best-effort: a refund failure must not mask the
+            # original error the user needs to see.
+            try:
+                billing.refund(billing_user, priority=pro_mode, config=cfg)
+            except Exception:
+                logger.exception("Failed to refund credit after stream failure")
             yield sse_event({'type': 'error',
                              'message': 'Code generation failed. Please try again.'})
 
