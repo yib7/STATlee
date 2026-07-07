@@ -92,6 +92,7 @@ def chat():
     filtered_headers = headers
     filtered_codebook = codebook
     selection_usage = None
+    selection_degraded = False   # feature selection failed -> full-schema fallback
     if len(headers) >= cfg.feature_selection_threshold:
         column_context = (json.dumps(codebook, indent=2)
                           if codebook else ', '.join(headers))
@@ -114,6 +115,7 @@ def chat():
         except Exception:
             logger.warning("[/chat] feature selection failed; using full schema",
                            exc_info=True)
+            selection_degraded = True
     else:
         logger.info("[/chat] Stage 1 skipped: %d columns below threshold (%d)",
                     len(headers), cfg.feature_selection_threshold)
@@ -125,6 +127,14 @@ def chat():
     def generate():
         draft_usage, validation_usage = {}, {}
         try:
+            # Surface the feature-selection fallback (P2-8): the user already
+            # paid for the request, so if Stage 1 failed and we quietly reverted
+            # to the full schema, tell them rather than swallowing it server-side.
+            if selection_degraded:
+                yield sse_event({
+                    'type': 'phase', 'phase': 'feature_selection_skipped',
+                    'message': ('Column pre-selection was unavailable; analyzing '
+                                'with the full dataset schema.')})
             # Phase A: stream the draft (5.5) — the slowest step is now visible.
             # Pro mode routes code generation to the bigger 'pro_max' model.
             yield sse_event({'type': 'phase', 'phase': 'drafting'})

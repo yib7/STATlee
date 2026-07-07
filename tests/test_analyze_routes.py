@@ -73,6 +73,39 @@ def test_chat_streams_phases_and_final_code(client, fake_llm):
     assert done and done[0]['code'] == "print('final code')"
 
 
+def test_chat_surfaces_feature_selection_fallback(client, fake_llm):
+    """P2-8: when Stage-1 feature selection fails on a wide dataset, the pipeline
+    falls back to the full schema — and now says so in an SSE 'phase' event
+    instead of silently swallowing it (the user was already debited)."""
+    # A wide dataset (>= feature_selection_threshold columns) triggers Stage 1.
+    header = ','.join(f'c{i}' for i in range(20))
+    row = ','.join('1' for _ in range(20))
+    wide_csv = f'{header}\n{row}\n{row}\n'
+    upload_csv(client, wide_csv, filename='wide.csv')
+
+    # Make the feature-selection call return unparseable JSON so it raises.
+    fake_llm.set('feature_selection', 'not-json')
+    resp = post_json(client, '/chat',
+                     {'filename': 'wide.csv', 'prompt': 'describe the data'})
+    assert resp.status_code == 200
+    events = sse_events(resp)
+    phases = [e.get('phase') for e in events if e.get('type') == 'phase']
+    assert 'feature_selection_skipped' in phases
+    # It still proceeds to draft/validate and finishes normally.
+    assert 'drafting' in phases and 'validating' in phases
+    assert any(e.get('type') == 'done' for e in events)
+
+
+def test_chat_no_fallback_event_on_normal_selection(client, fake_llm):
+    """On the happy path (or when Stage 1 is skipped), no fallback event fires."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'describe the data'})
+    events = sse_events(resp)
+    phases = [e.get('phase') for e in events if e.get('type') == 'phase']
+    assert 'feature_selection_skipped' not in phases
+
+
 def test_chat_pro_mode_routes_codegen_to_pro_max(client, fake_llm):
     """Pro mode runs code generation (the draft) on the bigger 'pro_max' model;
     the other pipeline steps stay on their normal cheap roles."""
