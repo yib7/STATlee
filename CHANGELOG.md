@@ -4,6 +4,39 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Follow-up correctness and hardening cycle. Closes a second audit pass with one
+P0 sandbox-safety fix and a set of P1/P2 fixes across the wrangle, billing,
+config, auth, and chat layers. No breaking changes for end users. The test suite
+grew from 216 to 229.
+
+### Security
+- The conversational data-wrangling path now run-guards the LLM-generated
+  transform code through the moderation gate before it executes, closing a gap
+  where wrangle transforms bypassed the check that analysis runs already had.
+
+### Fixed
+- `/chat` refunds the debited credit when a code-generation stream fails, so a
+  failed request no longer charges the account (applies when billing is enabled).
+- `/verify_email` is now rate-limited, matching the other token-consuming auth
+  endpoints.
+- Config emits a startup warning when `TRUST_PROXY_HOPS=0` in production, where
+  the app is typically fronted by a proxy and rate limiting would otherwise key
+  on the proxy IP.
+- The chat pipeline surfaces the feature-selection fallback as an explicit SSE
+  phase event instead of failing silently on wide datasets.
+
+### Changed
+- Gemini stream usage extraction is now explicit rather than relying on implicit
+  attribute access, and the case-insensitive moderation-verdict parsing is
+  documented as intentional.
+
+### Tests
+- Added skip-marked real-Docker sandbox integration tests (run when a Docker
+  daemon and the `statlee-runner` image are available). Suite: 229 passing, 2
+  skipped without Docker.
+
 ## [1.1.0] - 2026-07-02
 
 Correctness and hardening release. A full-codebase audit closed 16 issues across
