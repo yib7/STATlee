@@ -244,12 +244,13 @@ def test_wrangle_blocked_by_moderation(client, fake_llm):
     assert resp.status_code == 403
 
 
-def test_wrangle_blocked_when_generated_code_fails_run_guard(client, fake_llm):
+def test_wrangle_blocked_when_generated_code_fails_run_guard(
+        client, fake_llm, monkeypatch):
     """P0/P1: the run-guard must re-moderate the LLM-*generated* transform code,
     not just the user instruction. A jailbroken model that emits unsafe code
     (network access, env exfiltration, ...) must 403 and never reach the
     sandbox -- the same guarantee /run enforces on edited scripts."""
-    from statlee import sandbox as sandbox_mod
+    import statlee.routes.datasets as datasets_mod
 
     ran = {'called': False}
 
@@ -257,18 +258,13 @@ def test_wrangle_blocked_when_generated_code_fails_run_guard(client, fake_llm):
         ran['called'] = True
         raise AssertionError('sandbox must not run code the run-guard blocked')
 
-    import statlee.routes.datasets as datasets_mod
-    orig = datasets_mod.sandbox.run_in_sandbox
-    datasets_mod.sandbox.run_in_sandbox = spy
-    try:
-        # Instruction passes the first (relevance) gate, but the generated code
-        # is rejected by code-moderation.
-        fake_llm.block_code('network access')
-        upload_csv(client, SAMPLE_CSV)
-        resp = post_json(client, '/wrangle',
-                         {'filename': 'test.csv', 'instruction': 'drop missing rows'})
-    finally:
-        datasets_mod.sandbox.run_in_sandbox = orig
+    monkeypatch.setattr(datasets_mod.sandbox, 'run_in_sandbox', spy)
+    # Instruction passes the first (relevance) gate, but the generated code
+    # is rejected by code-moderation.
+    fake_llm.block_code('network access')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/wrangle',
+                     {'filename': 'test.csv', 'instruction': 'drop missing rows'})
 
     assert resp.status_code == 403
     assert 'network access' in resp.get_json()['error'].lower()

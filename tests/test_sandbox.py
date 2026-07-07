@@ -8,7 +8,6 @@ import pytest
 
 from statlee import sandbox
 
-
 # ---------------------------------------------------------------------------
 # Real-Docker integration (P2-10). All other sandbox tests use subprocess mode
 # or a mocked subprocess.run; this one exercises the genuine SANDBOX_MODE=docker

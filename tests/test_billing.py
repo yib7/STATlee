@@ -259,6 +259,7 @@ def test_chat_stream_failure_after_debit_refunds_credit(client, app, fake_llm):
     stream then fails mid-generation, the credit must be refunded rather than
     silently lost -- the user got no usable output for their credit."""
     from conftest import sse_events
+
     from statlee.extensions import db
     from statlee.models import User
 
