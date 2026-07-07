@@ -102,14 +102,18 @@ class GeminiBackend:
         stream = self._client_().models.generate_content_stream(
             model=model, contents=self._to_contents(contents),
             config=types.GenerateContentConfig(temperature=temperature))
-        last_chunk = None
+        # Make the usage contract explicit rather than relying on an implicit
+        # "last chunk wins" assignment: seed a zero-usage baseline (so an empty
+        # stream reports zero, not a stale/None value) and refresh it from every
+        # chunk that carries usage_metadata. Gemini reports cumulative counts on
+        # its chunks, so the final refresh holds the totals for the whole stream.
+        usage = {'model': model, 'input': 0, 'output': 0}
         for chunk in stream:
-            last_chunk = chunk
+            if getattr(chunk, 'usage_metadata', None) is not None:
+                usage = self._usage(chunk, model)
             delta = getattr(chunk, 'text', None)
             if delta:
                 yield delta
-        usage = (self._usage(last_chunk, model) if last_chunk
-                 else {'model': model, 'input': 0, 'output': 0})
         if usage_out is not None:
             usage_out.update(usage)
 

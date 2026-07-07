@@ -209,6 +209,41 @@ def test_anthropic_stream_yields_and_records_usage():
     assert usage['input'] == 7 and usage['output'] == 3
 
 
+def test_gemini_stream_yields_and_records_usage():
+    """Gemini stream fills usage_out from the chunks that carry usage_metadata,
+    accumulating deltas along the way (P1-5: explicit usage contract)."""
+    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
+
+    chunks = [
+        types.SimpleNamespace(text='He', usage_metadata=None),
+        types.SimpleNamespace(
+            text='llo',
+            usage_metadata=types.SimpleNamespace(
+                prompt_token_count=9, candidates_token_count=4)),
+    ]
+    svc._backend._client = types.SimpleNamespace(
+        models=types.SimpleNamespace(
+            generate_content_stream=lambda **k: iter(chunks)))
+
+    usage = {}
+    out = list(svc.stream('draft', 'go', usage_out=usage))
+    assert ''.join(out) == 'Hello'
+    assert usage['input'] == 9 and usage['output'] == 4
+
+
+def test_gemini_empty_stream_reports_zero_usage():
+    """An empty Gemini stream must report a clean zero usage, not None or stale."""
+    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
+    svc._backend._client = types.SimpleNamespace(
+        models=types.SimpleNamespace(
+            generate_content_stream=lambda **k: iter([])))
+
+    usage = {}
+    out = list(svc.stream('draft', 'go', usage_out=usage))
+    assert out == []
+    assert usage == {'model': 'gemini-3.5-flash', 'input': 0, 'output': 0}
+
+
 def test_anthropic_client_auth_modes(monkeypatch):
     anthropic = pytest.importorskip("anthropic")
     captured = {}
