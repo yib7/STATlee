@@ -325,6 +325,16 @@ class Config:
                 "operator's API key, so one abusive session could run up an "
                 "unbounded bill. Set MONTHLY_PRIORITY_CALL_CEILING to a low number.")
 
+        if self.is_production and self.trust_proxy_hops <= 0:
+            self._warn(
+                "TRUST_PROXY_HOPS is 0 in production. If the app sits behind a "
+                "reverse proxy, ProxyFix is off, so get_remote_address() returns "
+                "the proxy's IP for every anonymous caller: they all share ONE "
+                "rate-limit bucket and a single attacker can exhaust it. Set "
+                "TRUST_PROXY_HOPS to the number of trusted proxies in front of "
+                "the app (e.g. 1). Keep it 0 only if the app is exposed directly, "
+                "since a client could otherwise spoof X-Forwarded-For.")
+
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")
             self.converse_role = 'flash'

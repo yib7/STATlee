@@ -198,6 +198,47 @@ def test_production_shared_limiter_is_quiet():
 
 
 # ---------------------------------------------------------------------------
+# Reverse-proxy trust (P1-4): rate-limit keying degrades to one shared bucket
+# behind a proxy when TRUST_PROXY_HOPS=0.
+# ---------------------------------------------------------------------------
+def test_from_env_defaults_proxy_hops_to_one_in_production(monkeypatch):
+    """A production deploy is assumed to sit behind exactly one reverse proxy
+    (e.g. Render), so ProxyFix is on by default and per-IP rate limiting sees
+    the real client IP rather than collapsing everyone into the proxy's IP."""
+    for var in ('TRUST_PROXY_HOPS', 'GEMINI_API_KEY', 'FLASK_SECRET_KEY'):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv('APP_ENV', 'production')
+    monkeypatch.setenv('GEMINI_API_KEY', 'k')
+    monkeypatch.setenv('FLASK_SECRET_KEY', 's')
+    cfg = Config.from_env()
+    assert cfg.trust_proxy_hops == 1
+
+
+def test_production_zero_proxy_hops_warns():
+    """Explicitly disabling ProxyFix in production is a footgun behind a proxy:
+    every anonymous caller shares the proxy's IP bucket, so one attacker can
+    exhaust the whole anonymous rate limit. Warn loudly."""
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 trust_proxy_hops=0)
+    cfg.validate()
+    assert any('proxy' in w.lower() for w in cfg.warnings)
+
+
+def test_production_with_proxy_hops_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 trust_proxy_hops=1)
+    cfg.validate()
+    assert not any('TRUST_PROXY_HOPS' in w for w in cfg.warnings)
+
+
+def test_development_zero_proxy_hops_is_quiet():
+    # Direct exposure in dev is the safe default; no warning there.
+    cfg = Config(env='development', trust_proxy_hops=0)
+    cfg.validate()
+    assert not any('proxy' in w.lower() for w in cfg.warnings)
+
+
+# ---------------------------------------------------------------------------
 # LLM provider selection (gemini | anthropic | openai)
 # ---------------------------------------------------------------------------
 def test_provider_defaults_to_gemini(monkeypatch):
