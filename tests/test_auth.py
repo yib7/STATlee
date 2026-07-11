@@ -254,6 +254,163 @@ def test_verify_email_rejects_bad_token(tmp_path, fake_llm):
     assert app.test_client().get('/verify_email?token=nope').status_code == 400
 
 
+def test_verify_email_rejects_expired_token(tmp_path, fake_llm):
+    """P2-12: a verification token older than the 48h window is rejected and
+    does NOT log the user in, even though the token string still matches."""
+    from datetime import UTC, datetime, timedelta
+
+    from statlee.extensions import db
+    from statlee.models import User
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    post_json(c, '/register', {'email': 'stale@x.com', 'password': 'password123'})
+    token = _user_by_email(app, 'stale@x.com').verification_token
+
+    with app.app_context():
+        u = db.session.execute(
+            db.select(User).filter_by(email='stale@x.com')).scalar_one()
+        u.token_issued_at = datetime.now(UTC) - timedelta(hours=49)
+        db.session.commit()
+
+    resp = c.get(f'/verify_email?token={token}')
+    assert resp.status_code == 400
+    assert c.get('/check_auth').get_json().get('user') is None
+    # Still unverified after the rejected attempt.
+    assert _user_by_email(app, 'stale@x.com').email_verified is False
+
+
+def test_verify_email_fresh_token_within_window_works(tmp_path, fake_llm):
+    """P2-12 boundary: a token issued just inside the 48h window still confirms."""
+    from datetime import UTC, datetime, timedelta
+
+    from statlee.extensions import db
+    from statlee.models import User
+    app = _verify_app(tmp_path, fake_llm)
+    c = app.test_client()
+    post_json(c, '/register', {'email': 'fresh@x.com', 'password': 'password123'})
+    token = _user_by_email(app, 'fresh@x.com').verification_token
+
+    with app.app_context():
+        u = db.session.execute(
+            db.select(User).filter_by(email='fresh@x.com')).scalar_one()
+        u.token_issued_at = datetime.now(UTC) - timedelta(hours=47)
+        db.session.commit()
+
+    resp = c.get(f'/verify_email?token={token}')
+    assert resp.status_code == 302
+    assert _user_by_email(app, 'fresh@x.com').email_verified is True
+
+
+# ---------------------------------------------------------------------------
+# Password reset (P2-11)
+# ---------------------------------------------------------------------------
+
+def _reset_token(app, email):
+    from statlee.extensions import db
+    from statlee.models import User
+    with app.app_context():
+        u = db.session.execute(
+            db.select(User).filter_by(email=email)).scalar_one()
+        return u.password_reset_token
+
+
+def test_password_reset_happy_path(client, app):
+    """Request -> emailed token -> set new password -> log in with it, and the
+    old password no longer works."""
+    post_json(client, '/register',
+              {'email': 'reset@x.com', 'password': 'origpass1'})
+    post_json(client, '/logout', {})
+
+    req = post_json(client, '/request_password_reset', {'email': 'reset@x.com'})
+    assert req.status_code == 200
+    token = _reset_token(app, 'reset@x.com')
+    assert token
+
+    # The GET form validates the token.
+    assert client.get(f'/reset_password?token={token}').status_code == 200
+
+    done = post_json(client, '/reset_password',
+                     {'token': token, 'password': 'brandnew9'})
+    assert done.status_code == 200
+
+    # Old password rejected, new password accepted.
+    post_json(client, '/logout', {})
+    assert post_json(client, '/login',
+                     {'email': 'reset@x.com', 'password': 'origpass1'}
+                     ).status_code == 401
+    assert post_json(client, '/login',
+                     {'email': 'reset@x.com', 'password': 'brandnew9'}
+                     ).status_code == 200
+    # Token is single-use: it was cleared on success.
+    assert _reset_token(app, 'reset@x.com') is None
+
+
+def test_request_password_reset_unknown_email_is_200_no_enumeration(client):
+    """An unregistered email gets the SAME generic 200 as a real one, so a
+    caller cannot enumerate accounts."""
+    resp = post_json(client, '/request_password_reset',
+                     {'email': 'ghost@x.com'})
+    assert resp.status_code == 200
+    assert 'if that email' in resp.get_json()['message'].lower()
+
+
+def test_reset_password_unknown_token_rejected(client):
+    """A bogus token is rejected on both the GET (400 page) and the POST."""
+    assert client.get('/reset_password?token=bogus').status_code == 400
+    resp = post_json(client, '/reset_password',
+                     {'token': 'bogus', 'password': 'brandnew9'})
+    assert resp.status_code == 400
+    assert 'invalid' in resp.get_json()['error'].lower()
+
+
+def test_reset_password_expired_token_rejected(client, app):
+    """A reset token older than the 1h window cannot set a new password."""
+    from datetime import UTC, datetime, timedelta
+
+    from statlee.extensions import db
+    from statlee.models import User
+    post_json(client, '/register',
+              {'email': 'slowreset@x.com', 'password': 'origpass1'})
+    post_json(client, '/request_password_reset', {'email': 'slowreset@x.com'})
+    token = _reset_token(app, 'slowreset@x.com')
+
+    with app.app_context():
+        u = db.session.execute(
+            db.select(User).filter_by(email='slowreset@x.com')).scalar_one()
+        u.reset_token_issued_at = datetime.now(UTC) - timedelta(hours=2)
+        db.session.commit()
+
+    assert client.get(f'/reset_password?token={token}').status_code == 400
+    resp = post_json(client, '/reset_password',
+                     {'token': token, 'password': 'brandnew9'})
+    assert resp.status_code == 400
+    # The original password still works: nothing was changed.
+    post_json(client, '/logout', {})
+    assert post_json(client, '/login',
+                     {'email': 'slowreset@x.com', 'password': 'origpass1'}
+                     ).status_code == 200
+
+
+def test_reset_password_rejects_short_password(client, app):
+    post_json(client, '/register',
+              {'email': 'shortpw@x.com', 'password': 'origpass1'})
+    post_json(client, '/request_password_reset', {'email': 'shortpw@x.com'})
+    token = _reset_token(app, 'shortpw@x.com')
+    resp = post_json(client, '/reset_password', {'token': token, 'password': 'no'})
+    assert resp.status_code == 400
+
+
+def test_request_password_reset_is_rate_limited(tmp_path, fake_llm,
+                                                reset_limiter_state):
+    """P2-11: /request_password_reset shares the auth brute-force limit. With a
+    2/min cap, the third request in a window gets a 429."""
+    app = _rate_limited_auth_app(tmp_path, fake_llm)
+    codes = [post_json(app.test_client(), '/request_password_reset',
+                       {'email': f'u{i}@x.com'}).status_code for i in range(3)]
+    assert codes[:2] == [200, 200]   # under the cap: generic always-200
+    assert codes[2] == 429           # over the cap: rate limited
+
+
 def test_verify_email_is_rate_limited(tmp_path, fake_llm, reset_limiter_state):
     """P2-11: /verify_email must be rate limited so the token endpoint can't be
     hammered. With a 2/min cap, the third request in a window gets a 429."""

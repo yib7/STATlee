@@ -9,8 +9,18 @@ Three coexisting modes keep the anonymous sandbox promise intact:
 import logging
 import re
 import secrets
+from datetime import UTC, datetime, timedelta
 
-from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 
@@ -30,6 +40,27 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 # cannot grow the table without limit. Saves past the cap prune the oldest
 # rows in the same transaction.
 HISTORY_MAX_ROWS = 200
+
+# Verification tokens expire after this window (P2-12); a stale or leaked link
+# must not grant login forever.
+VERIFY_TOKEN_TTL = timedelta(hours=48)
+
+# Password-reset tokens are short-lived (P2-11): a reset link should be usable
+# for one sitting, not indefinitely.
+RESET_TOKEN_TTL = timedelta(hours=1)
+
+
+def _token_age_ok(issued_at, ttl):
+    """True when ``issued_at`` exists and is within ``ttl`` of now.
+
+    SQLite returns naive datetimes even for ``DateTime(timezone=True)`` columns,
+    so normalize to aware UTC before comparing. A missing timestamp (legacy row)
+    is treated as expired: fail closed."""
+    if issued_at is None:
+        return False
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=UTC)
+    return datetime.now(UTC) - issued_at <= ttl
 
 
 def _cfg():
@@ -128,6 +159,7 @@ def register():
     if cfg.require_email_verification:
         user.email_verified = False
         user.verification_token = secrets.token_urlsafe(32)
+        user.token_issued_at = datetime.now(UTC)
     else:
         user.email_verified = True
     db.session.add(user)
@@ -182,6 +214,35 @@ def _send_verification_email(cfg, email, token):
         server.send_message(msg)
 
 
+def _send_password_reset_email(cfg, email, token):
+    """Send the reset link, or log it when SMTP isn't configured (dev).
+
+    Mirrors ``_send_verification_email`` so the reset flow reuses the exact same
+    SMTP plumbing (P2-11)."""
+    link = url_for('auth.reset_password', token=token, _external=True)
+    if not cfg.smtp_host:
+        logger.info("Password reset link for %s (no SMTP configured): %s",
+                    email, link)
+        return
+    import smtplib
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg['Subject'] = '[STATlee] Reset your password'
+    msg['From'] = cfg.smtp_user or 'statlee@localhost'
+    msg['To'] = email
+    msg.set_content(
+        "A password reset was requested for your STATlee account. Open this "
+        "link within one hour to choose a new password:\n\n"
+        f"{link}\n\nIf you didn't request this, you can ignore this email; "
+        "your password stays unchanged.")
+    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15) as server:
+        server.starttls()
+        if cfg.smtp_user:
+            server.login(cfg.smtp_user, cfg.smtp_password)
+        server.send_message(msg)
+
+
 @bp.route('/verify_email', methods=['GET'])
 @limiter.limit(lambda: _cfg().rate_limit_verify)
 def verify_email():
@@ -193,12 +254,115 @@ def verify_email():
         db.select(User).filter_by(verification_token=token)).scalar_one_or_none()
     if not user:
         return json_error('Invalid or expired verification link.', 400)
+    # P2-12: reject a token older than the TTL. It is consumed either way below
+    # (cleared on success); an expired one just does not confirm the account,
+    # so the same generic message covers "unknown" and "too old".
+    if not _token_age_ok(user.token_issued_at, VERIFY_TOKEN_TTL):
+        user.verification_token = None
+        user.token_issued_at = None
+        db.session.commit()
+        return json_error('Invalid or expired verification link.', 400)
     user.email_verified = True
     user.verification_token = None
+    user.token_issued_at = None
     db.session.commit()
     login_user(user, remember=True)
     logger.info("Email verified for %s (id=%s)", user.email, user.id)
     return redirect('/')
+
+
+# ---------------------------------------------------------------------------
+# Password reset (P2-11) — mirrors the verify_email token machinery.
+# ---------------------------------------------------------------------------
+
+# Always-200 body for /request_password_reset. Constant so the response is
+# byte-identical whether or not the email maps to a real account (no
+# enumeration).
+_RESET_REQUESTED_MSG = ('If that email is registered, a reset link has been '
+                        'sent. Check your inbox.')
+
+
+@bp.route('/request_password_reset', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_auth)
+def request_password_reset():
+    """Start a password reset. Always returns 200 with a generic message so a
+    caller cannot tell whether the email exists (no user enumeration). If it
+    does exist, mint a 1h token and email the reset link."""
+    cfg = _cfg()
+    if not cfg.accounts_enabled:
+        return json_error('Accounts are disabled on this server.', 403)
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+
+    generic = jsonify({'status': 'ok', 'message': _RESET_REQUESTED_MSG})
+    if not EMAIL_RE.match(email):
+        # Don't leak which addresses are even well-formed vs registered.
+        return generic, 200
+
+    user = db.session.execute(
+        db.select(User).filter_by(email=email)).scalar_one_or_none()
+    if user is None:
+        return generic, 200
+
+    user.password_reset_token = secrets.token_urlsafe(32)
+    user.reset_token_issued_at = datetime.now(UTC)
+    db.session.commit()
+    try:
+        _send_password_reset_email(cfg, user.email, user.password_reset_token)
+    except Exception:
+        logger.exception("Failed to send password reset email to %s", email)
+        # Still return the generic 200: revealing send failures would leak
+        # which addresses are registered.
+    return generic, 200
+
+
+def _reset_user_for_token(token):
+    """Resolve a live (non-expired) reset token to its user, or None."""
+    if not token:
+        return None
+    user = db.session.execute(
+        db.select(User).filter_by(
+            password_reset_token=token)).scalar_one_or_none()
+    if user is None or not _token_age_ok(user.reset_token_issued_at,
+                                         RESET_TOKEN_TTL):
+        return None
+    return user
+
+
+@bp.route('/reset_password', methods=['GET', 'POST'])
+@limiter.limit(lambda: _cfg().rate_limit_auth)
+def reset_password():
+    """GET validates the token and shows a minimal set-new-password form; POST
+    applies the new password, then clears the token (single use, 1h expiry)."""
+    if request.method == 'GET':
+        token = (request.args.get('token') or '').strip()
+        user = _reset_user_for_token(token)
+        return render_template(
+            'reset_password.html',
+            token=token,
+            valid=user is not None,
+            csrf_token=session.get('csrf_token', '')), (200 if user else 400)
+
+    # POST: token may arrive as JSON (API) or a posted form field (the page).
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or request.form.get('token') or '').strip()
+    password = data.get('password') or request.form.get('password') or ''
+
+    user = _reset_user_for_token(token)
+    if user is None:
+        return json_error('This reset link is invalid or has expired. '
+                          'Request a new one.', 400)
+    if len(password) < 8:
+        return json_error('Password must be at least 8 characters.', 400)
+
+    user.set_password(password)
+    user.password_reset_token = None
+    user.reset_token_issued_at = None
+    db.session.commit()
+    logger.info("Password reset completed for %s (id=%s)", user.email, user.id)
+    return jsonify({'status': 'success',
+                    'message': 'Your password has been reset. You can log in '
+                               'with your new password.'}), 200
 
 
 @bp.route('/logout', methods=['POST'])
