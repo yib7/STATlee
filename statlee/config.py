@@ -96,7 +96,10 @@ class Config:
     # model. Cost ordering: pro_max (2.00/12.00) > pro=flash-default (1.50/9.00) >
     # flash = lite (0.25/1.50). Override any role independently via MODEL_* env.
     model_pro: str = 'gemini-3.5-flash'        # default code-gen / 'draft' role
-    model_pro_max: str = 'gemini-3.1-pro-preview'      # "Pro mode" code-gen upgrade
+    # "Pro mode" code-gen upgrade. Pinned to the -preview snapshot deliberately:
+    # gemini-3.1-pro ships only under the -preview id (no non-preview GA alias),
+    # so this is the current supported snapshot for that tier, not a stale pin.
+    model_pro_max: str = 'gemini-3.1-pro-preview'
     model_flash: str = 'gemini-3.1-flash-lite'
     model_flash_lite: str = 'gemini-3.1-flash-lite'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
