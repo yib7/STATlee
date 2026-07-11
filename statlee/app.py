@@ -88,19 +88,32 @@ def _init_schema(app, cfg):
     from sqlalchemy import inspect as sa_inspect
 
     tables = set(sa_inspect(db.engine).get_table_names())
-    if not tables:
-        logger.info("DB schema: fresh database, migrating to head")
-        upgrade()
-    elif 'alembic_version' not in tables:
-        logger.info("DB schema: legacy create_all() database, stamping "
-                    "baseline %s then upgrading to head", BASELINE_REVISION)
-        stamp(revision=BASELINE_REVISION)
-        upgrade()
-    else:
-        logger.info("DB schema: already migrated, upgrading to head")
-        upgrade()
+    # Tell migrations/env.py this is the in-process boot path so it leaves the
+    # app's root-logger setup (RequestIdFilter, INFO level) alone; alembic.ini's
+    # fileConfig would otherwise reconfigure root and silence app logging.
+    os.environ['STATLEE_INPROCESS_MIGRATION'] = '1'
+    try:
+        if not tables:
+            logger.info("DB schema: fresh database, migrating to head")
+            upgrade()
+        elif 'alembic_version' not in tables:
+            logger.info("DB schema: legacy create_all() database, stamping "
+                        "baseline %s then upgrading to head", BASELINE_REVISION)
+            stamp(revision=BASELINE_REVISION)
+            upgrade()
+        else:
+            logger.info("DB schema: already migrated, upgrading to head")
+            upgrade()
+    finally:
+        os.environ.pop('STATLEE_INPROCESS_MIGRATION', None)
 
     _upgraded_uris.add(uri)
+    # Drop every pooled connection opened during inspection/upgrade. With
+    # gunicorn --preload, create_app runs once in the arbiter before fork; a
+    # connection inherited across fork would be shared by multiple workers and
+    # corrupt. Disposing here forces each worker to open its own. Harmless in a
+    # single-process run (connections just reopen lazily).
+    db.engine.dispose()
 
 
 # Endpoints reachable without authorization (frontend loader, auth handshake).

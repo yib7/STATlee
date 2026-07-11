@@ -158,10 +158,12 @@ keeps plain `create_all()` for fast throwaway DBs. Add a schema change with
 `flask db migrate -m "..."`, review the generated file under
 `migrations/versions/`, and the boot upgrade applies it on the next deploy.
 
-Caveat: stamping assumes a v1.2.0-era schema. A legacy database whose columns
-predate the baseline (i.e. missing columns the baseline revision assumes) cannot
-be auto-healed by stamping, since stamp only records the revision without
-altering tables; such a DB needs a manual column backfill before boot.
+Caveat: stamping assumes a v1.2.0-era schema and does NOT verify columns. The
+stamp only writes the revision into `alembic_version`; it never inspects or
+alters the existing tables. So a legacy database whose columns predate the
+baseline (e.g. one missing `email_verified`) boots as "migrated" yet still
+crashes on the first query that touches the missing column. Such a DB needs a
+manual column backfill before boot; the auto-stamp cannot heal it.
 
 ## Frontend (`static/js/`, `templates/index.html`)
 

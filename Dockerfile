@@ -29,4 +29,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 # WEB_CONCURRENCY controls the worker count. NOTE: the default in-memory rate
 # limiter is per-worker — with >1 worker, set RATELIMIT_STORAGE_URI to a shared
 # store (e.g. redis://) so the limits actually hold, or pin WEB_CONCURRENCY=1.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${WEB_CONCURRENCY:-2} --threads 8 --timeout 120 --graceful-timeout 30 wsgi:app"]
+# --preload imports wsgi:app (and runs the boot schema upgrade in _init_schema)
+# ONCE in the arbiter before forking workers, so multiple workers never run
+# Alembic concurrently against the same DB (which would race on DDL and crash a
+# worker). _init_schema calls db.engine.dispose() so no pooled connection is
+# shared across the fork.
+CMD ["sh", "-c", "gunicorn --preload --bind 0.0.0.0:${PORT:-5000} --workers ${WEB_CONCURRENCY:-2} --threads 8 --timeout 120 --graceful-timeout 30 wsgi:app"]

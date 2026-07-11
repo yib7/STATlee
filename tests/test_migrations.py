@@ -126,3 +126,40 @@ def test_testing_env_still_uses_create_all(app):
     tables = _table_names(app)
     assert 'users' in tables
     assert 'alembic_version' not in tables
+
+
+def test_boot_upgrade_keeps_app_logging(tmp_path, dev_app_factory):
+    """A boot upgrade must not let alembic's fileConfig reconfigure the root
+    logger: app INFO logging and the RequestIdFilter have to survive.
+
+    Seeds the state ``_setup_logging`` leaves behind (INFO root plus a handler
+    carrying the RequestIdFilter), then asserts the boot upgrade preserves it.
+    Without the env.py guard, alembic's fileConfig resets root to WARNING and
+    drops the filter, so both assertions would fail.
+    """
+    import logging
+
+    from statlee.app import RequestIdFilter
+
+    root = logging.getLogger()
+    saved_level = root.level
+    saved_filters = {id(h): list(h.filters) for h in root.handlers}
+    try:
+        root.setLevel(logging.INFO)
+        for h in root.handlers:
+            if not any(isinstance(f, RequestIdFilter) for f in h.filters):
+                h.addFilter(RequestIdFilter())
+        assert root.handlers  # sanity: there is a handler to protect
+
+        cfg = _dev_config(tmp_path, 'logging.db')
+        dev_app_factory(cfg)  # runs the fresh-DB boot upgrade
+
+        assert root.isEnabledFor(logging.INFO)
+        assert any(isinstance(f, RequestIdFilter)
+                   for h in root.handlers for f in h.filters)
+    finally:
+        root.setLevel(saved_level)
+        for h in root.handlers:
+            original = saved_filters.get(id(h))
+            if original is not None:
+                h.filters[:] = original

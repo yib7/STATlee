@@ -1,4 +1,5 @@
 import logging
+import os
 from logging.config import fileConfig
 
 from flask import current_app
@@ -9,11 +10,16 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically. disable_existing_loggers=False keeps the
-# app's own loggers (statlee.*) alive: the app owns logging and calls this at
-# boot, so wiping its loggers would silence app logs after a migration runs.
-fileConfig(config.config_file_name, disable_existing_loggers=False)
+# Interpret the config file for Python logging (loggers, handlers, formatters).
+# This reconfigures the ROOT logger from alembic.ini, which drops the handlers
+# and filters the app installed at boot (its RequestIdFilter and INFO level).
+# That is fine for the standalone `flask db ...` CLI, but the app owns logging
+# on the in-process boot upgrade path, so it sets STATLEE_INPROCESS_MIGRATION to
+# tell us to leave the app's logging untouched. disable_existing_loggers=False
+# is kept for the CLI case so it never disables the statlee.* loggers either.
+if (config.config_file_name is not None
+        and not os.environ.get('STATLEE_INPROCESS_MIGRATION')):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 logger = logging.getLogger('alembic.env')
 
 
