@@ -11,7 +11,15 @@ from flask import Blueprint, current_app, request
 from .. import llm, prompts
 from ..extensions import limiter
 from ..usage import usage_breakdown
-from . import json_error, moderation_blocked, sse_event, sse_stream
+from . import (
+    FREE_TEXT_MAX,
+    clamp,
+    clamp_history,
+    json_error,
+    moderation_blocked,
+    sse_event,
+    sse_stream,
+)
 
 logger = logging.getLogger('statlee.converse')
 
@@ -26,10 +34,13 @@ def _cfg():
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def converse():
     data = request.get_json(silent=True) or {}
-    message = (data.get('message') or '').strip()
-    history = data.get('history', [])
-    context = data.get('context', '')
-    code = data.get('code', '')
+    # P1-7: clamp every client field that flows into the prompt (including
+    # the moderated message) so a single request cannot smuggle megabytes of
+    # input tokens onto the operator's key.
+    message = clamp(data.get('message'), FREE_TEXT_MAX).strip()
+    history = clamp_history(data.get('history', []))
+    context = clamp(data.get('context'), FREE_TEXT_MAX)
+    code = clamp(data.get('code'), FREE_TEXT_MAX)
     guide_mode = data.get('mode') == 'guide'
 
     if not message:

@@ -16,7 +16,18 @@ from .. import billing, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
-from . import json_error, moderation_blocked, sse_event, sse_stream, strip_code_fences
+from . import (
+    FREE_TEXT_MAX,
+    clamp,
+    clamp_codebook,
+    clamp_history,
+    clamp_plots,
+    json_error,
+    moderation_blocked,
+    sse_event,
+    sse_stream,
+    strip_code_fences,
+)
 
 logger = logging.getLogger('statlee.analyze')
 
@@ -41,12 +52,15 @@ def _sum_usage(*usages):
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def chat():
     data = request.get_json(silent=True) or {}
-    user_prompt = data.get('prompt')
+    # P1-7: clamp everything that flows into prompts before any LLM call --
+    # unbounded client text here is unmetered input-token spend on the
+    # operator's key.
+    user_prompt = clamp(data.get('prompt'), FREE_TEXT_MAX)
     filename = data.get('filename')
     target_language = data.get('language', 'Python')
-    history = data.get('history', [])
-    codebook = data.get('codebook', {}) or {}
-    current_code = (data.get('current_code') or '').strip() or None  # 5.12
+    history = clamp_history(data.get('history', []))
+    codebook = clamp_codebook(data.get('codebook', {}) or {})
+    current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
     pro_mode = bool(data.get('pro'))  # "Pro mode": code-gen on the bigger model
 
     if not user_prompt or not filename:
@@ -259,11 +273,15 @@ def run_code():
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def interpret_results():
     data = request.get_json(silent=True) or {}
-    final_output = data.get('output', '') or ''
+    # P1-7: cap the client-supplied text and plot payloads before they reach
+    # the prompt (this route has no moderation gate, so it is otherwise a
+    # general-purpose LLM proxy on the operator's key).
+    final_output = clamp(data.get('output'), FREE_TEXT_MAX)
     plots = data.get('plots')
     if plots is None:
         plots = [data.get('plot')] if data.get('plot') else []
-    code = data.get('code') or ''
+    plots = clamp_plots(plots)
+    code = clamp(data.get('code'), FREE_TEXT_MAX)
     if 'success' in data:
         failed = not data.get('success')
     else:
