@@ -51,6 +51,16 @@ def _within_monthly_ceiling(ceiling):
         return True
 
 
+def _return_ceiling_unit():
+    """Give back one unit consumed by ``_within_monthly_ceiling``. Used when
+    the request is refused after the unit was taken (the credit debit was
+    denied), so out-of-credit retries cannot drain the operator-wide ceiling
+    and lock paying users out of priority requests (P2-1)."""
+    with _lock:
+        if _spend['priority_calls'] > 0:
+            _spend['priority_calls'] -= 1
+
+
 def refund(user, *, priority=False, cost=None, config=None):
     """Reverse a debit made by ``check_and_debit`` (e.g. the request failed
     after the credit was taken, so the user got nothing for it).
@@ -96,11 +106,12 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     need = cost if cost is not None else (PRIORITY_COST if priority else 0)
 
     # Operator-protecting global ceiling (applies to everyone, incl. anonymous).
-    if priority and not _within_monthly_ceiling(
-            getattr(config, 'monthly_priority_call_ceiling', 0)):
+    ceiling = getattr(config, 'monthly_priority_call_ceiling', 0)
+    if priority and not _within_monthly_ceiling(ceiling):
         logger.warning("Monthly priority ceiling reached; denying priority request.")
         return False, ('The service has hit its monthly priority-usage ceiling. '
                        'Try again later, or run without priority.')
+    ceiling_unit_taken = bool(priority and ceiling and ceiling > 0)
 
     # Per-account credit debit for logged-in free-plan users. This is a single
     # atomic conditional UPDATE (check-and-debit in one statement) rather than
@@ -119,6 +130,11 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
             .values(credits=User.credits - need)).rowcount
         db.session.commit()
         if not rows:
+            # The debit was refused, so the request does no priority work:
+            # give the ceiling unit back (P2-1). Out-of-credit retries must
+            # not erode the operator-wide quota for everyone else.
+            if ceiling_unit_taken:
+                _return_ceiling_unit()
             return False, ('Out of credits — upgrade or wait for your monthly '
                            'reset.')
         # The UPDATE above is a bulk/Core statement — SQLAlchemy does not sync

@@ -294,6 +294,40 @@ def test_chat_invalid_filename_does_not_debit(client, app, fake_llm):
         billing.reset_spend()
 
 
+# --- P2-1 (audit 4): a denied credit debit must return the ceiling unit -----
+
+def test_denied_credit_debit_returns_the_ceiling_unit(app):
+    """An out-of-credit user's denied priority request must NOT consume a unit
+    of the operator-wide monthly ceiling; otherwise broke users hammering Pro
+    requests drain the ceiling for everyone."""
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = Config(env='testing', billing_enabled=True,
+                 monthly_priority_call_ceiling=1)
+    billing.reset_spend()
+    try:
+        with app.app_context():
+            user = User(email='griefer@example.com')
+            user.set_password('password123')
+            db.session.add(user)
+            db.session.commit()
+            # Two denied attempts: neither may consume the single ceiling unit.
+            for _ in range(2):
+                allowed, message = billing.check_and_debit(
+                    user, priority=True, config=cfg)
+                assert allowed is False
+                assert 'credit' in message.lower()
+            assert billing._spend['priority_calls'] == 0
+        # The lone ceiling unit is still available to a paying request
+        # (anonymous priority requests skip the credit path entirely).
+        allowed, message = billing.check_and_debit(None, priority=True, config=cfg)
+        assert allowed is True and message is None
+    finally:
+        billing.reset_spend()
+
+
 # --- P1-3: a mid-stream failure after the debit must refund the credit ------
 
 def test_chat_stream_failure_after_debit_refunds_credit(client, app, fake_llm):
