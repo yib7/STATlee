@@ -20,7 +20,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-229%20passing-3fb950">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-311%20passing-3fb950">
   <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
@@ -136,7 +136,7 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 229 tests, fully offline (deterministic fake LLM, no API key)
+pytest -q         # 311 tests, fully offline (deterministic fake LLM, no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
@@ -156,10 +156,10 @@ The application lives in the `statlee/` package (entry point: `wsgi.py` →
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
 | `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
-| `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (no-op today). |
+| `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (off by default; atomic debit + refund + monthly top-up when enabled). |
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
-| `statlee/models.py` | SQLAlchemy models (users, datasets, runs, issue reports). |
+| `statlee/models.py` | SQLAlchemy models (users, runs, issue reports). |
 | `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
 
 A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
@@ -180,7 +180,11 @@ billing seam backs it are in [Pricing](docs/PRICING.md).
 The execution **sandbox** is the real security boundary: secret-free env,
 throwaway dir, optional network-less container, plus a run-guard that
 re-moderates edited scripts. Rate limits are keyed per-identity (client IP /
-account, not a resettable cookie) to protect against bill abuse.
+account, not a resettable cookie) to protect against bill abuse. Responses carry
+a strict Content-Security-Policy and the usual hardening headers, CSRF is
+double-submit with a constant-time check, and the schema is versioned with
+Alembic so an existing database upgrades cleanly instead of breaking on a new
+column.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
 privately. Release notes are in [CHANGELOG.md](CHANGELOG.md).

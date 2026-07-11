@@ -32,7 +32,6 @@ instance/
 # Agent/planning artifacts: working notes, not part of the shipped project.
 .autopilot/
 .superpowers/
-_fable5/
 docs/superpowers/
 docs/IMPLEMENTATION_PLAN.md
 docs/CLOSEOUT.md

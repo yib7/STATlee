@@ -29,7 +29,7 @@ Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate
         ├─ storage.py    per-identity files + dataset versions
         ├─ sandbox.py    isolated code execution
         ├─ datatools.py  ingestion + profiling
-        ├─ billing.py    monetization seam (no-op today)
+        ├─ billing.py    monetization seam (off by default; real when enabled)
         ├─ models.py     SQLAlchemy: User / AnalysisRun / IssueReport
         └─ config.py     validated, env-driven settings
 ```
@@ -149,12 +149,18 @@ All `plot*.png` files the run produces are collected and returned as base64.
 
 ## Monetization seam (`billing.py` + `models.py`)
 
-There is **no real billing yet**. `User` carries `plan` (`'free'`) and `credits`
-(`0`) columns, and `billing.check_and_debit(user, priority=, cost=)` is the
-single chokepoint that a future paid tier will implement (plus a Stripe webhook
-to top up `credits`). Today it always returns `(True, None)`. Pro mode
-already calls it, so turning billing on is *implementing one function*, not a
-refactor.
+Billing is **off by default and real when enabled**. `User` carries `plan`
+(`'free'`) and `credits` columns, and `billing.check_and_debit(user, priority=,
+cost=)` is the single chokepoint every priced request passes through. With
+`BILLING_ENABLED=false` (the default) it always returns `(True, None)`. With it
+on, it does an atomic conditional credit debit (no double-spend or negative
+balance under concurrency), refunds the credit if the request then fails, tops a
+free user up to `MONTHLY_FREE_CREDITS` once per calendar month, and enforces a
+global monthly ceiling on priority calls against the operator's key. A
+`flask grant-credits <email> <n>` CLI grants credits manually. What is *not*
+built is a payment processor: wiring Stripe Checkout + a webhook to sell credits
+is the remaining step, and it is deliberately left as a human action because it
+is the point where real money and secrets enter.
 
 ## Database schema & migrations (`migrations/`, `app.py`)
 
