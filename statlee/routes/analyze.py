@@ -257,7 +257,7 @@ def run_code():
         code, language, dataset_path=dataset_path, dataset_name=dataset_name,
         timeout=cfg.exec_timeout, memory_mb=cfg.exec_memory_mb,
         output_limit=cfg.exec_output_limit, mode=cfg.sandbox_mode,
-        runner_image=cfg.runner_image)
+        runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
 
     storage.save_last_run(result.output, result.plots)
 

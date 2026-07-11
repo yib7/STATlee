@@ -16,6 +16,8 @@ services:
       - PASSWORD=${PASSWORD:-}
       - DATABASE_URL=${DATABASE_URL:-}
       - SANDBOX_MODE=${SANDBOX_MODE:-subprocess}
+      # For SANDBOX_MODE=docker, the shared work root (see volumes below).
+      - SANDBOX_WORK_ROOT=${SANDBOX_WORK_ROOT:-}
       - REQUIRE_LOGIN=${REQUIRE_LOGIN:-false}
       - ACCOUNTS_ENABLED=${ACCOUNTS_ENABLED:-true}
     volumes:
@@ -24,3 +26,7 @@ services:
       - .:/app
       # For SANDBOX_MODE=docker (sibling containers), also mount the socket:
       # - /var/run/docker.sock:/var/run/docker.sock
+      # ...and a shared run dir at the SAME absolute path both sides, then set
+      # SANDBOX_WORK_ROOT to it. `docker run -v` is resolved by the HOST daemon
+      # against the HOST filesystem, so the app's run dir must exist host-side:
+      # - /srv/statlee-runs:/srv/statlee-runs   # SANDBOX_WORK_ROOT=/srv/statlee-runs

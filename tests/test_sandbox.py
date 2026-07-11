@@ -2,6 +2,7 @@
 collection (5.2), timeouts, and named-file collection (used by /wrangle)."""
 import os
 import shutil
+import signal
 import subprocess
 
 import pytest
@@ -75,21 +76,118 @@ def test_timeout_is_reported():
     assert 'timed out' in res.output.lower()
 
 
+class _FakeTimeoutProc:
+    """A Popen stand-in whose first communicate() times out, then reaps."""
+
+    def __init__(self, pid=999999):
+        self.pid = pid
+        self.returncode = -9
+        self._first = True
+
+    def communicate(self, timeout=None):
+        if self._first:
+            self._first = False
+            raise subprocess.TimeoutExpired(cmd='x', timeout=timeout)
+        return ('', '')
+
+    def kill(self):
+        pass
+
+
 def test_subprocess_mode_timeout_has_no_docker_kill(monkeypatch):
-    """Subprocess-mode timeout must not attempt a docker kill (and must not
-    raise NameError referencing an undefined `container`)."""
-    calls = []
+    """Subprocess-mode timeout must not attempt a docker kill; it kills the
+    process (its group on POSIX) directly and reports the timeout."""
+    run_calls = []
+    real_run = subprocess.run
 
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get('timeout'))
+    def spy_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess, 'run', fake_run)
+    monkeypatch.setattr(subprocess, 'Popen', lambda cmd, **kw: _FakeTimeoutProc())
+    monkeypatch.setattr(subprocess, 'run', spy_run)
+    # Neutralize the real POSIX signal so we never touch an unrelated pgid.
+    if hasattr(os, 'killpg'):
+        monkeypatch.setattr(os, 'killpg', lambda *a: None)
+        monkeypatch.setattr(os, 'getpgid', lambda pid: pid)
+
     res = sandbox.run_in_sandbox("print('x')", 'Python', timeout=1, mode='subprocess')
 
     assert res.timed_out is True
     assert not res.success
-    assert len(calls) == 1  # only the interpreter invocation, no docker kill
+    # No docker kill was attempted in subprocess mode.
+    assert not any(c[:2] == ['docker', 'kill'] for c in run_calls)
+
+
+def test_docker_bind_mount_uses_configured_work_root(monkeypatch, tmp_path):
+    """With SANDBOX_WORK_ROOT set, the docker `-v` source must be created under
+    that root so the operator can bind-mount the same absolute path host-side
+    into the app container (P1-5)."""
+    work_root = tmp_path / 'statlee-runs'
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    sandbox.run_in_sandbox("print('x')", 'Python', mode='docker',
+                           work_root=str(work_root))
+
+    run_cmd = next(c for c in calls if c[:2] == ['docker', 'run'])
+    bind = run_cmd[run_cmd.index('-v') + 1]        # '<run_dir>:/work:rw'
+    src = bind.rsplit(':/work', 1)[0]              # drive-letter-safe on Windows
+    assert src.startswith(str(work_root))
+
+
+@pytest.mark.skipif(os.name != 'posix',
+                    reason='world-accessible chmod only applies on the POSIX docker path')
+def test_docker_mode_chmods_run_dir_world_accessible(monkeypatch):
+    """docker mode pins the runner to --user 1000:1000, so the 0700 mkdtemp dir
+    must be widened after creation or the runner cannot read /work (P1-5)."""
+    modes = {}
+    real_chmod = os.chmod
+
+    def spy_chmod(path, mode):
+        modes[path] = mode
+        return real_chmod(path, mode)
+
+    monkeypatch.setattr(os, 'chmod', spy_chmod)
+    monkeypatch.setattr(
+        subprocess, 'run',
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout='', stderr=''))
+
+    sandbox.run_in_sandbox("print('x')", 'Python', mode='docker')
+    assert 0o777 in modes.values()
+
+
+@pytest.mark.skipif(os.name != 'posix',
+                    reason='process-group kill via os.killpg is POSIX only')
+def test_subprocess_timeout_kills_process_group(monkeypatch):
+    """On a POSIX subprocess-mode timeout the whole process group is signalled
+    (os.killpg) so orphaned grandchildren die, not just the direct child."""
+    popen_kwargs = {}
+
+    def fake_popen(cmd, **kwargs):
+        popen_kwargs.update(kwargs)
+        return _FakeTimeoutProc(pid=4321)
+
+    kills = []
+    child_kills = []
+
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
+    monkeypatch.setattr(os, 'getpgid', lambda pid: pid)
+    monkeypatch.setattr(os, 'killpg', lambda pgid, sig: kills.append((pgid, sig)))
+    monkeypatch.setattr(_FakeTimeoutProc, 'kill',
+                        lambda self: child_kills.append(self.pid))
+
+    res = sandbox.run_in_sandbox("print('x')", 'Python', timeout=1, mode='subprocess')
+
+    assert res.timed_out is True
+    # The child was launched in its own session so it leads a process group.
+    assert popen_kwargs.get('start_new_session') is True
+    assert kills == [(4321, signal.SIGKILL)]
+    assert child_kills == []  # killpg handled it; no direct proc.kill() needed
 
 
 def test_docker_mode_kills_container_on_timeout(monkeypatch):

@@ -69,6 +69,12 @@ class Config:
     # --- Execution sandbox (Tier 0) ------------------------------------------
     sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker' (0.3)
     runner_image: str = 'statlee-runner'
+    # Parent dir for per-run throwaway sandbox work dirs. Empty -> system temp.
+    # With SANDBOX_MODE=docker and the app itself containerized (host docker
+    # socket mounted), set this to a path the operator bind-mounts at the SAME
+    # absolute path into the app container, so the host daemon can resolve the
+    # run dir passed to `docker run -v` (P1-5).
+    sandbox_work_root: str = ''
     exec_timeout: int = 60
     exec_memory_mb: int = 2048
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
@@ -222,6 +228,7 @@ class Config:
             file_ttl_seconds=_env_int('FILE_TTL_SECONDS', 7200),
             sandbox_mode=os.environ.get('SANDBOX_MODE', 'subprocess').strip().lower(),
             runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
+            sandbox_work_root=os.environ.get('SANDBOX_WORK_ROOT', '').strip(),
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
             exec_output_limit=_env_int('EXEC_OUTPUT_LIMIT', 256 * 1024),

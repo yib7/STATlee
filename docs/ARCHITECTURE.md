@@ -135,6 +135,15 @@ The real security boundary for executed code:
 - **POSIX rlimits**: cap memory/CPU/file-size/processes (no-op on Windows dev).
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
   read-only, resource-capped sibling container built from `runner.Dockerfile`.
+  When the app itself is containerized with the host docker socket mounted,
+  `docker run -v` is resolved by the host daemon against the host filesystem, so
+  set `SANDBOX_WORK_ROOT` to a directory bind-mounted at the SAME absolute path
+  into the app container (e.g. `/srv/statlee-runs`); run dirs are created under
+  it and, on the POSIX docker path, widened to world-accessible so the pinned
+  `--user 1000:1000` runner can read `/work`.
+- **process-group kill**: in subprocess mode on POSIX the child runs in a new
+  session, so a timeout kills the whole process group (`os.killpg`), not just
+  the direct child. On Windows the direct child is killed.
 
 All `plot*.png` files the run produces are collected and returned as base64.
 

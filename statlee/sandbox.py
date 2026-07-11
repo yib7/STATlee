@@ -16,6 +16,7 @@ import glob
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,36 @@ def _truncate(text, limit):
     return text or ''
 
 
+def _combine_output(stdout, stderr, output_limit):
+    """Merge stdout/stderr into the single captured-output string the app shows."""
+    output = stdout or ''
+    if stderr:
+        output += f"\n--- Output/Warnings ---\n{stderr}"
+    return _truncate(output.strip(), output_limit)
+
+
+def _timeout_message(timeout):
+    return (f"Execution timed out after {timeout} seconds. "
+            "Code took too long to run.")
+
+
+def _kill_subprocess(proc):
+    """Kill ``proc`` on timeout. On POSIX the child leads its own process group
+    (start_new_session=True), so signal the whole group to reap orphaned
+    grandchildren too; on Windows there is no process-group kill, so fall back
+    to killing the direct child only."""
+    if os.name == 'posix' and hasattr(os, 'killpg'):
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, OSError):
+            pass  # already gone, or no group; fall through to a direct kill
+    try:
+        proc.kill()
+    except (ProcessLookupError, OSError):
+        pass
+
+
 def _docker_cmd(image, run_dir, script_name, is_python, memory_mb, name):
     """Sibling-container invocation (0.3, option A)."""
     interpreter = 'python' if is_python else 'Rscript'
@@ -109,10 +140,32 @@ def _docker_cmd(image, run_dir, script_name, is_python, memory_mb, name):
 def run_in_sandbox(code, language='Python', dataset_path=None,
                    dataset_name=None, *, timeout=60, memory_mb=2048,
                    output_limit=256 * 1024, mode='subprocess',
-                   runner_image='statlee-runner', collect=()):
-    """Execute ``code`` in a throwaway directory and collect its artifacts."""
+                   runner_image='statlee-runner', work_root=None, collect=()):
+    """Execute ``code`` in a throwaway directory and collect its artifacts.
+
+    ``work_root`` (config ``SANDBOX_WORK_ROOT``), when set, is the parent under
+    which each per-run throwaway dir is created instead of the system temp dir.
+    In ``SANDBOX_MODE=docker`` with the app itself containerized and the host
+    docker socket mounted, ``docker run -v`` is resolved by the HOST daemon
+    against the HOST filesystem; a run dir in the app container's private /tmp
+    does not exist host-side. Pointing this at a path the operator bind-mounts
+    at the SAME absolute path into the app container lets the daemon resolve
+    the ``-v`` source (P1-5).
+    """
     is_python = (language or 'Python').lower() == 'python'
-    run_dir = tempfile.mkdtemp(prefix='ccrun_')
+    if work_root:
+        os.makedirs(work_root, exist_ok=True)
+        run_dir = tempfile.mkdtemp(prefix='ccrun_', dir=work_root)
+    else:
+        run_dir = tempfile.mkdtemp(prefix='ccrun_')
+    # docker mode pins the runner to --user 1000:1000, but mkdtemp creates
+    # run_dir mode 0700 owned by the app user. Unless the app uid is exactly
+    # 1000 the runner cannot read /work, so widen the throwaway dir to
+    # world-accessible on the POSIX docker path. chmod's permission bits are a
+    # POSIX concept; docker mode is never exercised on the Windows dev host, so
+    # the chmod is guarded out there and behavior stays unchanged (P1-5).
+    if mode == 'docker' and os.name == 'posix':
+        os.chmod(run_dir, 0o777)
     result = RunResult()
     try:
         if dataset_path and os.path.exists(dataset_path):
@@ -130,39 +183,59 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
             container = os.path.basename(run_dir)
             cmd = _docker_cmd(runner_image, run_dir, script_name, is_python,
                               memory_mb, container)
-            popen_kwargs = {}
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=timeout)
+                result.returncode = proc.returncode
+                result.output = _combine_output(
+                    proc.stdout, proc.stderr, output_limit)
+            except subprocess.TimeoutExpired:
+                # Kill the orphaned container by name before the finally block
+                # removes its bind-mounted run_dir.
+                subprocess.run(['docker', 'kill', container],
+                               capture_output=True, timeout=10)
+                result.timed_out = True
+                result.returncode = -1
+                result.output = _timeout_message(timeout)
+            except FileNotFoundError as e:
+                result.returncode = -1
+                result.output = f"Interpreter not available: {e}"
         else:
             interpreter = sys.executable if is_python else 'Rscript'
             cmd = [interpreter, script_path]
             popen_kwargs = {
                 'cwd': run_dir,
                 'env': _safe_env(run_dir),
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'text': True,
             }
             preexec = _posix_limits(memory_mb)
             if preexec:
                 popen_kwargs['preexec_fn'] = preexec
+            if os.name == 'posix':
+                # New session -> the child leads its own process group, so a
+                # timeout can kill the whole tree (grandchildren included), not
+                # just the direct child. POSIX-only; unchanged on Windows.
+                popen_kwargs['start_new_session'] = True
 
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=timeout, **popen_kwargs)
-            result.returncode = proc.returncode
-            output = proc.stdout or ''
-            if proc.stderr:
-                output += f"\n--- Output/Warnings ---\n{proc.stderr}"
-            result.output = _truncate(output.strip(), output_limit)
-        except subprocess.TimeoutExpired:
-            if mode == 'docker':
-                subprocess.run(['docker', 'kill', container],
-                               capture_output=True, timeout=10)
-            result.timed_out = True
-            result.returncode = -1
-            result.output = (
-                f"Execution timed out after {timeout} seconds. "
-                "Code took too long to run.")
-        except FileNotFoundError as e:
-            result.returncode = -1
-            result.output = f"Interpreter not available: {e}"
+            try:
+                proc = subprocess.Popen(cmd, **popen_kwargs)
+            except FileNotFoundError as e:
+                result.returncode = -1
+                result.output = f"Interpreter not available: {e}"
+            else:
+                try:
+                    stdout, stderr = proc.communicate(timeout=timeout)
+                    result.returncode = proc.returncode
+                    result.output = _combine_output(
+                        stdout, stderr, output_limit)
+                except subprocess.TimeoutExpired:
+                    _kill_subprocess(proc)
+                    proc.communicate()   # reap the killed child
+                    result.timed_out = True
+                    result.returncode = -1
+                    result.output = _timeout_message(timeout)
 
         for plot_path in sorted(glob.glob(os.path.join(run_dir, 'plot*.png'))):
             try:
