@@ -272,7 +272,7 @@ def verify_email():
 
 
 # ---------------------------------------------------------------------------
-# Password reset (P2-11) — mirrors the verify_email token machinery.
+# Password reset (P2-11) - mirrors the verify_email token machinery.
 # ---------------------------------------------------------------------------
 
 # Always-200 body for /request_password_reset. Constant so the response is
