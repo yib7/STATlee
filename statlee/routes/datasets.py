@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import re
 import textwrap
 import threading
 import time
@@ -104,6 +105,14 @@ def upload_file():
             + ', '.join(datatools.SUPPORTED_EXTENSIONS))
 
     filename = secure_filename(file.filename)
+    # P2-3: version artifacts are named "{stem}__vN.csv" and share this flat
+    # identity dir, so a file whose stem already ends in a __vN suffix could
+    # later be overwritten by a wrangle of another dataset. Reserve that suffix
+    # at upload time rather than silently corrupting the second file.
+    if re.search(r'__v\d+$', os.path.splitext(filename)[0]):
+        return json_error(
+            'Filenames ending in a version suffix like "__v2" are reserved for '
+            'dataset history. Please rename the file and upload again.')
     filepath = storage.resolve_path(filename)
     if not filepath:
         return json_error('Invalid filename')

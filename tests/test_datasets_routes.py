@@ -16,6 +16,26 @@ def test_upload_accepts_csv(client):
     assert body['sha256']
 
 
+def test_upload_rejects_version_suffix_filename(client):
+    """P2-3: a file whose stem ends in a __vN suffix collides with wrangle
+    version artifacts ({stem}__vN.csv), so it must be rejected at upload rather
+    than silently overwriting another dataset's version bytes."""
+    token = csrf_token(client)
+    data = {'file': (io.BytesIO(b'age,income\n1,2\n'), 'data__v2.csv')}
+    resp = client.post('/upload', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+    assert resp.status_code == 400
+    assert 'version' in resp.get_json()['error'].lower()
+
+
+def test_upload_allows_ordinary_v_in_name(client):
+    """P2-3: only a trailing __vN suffix is reserved; an ordinary name that
+    merely contains 'v' followed by digits elsewhere is fine."""
+    resp = upload_csv(client, SAMPLE_CSV, filename='survey_v2_final.csv')
+    assert resp.status_code == 200
+
+
 def test_upload_as_logged_in_user_succeeds_without_dataset_model(client):
     """The write-only Dataset table was removed (P2-7): a logged-in user's
     upload must still succeed, and no such model should exist anymore."""
