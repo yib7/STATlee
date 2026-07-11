@@ -282,41 +282,84 @@ def run_code():
 @bp.route('/interpret', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def interpret_results():
+    import base64
+
     data = request.get_json(silent=True) or {}
-    # P1-7: cap the client-supplied text and plot payloads before they reach
-    # the prompt (this route has no moderation gate, so it is otherwise a
-    # general-purpose LLM proxy on the operator's key).
-    final_output = clamp(data.get('output'), FREE_TEXT_MAX)
-    plots = data.get('plots')
-    if plots is None:
-        plots = [data.get('plot')] if data.get('plot') else []
-    plots = clamp_plots(plots)
+    service = llm.get_service()
+
+    # P2-7: prefer the server-persisted last-run artifacts over the client's
+    # copy of the results. The client `output`/`plots` are spoofable (a caller
+    # can POST fabricated "results"); the server recorded exactly what the
+    # sandbox produced on the last /run, so when those exist we ground the
+    # interpretation on them and never touch the client text. Only when NO
+    # server run is on record do we fall back to the client copy, and then it
+    # must pass the same moderation gate /chat and /converse use (this route is
+    # otherwise a general-purpose LLM proxy on the operator's key).
+    server_output, server_plot_paths = storage.last_run_artifacts()
+    grounded = bool(server_output.strip() or server_plot_paths)
+
+    # 'code' is the user's own script, only used on the debug path; clamp it
+    # (P1-7) in either branch.
     code = clamp(data.get('code'), FREE_TEXT_MAX)
-    if 'success' in data:
-        failed = not data.get('success')
-    else:
+
+    if grounded:
+        final_output = clamp(server_output, FREE_TEXT_MAX)
+        plots = []
+        for path in server_plot_paths[:3]:
+            try:
+                with open(path, 'rb') as fh:
+                    plots.append(base64.b64encode(fh.read()).decode('ascii'))
+            except Exception:
+                logger.warning("Skipping unreadable server plot for interpretation")
+        # Derive the pass/fail branch from the trusted server output, not the
+        # client-sent (spoofable) success flag.
         failed = bool(
             'Traceback (most recent call last)' in final_output
             or final_output.strip().startswith('Error'))
+    else:
+        # P1-7: cap the client-supplied text and plot payloads before they reach
+        # the prompt.
+        final_output = clamp(data.get('output'), FREE_TEXT_MAX)
+        plots = data.get('plots')
+        if plots is None:
+            plots = [data.get('plot')] if data.get('plot') else []
+        plots = clamp_plots(plots)
+        if 'success' in data:
+            failed = not data.get('success')
+        else:
+            failed = bool(
+                'Traceback (most recent call last)' in final_output
+                or final_output.strip().startswith('Error'))
 
     if not final_output.strip() and not plots:
         return jsonify({'interpretation':
                         'No statistical output or plots generated to interpret.'})
+
+    # Fallback path only: moderate the client-supplied text before it reaches
+    # the model, failing closed exactly like /converse (P2-7).
+    if not grounded:
+        moderated = (final_output + '\n' + code).strip()
+        try:
+            mod = service.generate('lite', prompts.moderation(moderated),
+                                   temperature=0.0, json_mode=True)
+        except Exception:
+            logger.exception("Interpret moderation failed")
+            return json_error('Moderation service failed.', 503)
+        blocked, reason = moderation_blocked(mod.text)
+        if blocked:
+            return json_error(f'Request denied. {reason}', 403)
 
     prompt = prompts.interpret(final_output, bool(plots), failed=failed,
                                code=code if failed else None)
 
     contents = [prompt]
     if plots and not failed:
-        import base64
         for b64 in plots[:3]:
             try:
                 contents.append(llm.MediaPart(
                     data=base64.b64decode(b64), mime_type='image/png'))
             except Exception:
                 logger.warning("Skipping undecodable plot for interpretation")
-
-    service = llm.get_service()
 
     def generate():
         usage = {}
