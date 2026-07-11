@@ -48,6 +48,17 @@ def _stamped_revision(tmp_path, db_name):
         con.close()
 
 
+def _head_revision():
+    """The current Alembic head, read from the migrations dir. Boot upgrades to
+    head, so a DB stamped after boot should carry this (not the baseline, once
+    later migrations exist)."""
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+    cfg = AlembicConfig()
+    cfg.set_main_option('script_location', app_module._MIGRATIONS_DIR)
+    return ScriptDirectory.from_config(cfg).get_current_head()
+
+
 @pytest.fixture
 def dev_app_factory(fake_llm):
     """Build a create_app() for a dev config, injecting the fake LLM after."""
@@ -70,8 +81,8 @@ def test_fresh_db_is_migrated_to_head(tmp_path, dev_app_factory):
     tables = _table_names(application)
     assert {'users', 'analysis_runs', 'issue_reports'} <= tables
     assert 'alembic_version' in tables
-    assert (_stamped_revision(tmp_path, 'fresh.db')
-            == app_module.BASELINE_REVISION)
+    # A fresh DB is migrated all the way to head, not just to the baseline.
+    assert _stamped_revision(tmp_path, 'fresh.db') == _head_revision()
 
 
 def test_legacy_create_all_db_is_stamped_and_data_survives(
@@ -79,6 +90,7 @@ def test_legacy_create_all_db_is_stamped_and_data_survives(
     """A pre-migration DB (tables, no alembic_version) is stamped at the
     baseline and upgraded without touching existing rows."""
     from flask import Flask
+    from sqlalchemy import text
 
     from statlee.models import User
 
@@ -92,6 +104,15 @@ def test_legacy_create_all_db_is_stamped_and_data_survives(
         user.set_password('hunter2!')
         db.session.add(user)
         db.session.commit()
+        # create_all() builds today's full schema, but a genuinely old DB
+        # predates the post-baseline columns. Strip them so the boot upgrade
+        # has real ALTERs to run (and would surface a broken migration). The
+        # index on password_reset_token must go before its column can be dropped.
+        db.session.execute(text('DROP INDEX IF EXISTS ix_users_password_reset_token'))
+        for col in ('credits_month', 'token_issued_at',
+                    'password_reset_token', 'reset_token_issued_at'):
+            db.session.execute(text(f'ALTER TABLE users DROP COLUMN {col}'))
+        db.session.commit()
         assert 'alembic_version' not in sa_inspect(db.engine).get_table_names()
         db.engine.dispose()
 
@@ -100,12 +121,16 @@ def test_legacy_create_all_db_is_stamped_and_data_survives(
 
     tables = _table_names(application)
     assert 'alembic_version' in tables
-    assert (_stamped_revision(tmp_path, 'legacy.db')
-            == app_module.BASELINE_REVISION)
+    # Stamped at the baseline, then upgraded to head (which adds the columns
+    # we stripped above), so the recorded revision is head.
+    assert _stamped_revision(tmp_path, 'legacy.db') == _head_revision()
     with application.app_context():
         survivor = db.session.query(User).filter_by(
             email='veteran@example.com').one()
         assert survivor.check_password('hunter2!')
+        # The migration actually restored the post-baseline columns.
+        cols = {c['name'] for c in sa_inspect(db.engine).get_columns('users')}
+        assert {'credits_month', 'password_reset_token'} <= cols
 
 
 def test_already_migrated_db_boots_again_cleanly(tmp_path, dev_app_factory):
@@ -117,8 +142,7 @@ def test_already_migrated_db_boots_again_cleanly(tmp_path, dev_app_factory):
 
     application = dev_app_factory(_dev_config(tmp_path, 'again.db'))
     assert 'users' in _table_names(application)
-    assert (_stamped_revision(tmp_path, 'again.db')
-            == app_module.BASELINE_REVISION)
+    assert _stamped_revision(tmp_path, 'again.db') == _head_revision()
 
 
 def test_testing_env_still_uses_create_all(app):

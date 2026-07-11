@@ -31,12 +31,25 @@ class User(UserMixin, db.Model):
     # read/write ``credits``.
     plan = db.Column(db.String(32), nullable=False, default='free')
     credits = db.Column(db.Integer, nullable=False, default=0)
+    # 'YYYY-MM' of the last month this account's free credits were topped up.
+    # Lets billing.check_and_debit apply MONTHLY_FREE_CREDITS lazily, exactly
+    # once per calendar month on the first billed request of that month (P2-10).
+    credits_month = db.Column(db.String(7), nullable=True)
 
     # --- Email verification (opt-in via REQUIRE_EMAIL_VERIFICATION) -------
     # Existing rows default to unverified; the flag is off by default so this
     # does not lock anyone out until an operator turns verification on.
     email_verified = db.Column(db.Boolean, nullable=False, default=False)
     verification_token = db.Column(db.String(64), nullable=True, index=True)
+    # When the verification token was issued, so a stale/leaked link can expire
+    # instead of granting login forever (P2-12).
+    token_issued_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    # --- Password reset (P2-11) ------------------------------------------
+    # Single-use reset token plus its issue time (1h expiry). Mirrors the
+    # verification-token machinery.
+    password_reset_token = db.Column(db.String(64), nullable=True, index=True)
+    reset_token_issued_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     runs = db.relationship('AnalysisRun', backref='user', lazy=True,
                            cascade='all, delete-orphan')
