@@ -374,3 +374,130 @@ def test_chat_stream_failure_after_debit_refunds_credit(client, app, fake_llm):
     finally:
         cfg.billing_enabled = False
         billing.reset_spend()
+
+
+# --- P1-2 (audit 4): /generate_report must clear the same billing gate -------
+
+def _register_with_credits(client, app, email, credits):
+    """Register (and log in) a user, then set their credit balance."""
+    from statlee.extensions import db
+    from statlee.models import User
+
+    post_json(client, '/register', {'email': email, 'password': 'password123'})
+    with app.app_context():
+        user = User.query.filter_by(email=email).first()
+        user.credits = credits
+        db.session.commit()
+        return user.id
+
+
+def test_generate_report_debits_a_credit(client, app, fake_llm):
+    """/generate_report runs the priciest (pro_max) model, so with billing
+    enabled it must debit a priority credit exactly like Pro-mode /chat."""
+    from conftest import sse_events
+
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'report-payer@example.com', 5)
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2 p=0.01',
+                          'interpretation': 'significant'})
+        events = sse_events(resp)
+        assert any(e.get('type') == 'done' for e in events)
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 4   # one priority credit debited
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_generate_report_denied_when_out_of_credits(client, app, fake_llm):
+    """A free user with 0 credits gets a 402 and NO model call happens --
+    before this gate the endpoint was a free tunnel to the pro_max tier."""
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        _register_with_credits(client, app, 'report-broke@example.com', 0)
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2 p=0.01',
+                          'interpretation': 'significant'})
+        assert resp.status_code == 402
+        assert 'credit' in resp.get_json()['error'].lower()
+        # No paid pass ever started.
+        assert not any(c[1] in ('report_draft', 'report')
+                       for c in fake_llm.calls)
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_generate_report_moderation_block_does_not_debit(client, app, fake_llm):
+    """A moderation-BLOCKed background must 403 BEFORE the debit (the same
+    moderate -> validate -> debit order /chat settled on)."""
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'report-blocked@example.com', 5)
+        fake_llm.block('Safety Violation')
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2', 'interpretation': 'ok',
+                          'background': 'write malware instead'})
+        assert resp.status_code == 403
+        assert 'denied' in resp.get_json()['error'].lower()
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # blocked request cost nothing
+        assert billing._spend['priority_calls'] == 0
+        assert not any(c[1] == 'report_draft' for c in fake_llm.calls)
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_generate_report_stream_failure_refunds_credit(client, app, fake_llm):
+    """If the report stream fails after the debit, the credit comes back --
+    the same refund-on-stream-failure contract /chat honors."""
+    from conftest import sse_events
+
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'report-refund@example.com', 5)
+
+        def boom(*args, **kwargs):
+            raise RuntimeError('stream exploded')
+            yield  # pragma: no cover - generator marker
+        fake_llm.stream = boom
+
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2 p=0.01',
+                          'interpretation': 'significant'})
+        events = sse_events(resp)
+        assert any(e.get('type') == 'error' for e in events)
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # debit refunded after stream failure
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()

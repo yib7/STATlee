@@ -4,11 +4,20 @@ import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
-from .. import llm, prompts
+from .. import billing, llm, prompts
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
-from . import json_error, sse_event, sse_stream
+from . import (
+    BACKGROUND_MAX,
+    FREE_TEXT_MAX,
+    clamp,
+    clamp_history,
+    json_error,
+    moderation_blocked,
+    sse_event,
+    sse_stream,
+)
 
 logger = logging.getLogger('statlee.misc')
 
@@ -118,6 +127,23 @@ def _email_report(cfg, report):
 # AI report builder (5.17) — generation and targeted revision, streamed
 # ---------------------------------------------------------------------------
 
+def _moderate_free_text(service, text):
+    """P1-2: the same fail-closed moderation gate /converse applies, run on
+    the report builder's client free-text. Returns ``(error_response, usage)``
+    where ``error_response`` is the response to send when the text is blocked
+    (or the service failed), else ``None``."""
+    try:
+        mod = service.generate('lite', prompts.moderation(text),
+                               temperature=0.0, json_mode=True)
+    except Exception:
+        logger.exception("Report moderation failed")
+        return json_error('Moderation service failed.', 503), None
+    blocked, reason = moderation_blocked(mod.text)
+    if blocked:
+        return json_error(f'Request denied. {reason}', 403), None
+    return None, mod.usage
+
+
 @bp.route('/generate_report', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def generate_report():
@@ -126,27 +152,58 @@ def generate_report():
     if revision is not None and not isinstance(revision, dict):
         return json_error("'revision' must be an object.")
     service = llm.get_service()
+    cfg = _cfg()
+    mod_usage = None
+    debited = False
+    billing_user = None
 
     if revision:
-        selection = (revision.get('selection') or '').strip()
-        instruction = (revision.get('instruction') or '').strip()
+        # P1-7/P1-2: every revision field is client text; clamp before use.
+        selection = clamp(revision.get('selection'), FREE_TEXT_MAX).strip()
+        instruction = clamp(revision.get('instruction'), BACKGROUND_MAX).strip()
         if not selection or not instruction:
             return json_error('Revision needs a selected passage and an instruction.')
+        # The instruction is free-form user text; moderate it like /converse.
+        blocked_resp, mod_usage = _moderate_free_text(service, instruction)
+        if blocked_resp is not None:
+            return blocked_resp
         prompt = prompts.report_revision(
-            revision.get('report') or '', selection, instruction)
+            clamp(revision.get('report'), FREE_TEXT_MAX), selection,
+            instruction)
     else:
-        output = (data.get('output') or '').strip()
-        interpretation = (data.get('interpretation') or '').strip()
+        # P1-7/P1-2: cap every client-supplied field before it can reach the
+        # two paid model calls below.
+        output = clamp(data.get('output'), FREE_TEXT_MAX).strip()
+        interpretation = clamp(data.get('interpretation'), FREE_TEXT_MAX).strip()
         if not output and not interpretation:
             return json_error(
                 'Run an analysis first — the report must be grounded in '
                 'actual results.', 422)
-        background = data.get('background')
+        background = clamp(data.get('background'), BACKGROUND_MAX)
         length = data.get('length')
         tone = data.get('tone')
         fmt = data.get('format')
-        history = data.get('history')
-        converse = data.get('converse')
+        history = clamp_history(data.get('history'))
+        converse = clamp_history(data.get('converse'))
+
+        # Background is the free-form user text on this path; moderate it
+        # (fail-closed) before any billable work, mirroring /converse.
+        if background.strip():
+            blocked_resp, mod_usage = _moderate_free_text(service, background)
+            if blocked_resp is not None:
+                return blocked_resp
+
+        # P1-2: the draft pass runs on the priciest (pro_max) tier, so it must
+        # clear the same billing chokepoint as Pro-mode /chat, in the settled
+        # moderate -> validate -> debit order. Without this the report builder
+        # is a free tunnel to the tier billing exists to meter.
+        billing_user = current_user_or_none()
+        allowed, deny_msg = billing.check_and_debit(
+            billing_user, priority=True, config=cfg)
+        if not allowed:
+            return json_error(deny_msg or 'Out of credits.', 402)
+        debited = True
+
         # First pass runs on the bigger 3.1-pro model to compile a grounded draft.
         draft_prompt = prompts.report_draft(
             background, length, fmt, output, interpretation, history, converse)
@@ -158,7 +215,8 @@ def generate_report():
                 for delta in service.stream('pro', prompt, temperature=0.4,
                                             usage_out=usage):
                     yield sse_event({'type': 'delta', 'text': delta})
-                yield sse_event({'type': 'done', 'usage': usage_breakdown(usage),
+                yield sse_event({'type': 'done',
+                                 'usage': usage_breakdown(usage, mod_usage),
                                  'revision': True})
                 return
             # Two-pass authoring: 3.1-pro compiles all the material (results,
@@ -175,10 +233,20 @@ def generate_report():
                 yield sse_event({'type': 'delta', 'text': delta})
             yield sse_event({'type': 'done',
                              'usage': usage_breakdown(draft_result.usage,
-                                                      stream_usage),
+                                                      stream_usage, mod_usage),
                              'revision': False})
         except Exception:
             logger.exception("Report generation failed")
+            if debited:
+                # The credit was taken before any model call; the request
+                # produced no report, so give it back (the same refund-on-
+                # stream-failure contract /chat honors). Best-effort: a
+                # refund failure must not mask the error the user sees.
+                try:
+                    billing.refund(billing_user, priority=True, config=cfg)
+                except Exception:
+                    logger.exception(
+                        "Failed to refund credit after report failure")
             yield sse_event({'type': 'error',
                              'message': 'Report generation failed.'})
 

@@ -9,6 +9,7 @@ array can never become millions of paid input tokens.
 from conftest import SAMPLE_CSV, post_json, sse_events, upload_csv
 
 from statlee.routes import (
+    BACKGROUND_MAX,
     FREE_TEXT_MAX,
     HISTORY_FIELD_MAX,
     HISTORY_MAX_TURNS,
@@ -159,3 +160,32 @@ def test_interpret_drops_oversized_plots(client, fake_llm):
     # attachment sneaked into the flattened contents.
     prompt = next(c for c in fake_llm.calls if c[1] == 'interpret')[2]
     assert len(prompt) < PLOT_B64_MAX
+
+
+# ---------------------------------------------------------------------------
+# /generate_report (misc.py) - caps side of P1-2
+# ---------------------------------------------------------------------------
+
+def test_generate_report_oversized_fields_are_clamped(client, fake_llm):
+    history = ([{'role': 'user', 'text': 'OLDEST_TURN_SENTINEL'}]
+               + [{'role': 'user', 'text': 'filler'}] * (HISTORY_MAX_TURNS + 5))
+    payload = {
+        'output': 'coef=1.2 ' + 'o' * FREE_TEXT_MAX + 'OUT_TAIL_SENTINEL',
+        'interpretation': 'significant ' + 'i' * FREE_TEXT_MAX
+                          + 'INTERP_TAIL_SENTINEL',
+        'background': 'b' * BACKGROUND_MAX + 'BG_TAIL_SENTINEL',
+        'history': history,
+        'converse': history,
+    }
+    resp = post_json(client, '/generate_report', payload)
+    assert resp.status_code == 200
+    sse_events(resp)
+
+    draft = next(c for c in fake_llm.calls if c[1] == 'report_draft')[2]
+    assert 'OUT_TAIL_SENTINEL' not in draft
+    assert 'INTERP_TAIL_SENTINEL' not in draft
+    assert 'BG_TAIL_SENTINEL' not in draft
+    assert 'OLDEST_TURN_SENTINEL' not in draft
+    final = next(c for c in fake_llm.calls if c[1] == 'report')[2]
+    assert 'OUT_TAIL_SENTINEL' not in final
+    assert 'BG_TAIL_SENTINEL' not in final
