@@ -343,6 +343,156 @@ def test_openai_stream_yields_and_records_usage():
     assert usage['input'] == 6 and usage['output'] == 2
 
 
+# ---------------------------------------------------------------------------
+# P2-6: truncation detection (finish/stop reason == token ceiling)
+# ---------------------------------------------------------------------------
+def test_anthropic_generate_raises_on_max_tokens_truncation():
+    """A non-streamed Claude response cut off by max_tokens must raise rather
+    than return silently-partial code (P2-6)."""
+    cfg = Config(env='testing', llm_provider='anthropic', anthropic_api_key='k')
+    svc = llm.LLMService(cfg)
+
+    def fake_create(**kwargs):
+        return types.SimpleNamespace(
+            content=[types.SimpleNamespace(type='text', text='def f(): retur')],
+            stop_reason='max_tokens',
+            usage=types.SimpleNamespace(input_tokens=5, output_tokens=8))
+
+    svc._backend._client = types.SimpleNamespace(
+        messages=types.SimpleNamespace(create=fake_create))
+    with pytest.raises(llm.TruncatedGenerationError):
+        svc.generate('draft', 'write a long script', temperature=0.0)
+
+
+def test_anthropic_generate_normal_stop_reason_does_not_raise():
+    """A normal end_turn stop reason returns the text unharmed (P2-6)."""
+    cfg = Config(env='testing', llm_provider='anthropic', anthropic_api_key='k')
+    svc = llm.LLMService(cfg)
+    svc._backend._client = types.SimpleNamespace(
+        messages=types.SimpleNamespace(create=lambda **k: types.SimpleNamespace(
+            content=[types.SimpleNamespace(type='text', text='done')],
+            stop_reason='end_turn',
+            usage=types.SimpleNamespace(input_tokens=5, output_tokens=2))))
+    assert svc.generate('draft', 'hi', temperature=0.0).text == 'done'
+
+
+def test_anthropic_stream_raises_on_max_tokens_truncation():
+    cfg = Config(env='testing', llm_provider='anthropic', anthropic_api_key='k')
+    svc = llm.LLMService(cfg)
+
+    class FakeStream:
+        text_stream = ['def f(): retur']
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                stop_reason='max_tokens',
+                usage=types.SimpleNamespace(input_tokens=5, output_tokens=8))
+
+    svc._backend._client = types.SimpleNamespace(
+        messages=types.SimpleNamespace(stream=lambda **k: FakeStream()))
+    with pytest.raises(llm.TruncatedGenerationError):
+        list(svc.stream('draft', 'go', usage_out={}))
+
+
+def test_openai_generate_raises_on_length_truncation():
+    """OpenAI signals a token-ceiling cutoff with finish_reason='length' (P2-6)."""
+    cfg = Config(env='testing', llm_provider='openai', openai_api_key='k')
+    svc = llm.LLMService(cfg)
+
+    def fake_create(**kwargs):
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content='def f(): retur'),
+                finish_reason='length')],
+            usage=types.SimpleNamespace(prompt_tokens=5, completion_tokens=8))
+
+    svc._backend._client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=fake_create)))
+    with pytest.raises(llm.TruncatedGenerationError):
+        svc.generate('draft', 'write a long script', temperature=0.0)
+
+
+def test_openai_generate_normal_finish_reason_does_not_raise():
+    svc, _ = _openai_svc_with_capture()  # fake has no finish_reason -> normal
+    assert svc.generate('lite', 'hi', temperature=0.0).text == 'hi there'
+
+
+def test_openai_stream_raises_on_length_truncation():
+    cfg = Config(env='testing', llm_provider='openai', openai_api_key='k')
+    svc = llm.LLMService(cfg)
+
+    def fake_create(**kwargs):
+        return iter([
+            types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content='def f(): retur'),
+                finish_reason=None)], usage=None),
+            types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=None),
+                finish_reason='length')], usage=None),
+        ])
+
+    svc._backend._client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=fake_create)))
+    with pytest.raises(llm.TruncatedGenerationError):
+        list(svc.stream('draft', 'go', usage_out={}))
+
+
+def _gemini_response(text, finish_name):
+    return types.SimpleNamespace(
+        text=text,
+        candidates=[types.SimpleNamespace(
+            finish_reason=types.SimpleNamespace(name=finish_name))],
+        usage_metadata=types.SimpleNamespace(
+            prompt_token_count=5, candidates_token_count=8))
+
+
+def test_gemini_generate_raises_on_max_tokens_truncation():
+    """Gemini reports a MAX_TOKENS finish reason on the candidate; the enum's
+    .name is what the normalizer inspects (P2-6)."""
+    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
+    svc._backend._client = types.SimpleNamespace(
+        models=types.SimpleNamespace(
+            generate_content=lambda **k: _gemini_response(
+                'def f(): retur', 'MAX_TOKENS')))
+    with pytest.raises(llm.TruncatedGenerationError):
+        svc.generate('draft', 'write a long script', temperature=0.0)
+
+
+def test_gemini_generate_normal_finish_reason_does_not_raise():
+    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
+    svc._backend._client = types.SimpleNamespace(
+        models=types.SimpleNamespace(
+            generate_content=lambda **k: _gemini_response('done', 'STOP')))
+    assert svc.generate('draft', 'hi', temperature=0.0).text == 'done'
+
+
+def test_gemini_stream_raises_on_max_tokens_truncation():
+    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
+    chunks = [
+        types.SimpleNamespace(text='def f(): retur', usage_metadata=None,
+                              candidates=None),
+        types.SimpleNamespace(
+            text=None,
+            usage_metadata=types.SimpleNamespace(
+                prompt_token_count=5, candidates_token_count=8),
+            candidates=[types.SimpleNamespace(
+                finish_reason=types.SimpleNamespace(name='MAX_TOKENS'))]),
+    ]
+    svc._backend._client = types.SimpleNamespace(
+        models=types.SimpleNamespace(
+            generate_content_stream=lambda **k: iter(chunks)))
+    with pytest.raises(llm.TruncatedGenerationError):
+        list(svc.stream('draft', 'go', usage_out={}))
+
+
 def test_openai_drops_temperature_on_sampling_error():
     """gpt-5/o-series reject non-default temperature; the backend retries once
     without it rather than failing the call."""

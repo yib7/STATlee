@@ -40,6 +40,38 @@ class MediaPart:
     mime_type: str   # e.g. 'image/png', 'application/pdf'
 
 
+class TruncatedGenerationError(RuntimeError):
+    """Raised when a provider stopped generating because it hit the output-token
+    ceiling (P2-6). The partial text is unusable for code generation -- a script
+    cut mid-line would flow into validation and /run as confusing syntax errors
+    the auto-debugger then bills more tokens to explain -- so the backend fails
+    loudly instead of returning silently-truncated output. /chat turns this into
+    a clean SSE error like any other backend exception."""
+
+
+def _truncated_by_token_limit(reason):
+    """True if a provider finish/stop reason means generation was cut off by the
+    output-token ceiling. Normalizes across providers: OpenAI ``'length'``,
+    Anthropic ``'max_tokens'``, Gemini ``MAX_TOKENS`` (an enum whose ``.name``
+    is used, or a plain string). Any other/absent reason is treated as a normal
+    completion."""
+    if reason is None:
+        return False
+    name = getattr(reason, 'name', None) or str(reason)
+    return name.strip().lower() in ('length', 'max_tokens')
+
+
+def _check_truncation(reason, provider, model):
+    """Raise ``TruncatedGenerationError`` when ``reason`` signals a token-ceiling
+    cutoff; a no-op for a normal finish reason. One shared helper keeps the
+    three backends consistent (P2-6)."""
+    if _truncated_by_token_limit(reason):
+        raise TruncatedGenerationError(
+            f"{provider} model {model} stopped at its output-token limit, so "
+            "the response is incomplete. Try a shorter request or narrow the "
+            "scope of the analysis.")
+
+
 # ---------------------------------------------------------------------------
 # Gemini backend — owns only the wire protocol.
 # ---------------------------------------------------------------------------
@@ -70,6 +102,14 @@ class GeminiBackend:
         }
 
     @staticmethod
+    def _finish_reason(response):
+        """The terminal finish reason of the first candidate, or None."""
+        cands = getattr(response, 'candidates', None) or []
+        if cands:
+            return getattr(cands[0], 'finish_reason', None)
+        return None
+
+    @staticmethod
     def _to_contents(contents):
         """Translate any MediaPart in the list into a google-genai Part."""
         if isinstance(contents, str):
@@ -95,6 +135,7 @@ class GeminiBackend:
         usage = self._usage(response, model)
         logger.info("llm call provider=gemini model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
+        _check_truncation(self._finish_reason(response), 'Gemini', model)
         return LLMResult(text=(response.text or '').strip(), usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
@@ -108,14 +149,22 @@ class GeminiBackend:
         # chunk that carries usage_metadata. Gemini reports cumulative counts on
         # its chunks, so the final refresh holds the totals for the whole stream.
         usage = {'model': model, 'input': 0, 'output': 0}
+        finish_reason = None
         for chunk in stream:
             if getattr(chunk, 'usage_metadata', None) is not None:
                 usage = self._usage(chunk, model)
+            fr = self._finish_reason(chunk)
+            if fr is not None:
+                finish_reason = fr
             delta = getattr(chunk, 'text', None)
             if delta:
                 yield delta
         if usage_out is not None:
             usage_out.update(usage)
+        # After the deltas: if the stream ended because it hit the token ceiling,
+        # fail loudly so /chat emits a clean error instead of accepting a script
+        # cut mid-line (P2-6).
+        _check_truncation(finish_reason, 'Gemini', model)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +244,8 @@ class AnthropicBackend:
         usage = self._usage(message, model)
         logger.info("llm call provider=anthropic model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
+        _check_truncation(getattr(message, 'stop_reason', None),
+                          'Anthropic', model)
         return LLMResult(text=(text or '').strip(), usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
@@ -210,6 +261,8 @@ class AnthropicBackend:
         usage = self._usage(final, model)
         if usage_out is not None:
             usage_out.update(usage)
+        _check_truncation(getattr(final, 'stop_reason', None),
+                          'Anthropic', model)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +355,10 @@ class OpenAIBackend:
         usage = self._usage(response, model)
         logger.info("llm call provider=openai model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
+        _check_truncation(
+            getattr(response.choices[0], 'finish_reason', None)
+            if response.choices else None,
+            'OpenAI', model)
         return LLMResult(text=text.strip(), usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
@@ -309,15 +366,21 @@ class OpenAIBackend:
                               temperature=temperature, json_mode=False,
                               stream=True)
         usage = {'model': model, 'input': 0, 'output': 0}
+        finish_reason = None
         for chunk in events:
             if getattr(chunk, 'usage', None):
                 usage = self._usage(chunk, model)
             if getattr(chunk, 'choices', None):
-                delta = chunk.choices[0].delta.content
+                choice = chunk.choices[0]
+                fr = getattr(choice, 'finish_reason', None)
+                if fr is not None:
+                    finish_reason = fr
+                delta = choice.delta.content
                 if delta:
                     yield delta
         if usage_out is not None:
             usage_out.update(usage)
+        _check_truncation(finish_reason, 'OpenAI', model)
 
 
 def _make_backend(config):
