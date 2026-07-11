@@ -16,7 +16,9 @@ def _index_html(client):
 # --- SP1: injected price map ------------------------------------------------
 def test_index_injects_model_price_map(client):
     html = _index_html(client)
-    assert 'CC_BOOT' in html
+    # P2-14: the price map now ships as a CSP-safe JSON data island that boot.js
+    # reads into window.CC_BOOT (no executable inline script).
+    assert 'id="cc-boot-data"' in html
     assert 'prices' in html
     assert 'gemini-3.5-flash' in html
     assert 'gemini-3.1-flash-lite' in html

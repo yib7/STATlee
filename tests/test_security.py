@@ -37,6 +37,16 @@ def test_post_with_csrf_passes_gate(client):
     assert resp.status_code != 403
 
 
+def test_post_with_wrong_csrf_is_rejected(client):
+    # A non-empty but incorrect token exercises the constant-time compare (P2-8)
+    # and must still be rejected exactly like a missing token.
+    csrf_token(client)                      # prime the session token
+    resp = client.post('/data_page', json={'filename': 'x.csv'},
+                       headers={'X-CSRF-Token': 'not-the-real-token'})
+    assert resp.status_code == 403
+    assert 'CSRF' in resp.get_json()['error']
+
+
 def test_unknown_route_is_generic_404(client):
     resp = client.get('/definitely-not-a-route')
     assert resp.status_code == 404
@@ -46,6 +56,32 @@ def test_unknown_route_is_generic_404(client):
 def test_request_id_header_present(client):
     resp = client.get('/health')
     assert resp.headers.get('X-Request-ID')
+
+
+def test_security_headers_present(client):
+    """P2-14: every response carries the defense-in-depth headers."""
+    resp = client.get('/')
+    csp = resp.headers.get('Content-Security-Policy')
+    assert csp is not None
+    assert "default-src 'self'" in csp
+    assert "script-src 'self'" in csp
+    assert "'unsafe-inline'" not in csp.split('script-src')[1].split(';')[0]
+    assert "object-src 'none'" in csp
+    assert "base-uri 'none'" in csp
+    assert resp.headers.get('X-Content-Type-Options') == 'nosniff'
+    assert resp.headers.get('X-Frame-Options') == 'DENY'
+
+
+def test_index_renders_without_inline_script(client):
+    """P2-14: the inline boot <script> was moved into static JS; the page still
+    boots by loading boot.js and shipping the config as a JSON data island."""
+    resp = client.get('/')
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'js/boot.js' in html
+    assert 'id="cc-boot-data"' in html
+    # No inline onclick= handlers survive (they would be blocked by script-src).
+    assert 'onclick=' not in html
 
 
 def test_http_isolation_between_sessions(app):

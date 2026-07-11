@@ -11,6 +11,7 @@ owns the cross-cutting middleware:
 - generic client errors / full server-side logs (1.6)
 - request-id correlated logging (3.3)
 """
+import hmac
 import logging
 import os
 import secrets
@@ -46,6 +47,35 @@ def _setup_logging():
 
 
 logger = logging.getLogger('statlee')
+
+# P2-14 - defense-in-depth response headers. script-src is strict ('self' only,
+# no 'unsafe-inline'): the two inline <script> blocks were moved into static JS
+# files and every inline onclick= handler is now wired by a delegated listener
+# in boot.js, so no executable inline script remains. The relaxations are only
+# what the app actually needs:
+#   style-src 'unsafe-inline'          - the templates use many inline style=""
+#                                        attributes and <style> blocks (Tailwind
+#                                        utility layout); style injection is far
+#                                        lower risk than script injection.
+#   style-src/font-src fonts.google*   - index.html + landing.html load the
+#                                        Google Fonts stylesheet + font files.
+#   img-src data:                      - matplotlib plots render as
+#                                        <img src="data:image/png;base64,...">.
+#   frame-src blob:                    - the Codebook tab previews an uploaded
+#                                        PDF via a blob: object URL in an iframe.
+CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "frame-src 'self' blob:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'"
+)
 
 # Alembic baseline revision (created by `flask db migrate` for the v1.2.0
 # schema). A legacy create_all() database gets stamped at this revision so that
@@ -211,7 +241,9 @@ def create_app(config=None):
             return None
         token = (request.headers.get('X-CSRF-Token')
                  or (request.form.get('csrf_token') if request.form else None))
-        if token and token == session.get('csrf_token'):
+        # Constant-time compare (P2-8). The `token and` guard keeps a missing or
+        # None token out of compare_digest, which requires two str/bytes args.
+        if token and hmac.compare_digest(token, session.get('csrf_token', '')):
             return None
         return jsonify({'error': 'Invalid or missing CSRF token. '
                                  'Reload the page and try again.'}), 403
@@ -248,6 +280,11 @@ def create_app(config=None):
     @app.after_request
     def stamp_request_id(response):
         response.headers['X-Request-ID'] = g.get('request_id', '-')
+        # P2-14 - security headers. setdefault so a route that sets its own
+        # (e.g. a future embeddable widget) is not clobbered.
+        response.headers.setdefault('Content-Security-Policy', CSP_POLICY)
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'DENY')
         return response
 
     # --- error handling (1.6) ----------------------------------------------------
