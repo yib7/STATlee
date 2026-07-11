@@ -294,8 +294,11 @@ def data_page():
     try:
         for col, term in filters.items():
             if term and col in df.columns:
+                # regex=False (P1-3): filter terms are literal text, so users
+                # can type '(' or '$' and a hostile pattern like '(a+)+$'
+                # cannot pin a worker thread with catastrophic backtracking.
                 df = df[df[col].astype(str).str.contains(
-                    str(term), case=False, na=False)]
+                    str(term), case=False, na=False, regex=False)]
 
         total_rows = len(df)
         total_pages = max(1, -(-total_rows // per_page)) if total_rows else 0

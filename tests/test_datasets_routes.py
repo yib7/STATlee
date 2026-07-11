@@ -78,6 +78,31 @@ def test_data_page_filter(client):
     assert all(r['group'] == 'B' for r in body['data'])
 
 
+def test_data_page_filter_matches_regex_chars_literally(client):
+    """P1-3: filter terms are literal text, so everyday characters like '('
+    match rows containing them instead of raising re.error."""
+    upload_csv(client, "name,val\nalpha (x),1\nbeta,2\n")
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'filters': {'name': '('}})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['total_rows'] == 1
+    assert body['data'][0]['name'] == 'alpha (x)'
+
+
+def test_data_page_filter_pathological_pattern_is_literal_non_match(client):
+    """P1-3: a catastrophic-backtracking pattern like '(a+)+$' never reaches a
+    regex engine; it is matched literally and completes as a non-match."""
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/data_page',
+                     {'filename': 'test.csv', 'filters': {'group': '(a+)+$'}})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['status'] == 'success'
+    assert body['total_rows'] == 0
+
+
 def test_data_page_rejects_non_integer_page(client):
     """P1-5: malformed 'page' must return a structured 400, not a 500."""
     upload_csv(client, SAMPLE_CSV)
