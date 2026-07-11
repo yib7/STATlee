@@ -125,6 +125,96 @@ def test_approved_script_roundtrip(app):
         ctx.pop()
 
 
+def test_approved_script_store_is_hash_keyed(app):
+    """P2-2: the approved-script store keeps scripts keyed by content hash, so a
+    later save (e.g. a /wrangle transform) does NOT evict an earlier /chat
+    script -- both stay recognized by membership, and genuinely-new code does
+    not."""
+    ctx = _req(app)
+    try:
+        storage.save_approved_script("print('chat')", 'Python')
+        # A /wrangle save used to clobber the single slot; now it coexists.
+        storage.save_approved_script("df = df.dropna()", 'Python')
+        assert storage.is_approved_script("print('chat')")
+        assert storage.is_approved_script("df = df.dropna()")
+        # Genuinely-new/edited code is NOT approved (still gets re-moderated).
+        assert not storage.is_approved_script("import os; os.system('x')")
+        # load_approved_script keeps returning the most-recent for /export.
+        assert storage.load_approved_script()['code'] == "df = df.dropna()"
+    finally:
+        ctx.pop()
+
+
+def test_approved_script_store_evicts_oldest(app):
+    """P2-2: only the last few scripts are retained (insertion-order eviction),
+    so the store cannot grow without bound."""
+    ctx = _req(app)
+    try:
+        for i in range(7):
+            storage.save_approved_script(f"print({i})", 'Python')
+        # Store cap is 5; the two oldest are evicted.
+        assert not storage.is_approved_script("print(0)")
+        assert not storage.is_approved_script("print(1)")
+        for i in range(2, 7):
+            assert storage.is_approved_script(f"print({i})")
+    finally:
+        ctx.pop()
+
+
+def test_approved_script_reads_legacy_single_slot(app):
+    """P2-2: an existing on-disk store in the OLD single-slot shape
+    ({code, language}) is still honored after upgrade."""
+    import json as _json
+    ctx = _req(app)
+    try:
+        path = os.path.join(storage.identity_root(), storage.APPROVED_SCRIPT)
+        with open(path, 'w', encoding='utf-8') as f:
+            _json.dump({'code': "print('legacy')", 'language': 'Python'}, f)
+        assert storage.is_approved_script("print('legacy')")
+        assert storage.load_approved_script()['code'] == "print('legacy')"
+    finally:
+        ctx.pop()
+
+
+def test_add_dataset_version_concurrent_no_lost_update(app):
+    """P2-9: two concurrent add_dataset_version calls on the same dataset must
+    yield two DISTINCT versions -- the per-manifest lock prevents the second
+    save from silently discarding the first's entry (lost update)."""
+    import threading
+
+    ident = 'anon_race'
+    with app.app_context():
+        path = storage.resolve_path('t.csv', identity=ident)
+        pd.DataFrame({'x': [1, 2, 3]}).to_csv(path, index=False)
+        storage.register_dataset('t.csv', identity=ident)  # v1
+
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def worker(n):
+        try:
+            with app.app_context():
+                barrier.wait(timeout=5)  # maximize interleaving overlap
+                storage.add_dataset_version(
+                    't.csv', pd.DataFrame({'x': [n]}), f'edit-{n}',
+                    identity=ident)
+        except Exception as exc:  # pragma: no cover - surfaced via assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in (10, 20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert not errors, errors
+    with app.app_context():
+        log = storage.dataset_changelog('t.csv', identity=ident)
+    versions = sorted(v['v'] for v in log['versions'])
+    # v1 original + two distinct new versions; without the lock one is lost.
+    assert versions == [1, 2, 3]
+
+
 def test_reset_identity_clears_workspace(app):
     ctx = _req(app)
     try:

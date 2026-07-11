@@ -11,12 +11,14 @@ Implements:
        (``user_<id>/``) and by session id otherwise (``anon_<sid>/``); an S3
        backend can mirror the same key layout when STORAGE_BACKEND=s3.
 """
+import hashlib
 import json
 import logging
 import os
 import shutil
 import time
 
+from filelock import FileLock
 from flask import current_app, session
 from werkzeug.utils import secure_filename
 
@@ -28,6 +30,16 @@ MANIFEST_PREFIX = '.versions__'
 META_PREFIX = '.meta__'
 APPROVED_SCRIPT = '.approved_script.json'
 LAST_RUN_DIR = '.last_run'
+
+# P2-2: the approved-script store keeps the last few validated scripts keyed by
+# content hash (not a single slot), so a /wrangle save cannot evict the /chat
+# script and force a spurious re-moderation of already-approved code.
+APPROVED_SCRIPT_MAX = 5
+
+# P2-9: the version manifest is read-modify-written; a cross-process file lock
+# on the manifest serializes concurrent wrangles/undos so no version entry is
+# lost. Held only for the brief RMW; the timeout guards against a stale lock.
+_MANIFEST_LOCK_TIMEOUT = 10
 
 
 def _write_json_atomic(path, obj):
@@ -119,6 +131,21 @@ def _save_manifest(filename, manifest, identity=None):
     _write_json_atomic(_manifest_path(filename, identity), manifest)
 
 
+def _manifest_lock(filename, identity=None):
+    """A cross-process lock guarding one dataset's manifest read-modify-write.
+
+    The deployed worker model is multi-process (gunicorn ``--workers`` with
+    ``--threads`` each), so an in-process ``threading.Lock`` would only serialize
+    within a single worker. A ``filelock`` on ``<manifest>.lock`` serializes
+    across workers AND threads, closing the lost-update window in P2-9 where two
+    concurrent wrangles both compute the same ``next_v`` and the second save
+    discards the first's entry. Each caller builds a fresh lock and never nests
+    another manifest lock inside it, so there is no re-entrancy or deadlock.
+    """
+    return FileLock(_manifest_path(filename, identity) + '.lock',
+                    timeout=_MANIFEST_LOCK_TIMEOUT)
+
+
 def register_dataset(filename, identity=None):
     """Initialise the version manifest for a freshly uploaded dataset."""
     manifest = {
@@ -163,23 +190,27 @@ def add_dataset_version(filename, new_df, instruction, summary=None, identity=No
     past-tense description (used to render the cleaning history as a chat-style
     transcript). A new edit after an Undo truncates the redo branch.
     """
-    manifest = _load_manifest(filename, identity) or register_dataset(filename, identity)
-    _truncate_redo_branch(manifest)
-    next_v = manifest['versions'][-1]['v'] + 1
-    stem = os.path.splitext(manifest['filename'])[0]
-    version_file = f"{stem}__v{next_v}.csv"
-    version_path = resolve_path(version_file, identity)
-    new_df.to_csv(version_path, index=False)
-    manifest['versions'].append({
-        'v': next_v,
-        'file': version_file,
-        'instruction': instruction,
-        'summary': summary,
-        'ts': time.time(),
-    })
-    manifest['active'] = next_v
-    _save_manifest(filename, manifest, identity)
-    return manifest
+    # P2-9: serialize the whole read-modify-write so a concurrent wrangle/undo
+    # cannot compute the same next_v and silently drop this version.
+    with _manifest_lock(filename, identity):
+        manifest = (_load_manifest(filename, identity)
+                    or register_dataset(filename, identity))
+        _truncate_redo_branch(manifest)
+        next_v = manifest['versions'][-1]['v'] + 1
+        stem = os.path.splitext(manifest['filename'])[0]
+        version_file = f"{stem}__v{next_v}.csv"
+        version_path = resolve_path(version_file, identity)
+        new_df.to_csv(version_path, index=False)
+        manifest['versions'].append({
+            'v': next_v,
+            'file': version_file,
+            'instruction': instruction,
+            'summary': summary,
+            'ts': time.time(),
+        })
+        manifest['active'] = next_v
+        _save_manifest(filename, manifest, identity)
+        return manifest
 
 
 def revert_to_original(filename, identity=None):
@@ -190,44 +221,49 @@ def revert_to_original(filename, identity=None):
     pre-revert state back. Returns the manifest, or ``None`` for an unknown
     dataset or a missing original file.
     """
-    manifest = _load_manifest(filename, identity)
-    if not manifest:
-        return None
-    original = min(manifest['versions'], key=lambda v: v['v'])
-    orig_path = resolve_path(original['file'], identity)
-    if not orig_path or not os.path.exists(orig_path):
-        return None
-    _truncate_redo_branch(manifest)
-    next_v = manifest['versions'][-1]['v'] + 1
-    stem = os.path.splitext(manifest['filename'])[0]
-    version_file = f"{stem}__v{next_v}.csv"
-    version_path = resolve_path(version_file, identity)
-    shutil.copyfile(orig_path, version_path)
-    manifest['versions'].append({
-        'v': next_v,
-        'file': version_file,
-        'instruction': 'Reverted to original upload',
-        'summary': None,
-        'ts': time.time(),
-    })
-    manifest['active'] = next_v
-    _save_manifest(filename, manifest, identity)
-    return manifest
+    # P2-9: same manifest read-modify-write, same lock.
+    with _manifest_lock(filename, identity):
+        manifest = _load_manifest(filename, identity)
+        if not manifest:
+            return None
+        original = min(manifest['versions'], key=lambda v: v['v'])
+        orig_path = resolve_path(original['file'], identity)
+        if not orig_path or not os.path.exists(orig_path):
+            return None
+        _truncate_redo_branch(manifest)
+        next_v = manifest['versions'][-1]['v'] + 1
+        stem = os.path.splitext(manifest['filename'])[0]
+        version_file = f"{stem}__v{next_v}.csv"
+        version_path = resolve_path(version_file, identity)
+        shutil.copyfile(orig_path, version_path)
+        manifest['versions'].append({
+            'v': next_v,
+            'file': version_file,
+            'instruction': 'Reverted to original upload',
+            'summary': None,
+            'ts': time.time(),
+        })
+        manifest['active'] = next_v
+        _save_manifest(filename, manifest, identity)
+        return manifest
 
 
 def shift_dataset_version(filename, direction, identity=None):
     """Move the active-version pointer (undo: -1, redo: +1)."""
-    manifest = _load_manifest(filename, identity)
-    if not manifest:
-        return None
-    versions = sorted(v['v'] for v in manifest['versions'])
-    idx = versions.index(manifest['active'])
-    new_idx = idx + (1 if direction == 'redo' else -1)
-    if new_idx < 0 or new_idx >= len(versions):
-        return manifest  # already at the edge — no-op
-    manifest['active'] = versions[new_idx]
-    _save_manifest(filename, manifest, identity)
-    return manifest
+    # P2-9: the pointer move is a manifest read-modify-write too; lock it so a
+    # concurrent add/undo cannot overwrite the other's result.
+    with _manifest_lock(filename, identity):
+        manifest = _load_manifest(filename, identity)
+        if not manifest:
+            return None
+        versions = sorted(v['v'] for v in manifest['versions'])
+        idx = versions.index(manifest['active'])
+        new_idx = idx + (1 if direction == 'redo' else -1)
+        if new_idx < 0 or new_idx >= len(versions):
+            return manifest  # already at the edge -- no-op
+        manifest['active'] = versions[new_idx]
+        _save_manifest(filename, manifest, identity)
+        return manifest
 
 
 def dataset_changelog(filename, identity=None):
@@ -274,20 +310,67 @@ def load_dataset_meta(filename, identity=None):
 # Approved-script store (0.4 run-guard) and last-run artifacts (5.3 export)
 # ---------------------------------------------------------------------------
 
-def save_approved_script(code, language, identity=None):
+def _hash_code(code):
+    return hashlib.sha256((code or '').encode('utf-8')).hexdigest()
+
+
+def _load_approved_store(identity=None):
+    """Return the approved-script store as ``{sha256(code): {code, language}}``
+    in insertion order (oldest first). Tolerates a missing/corrupt file and
+    transparently upgrades an OLD single-slot file (``{code, language}``)."""
     path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
-    _write_json_atomic(path, {'code': code, 'language': language})
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    # Back-compat: an old single-slot file {code, language} -> one entry.
+    if isinstance(data.get('code'), str):
+        return {_hash_code(data['code']):
+                {'code': data['code'], 'language': data.get('language')}}
+    # New shape {sha: {code, language}}; drop any malformed entries.
+    return {k: v for k, v in data.items()
+            if isinstance(v, dict) and isinstance(v.get('code'), str)}
+
+
+def save_approved_script(code, language, identity=None):
+    """Record a validated script keyed by its content hash (P2-2).
+
+    Keeps the most recent ``APPROVED_SCRIPT_MAX`` scripts; re-saving a known
+    script refreshes its recency. This is what lets a /wrangle transform and the
+    earlier /chat script coexist, so re-running the unchanged chat code still
+    matches by membership and skips re-moderation.
+    """
+    store = _load_approved_store(identity)
+    sha = _hash_code(code)
+    store.pop(sha, None)                      # re-insert -> becomes most-recent
+    store[sha] = {'code': code, 'language': language}
+    while len(store) > APPROVED_SCRIPT_MAX:   # evict oldest by insertion order
+        del store[next(iter(store))]
+    path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
+    _write_json_atomic(path, store)
+
+
+def is_approved_script(code, identity=None):
+    """True if ``code`` exactly matches a previously approved script (P2-2)."""
+    return _hash_code(code) in _load_approved_store(identity)
 
 
 def load_approved_script(identity=None):
-    path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
-    if not os.path.exists(path):
+    """Return the MOST-RECENTLY approved script ``{code, language}`` or None.
+
+    Retained for /export (bundles the latest script) and for the /run guard's
+    "has anything been generated yet?" check. Membership tests use
+    ``is_approved_script`` instead of equality against this single entry.
+    """
+    store = _load_approved_store(identity)
+    if not store:
         return None
-    try:
-        with open(path, encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
+    return store[next(reversed(store))]
 
 
 def save_last_run(output, plots_b64, identity=None):

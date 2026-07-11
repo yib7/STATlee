@@ -188,6 +188,31 @@ def test_run_guard_allows_clean_edit(client, fake_llm):
     assert 'edited-and-clean' in body['output']
 
 
+def test_wrangle_does_not_evict_chat_approved_script(client, fake_llm):
+    """P2-2: a /wrangle must not clobber the /chat approved script. Re-running
+    the unchanged, already-validated chat code still SKIPS re-moderation (no
+    code_moderation LLM call), while the wrangle transform is also approved."""
+    fake_llm.set('validation', "print('chat body')")
+    upload_csv(client, SAMPLE_CSV)
+    _generate_script(client, 'summarize')   # approves "print('chat body')"
+
+    # A wrangle records its OWN transform in the approved store.
+    fake_llm.set('wrangle', '{"code": "df = df.dropna()", '
+                            '"summary": "x", "error": null}')
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+
+    # Re-running the ORIGINAL chat script must NOT trigger a new code_moderation
+    # call -- pre-fix the wrangle save had overwritten the single slot.
+    before = sum(1 for c in fake_llm.calls if c[1] == 'code_moderation')
+    run = post_json(client, '/run',
+                    {'filename': 'test.csv', 'code': "print('chat body')",
+                     'language': 'Python'})
+    after = sum(1 for c in fake_llm.calls if c[1] == 'code_moderation')
+    assert run.get_json()['success'] is True
+    assert after == before, 'already-approved code should not be re-moderated'
+
+
 def test_interpret_streams_summary(client):
     resp = post_json(client, '/interpret',
                      {'output': 'p = 0.03', 'success': True, 'plots': []})

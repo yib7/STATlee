@@ -224,13 +224,15 @@ def run_code():
     if not code:
         return json_error('No code provided.')
 
-    approved = storage.load_approved_script()
-    if not approved:
+    if storage.load_approved_script() is None:
         return json_error(
             'No generated script found for this session. Generate code '
             'before running.', 403)
 
-    if code != approved.get('code'):
+    # P2-2: membership over a hash-keyed store, not equality against one slot,
+    # so a /wrangle that saved its own transform does not force a spurious
+    # re-moderation of the unchanged, already-validated /chat script.
+    if not storage.is_approved_script(code):
         # User-edited script (5.4): re-moderate before execution (0.4b).
         try:
             verdict = llm.get_service().generate(
