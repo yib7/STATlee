@@ -11,6 +11,7 @@ from ..usage import usage_breakdown
 from . import (
     BACKGROUND_MAX,
     FREE_TEXT_MAX,
+    STYLE_FIELD_MAX,
     clamp,
     clamp_history,
     json_error,
@@ -180,9 +181,13 @@ def generate_report():
                 'Run an analysis first — the report must be grounded in '
                 'actual results.', 422)
         background = clamp(data.get('background'), BACKGROUND_MAX)
-        length = data.get('length')
-        tone = data.get('tone')
-        fmt = data.get('format')
+        # Style fields are enum-ish UI values but still client text that is
+        # interpolated into both paid prompts; clamp (and stringify) them so
+        # neither a multi-megabyte 'length' nor a non-string 'format' can
+        # reach prompt construction.
+        length = clamp(data.get('length'), STYLE_FIELD_MAX)
+        tone = clamp(data.get('tone'), STYLE_FIELD_MAX)
+        fmt = clamp(data.get('format'), STYLE_FIELD_MAX)
         history = clamp_history(data.get('history'))
         converse = clamp_history(data.get('converse'))
 
@@ -193,20 +198,24 @@ def generate_report():
             if blocked_resp is not None:
                 return blocked_resp
 
+        # First pass runs on the bigger 3.1-pro model to compile a grounded
+        # draft. Built BEFORE the debit (prompt construction is free) so no
+        # exception here can ever strand a debited credit.
+        draft_prompt = prompts.report_draft(
+            background, length, fmt, output, interpretation, history, converse)
+
         # P1-2: the draft pass runs on the priciest (pro_max) tier, so it must
         # clear the same billing chokepoint as Pro-mode /chat, in the settled
         # moderate -> validate -> debit order. Without this the report builder
-        # is a free tunnel to the tier billing exists to meter.
+        # is a free tunnel to the tier billing exists to meter. Everything
+        # after this point runs inside generate()'s try, whose failure path
+        # refunds the credit.
         billing_user = current_user_or_none()
         allowed, deny_msg = billing.check_and_debit(
             billing_user, priority=True, config=cfg)
         if not allowed:
             return json_error(deny_msg or 'Out of credits.', 402)
         debited = True
-
-        # First pass runs on the bigger 3.1-pro model to compile a grounded draft.
-        draft_prompt = prompts.report_draft(
-            background, length, fmt, output, interpretation, history, converse)
 
     def generate():
         try:

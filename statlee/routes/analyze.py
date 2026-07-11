@@ -18,6 +18,7 @@ from ..identity import current_user_or_none
 from ..usage import usage_breakdown
 from . import (
     FREE_TEXT_MAX,
+    STYLE_FIELD_MAX,
     clamp,
     clamp_codebook,
     clamp_history,
@@ -57,7 +58,10 @@ def chat():
     # operator's key.
     user_prompt = clamp(data.get('prompt'), FREE_TEXT_MAX)
     filename = data.get('filename')
-    target_language = data.get('language', 'Python')
+    # 'language' is an enum-ish UI value but still client text interpolated
+    # into the draft and validation prompts; clamp (and stringify) it so a
+    # non-string payload cannot raise inside prompt construction.
+    target_language = clamp(data.get('language'), STYLE_FIELD_MAX) or 'Python'
     history = clamp_history(data.get('history', []))
     codebook = clamp_codebook(data.get('codebook', {}) or {})
     current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
@@ -139,13 +143,17 @@ def chat():
         logger.info("[/chat] Stage 1 skipped: %d columns below threshold (%d)",
                     len(headers), cfg.feature_selection_threshold)
 
-    draft_prompt = prompts.draft(
-        filename, filtered_headers, filtered_codebook, target_language,
-        metadata_summary, history, user_prompt, current_code=current_code)
-
     def generate():
         draft_usage, validation_usage = {}, {}
         try:
+            # Built inside the try (it cannot move above check_and_debit: it
+            # depends on the paid feature-selection pass, which must stay
+            # behind the debit) so a prompt-construction failure lands on the
+            # refund path below instead of stranding the debited credit.
+            draft_prompt = prompts.draft(
+                filename, filtered_headers, filtered_codebook, target_language,
+                metadata_summary, history, user_prompt,
+                current_code=current_code)
             # Surface the feature-selection fallback (P2-8): the user already
             # paid for the request, so if Stage 1 failed and we quietly reverted
             # to the full schema, tell them rather than swallowing it server-side.

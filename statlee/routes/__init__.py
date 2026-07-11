@@ -63,6 +63,7 @@ def moderation_blocked(result_text):
 # call. Sizing follows the /history save caps in routes/auth.py (10k/20k).
 FREE_TEXT_MAX = 20000       # analysis output, code, context, chat messages
 BACKGROUND_MAX = 5000       # short framing text (e.g. report background)
+STYLE_FIELD_MAX = 100       # enum-ish UI values (length, tone, format, language)
 HISTORY_MAX_TURNS = 50      # most-recent chat turns kept
 HISTORY_FIELD_MAX = 2000    # chars kept per field within each turn
 CODEBOOK_MAX = 100000       # serialized codebook budget (wide datasets)

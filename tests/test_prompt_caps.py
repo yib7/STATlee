@@ -15,6 +15,7 @@ from statlee.routes import (
     HISTORY_MAX_TURNS,
     PLOT_B64_MAX,
     PLOTS_MAX_COUNT,
+    STYLE_FIELD_MAX,
     clamp,
     clamp_codebook,
     clamp_history,
@@ -189,3 +190,24 @@ def test_generate_report_oversized_fields_are_clamped(client, fake_llm):
     final = next(c for c in fake_llm.calls if c[1] == 'report')[2]
     assert 'OUT_TAIL_SENTINEL' not in final
     assert 'BG_TAIL_SENTINEL' not in final
+
+
+def test_generate_report_style_fields_are_clamped(client, fake_llm):
+    """length/tone/format are enum-ish UI values, but they are still client
+    text interpolated into both paid prompts - a multi-megabyte 'length' is
+    the same amplification P1-2 closes elsewhere."""
+    payload = {
+        'output': 'coef=1.2', 'interpretation': 'ok',
+        'length': 'short' + 'L' * STYLE_FIELD_MAX + 'LEN_TAIL_SENTINEL',
+        'tone': 'formal' + 'T' * STYLE_FIELD_MAX + 'TONE_TAIL_SENTINEL',
+        'format': 'essay' + 'F' * STYLE_FIELD_MAX + 'FMT_TAIL_SENTINEL',
+    }
+    resp = post_json(client, '/generate_report', payload)
+    assert resp.status_code == 200
+    sse_events(resp)
+
+    draft = next(c for c in fake_llm.calls if c[1] == 'report_draft')[2]
+    assert 'LEN_TAIL_SENTINEL' not in draft
+    final = next(c for c in fake_llm.calls if c[1] == 'report')[2]
+    assert 'LEN_TAIL_SENTINEL' not in final
+    assert 'TONE_TAIL_SENTINEL' not in final

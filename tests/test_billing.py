@@ -501,3 +501,137 @@ def test_generate_report_stream_failure_refunds_credit(client, app, fake_llm):
     finally:
         cfg.billing_enabled = False
         billing.reset_spend()
+
+
+# --- SP3 review: no debit may survive a request that produced nothing --------
+
+def test_generate_report_nonstring_format_debits_exactly_once(client, app,
+                                                              fake_llm):
+    """Reviewer repro: {'format': 5} used to debit a credit and then 500 in
+    prompts.report_draft ((fmt or '').strip() on an int) OUTSIDE the refund
+    path -- the credit was silently lost. Style fields are now clamped
+    (stringify-safe), so the request succeeds and costs exactly the one
+    legitimate priority credit."""
+    from conftest import sse_events
+
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'format-int@example.com', 5)
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2', 'interpretation': 'ok',
+                          'format': 5})
+        assert resp.status_code == 200
+        events = sse_events(resp)
+        assert any(e.get('type') == 'done' for e in events)
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 4   # one real debit, nothing leaked
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_generate_report_prompt_failure_keeps_credits(client, app, fake_llm,
+                                                      monkeypatch):
+    """The draft prompt is built BEFORE check_and_debit, so a prompt-
+    construction failure can never strand a debited credit -- there is no
+    debit yet to strand."""
+    from statlee import prompts
+    from statlee.extensions import db
+    from statlee.models import User
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('prompt construction exploded')
+    monkeypatch.setattr(prompts, 'report_draft', boom)
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'report-window@example.com', 5)
+        resp = post_json(client, '/generate_report',
+                         {'output': 'coef=1.2', 'interpretation': 'ok'})
+        assert resp.status_code >= 400   # failed, but cleanly and for free
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # no debit-without-refund window
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_chat_nonstring_language_debits_exactly_once(client, app, fake_llm):
+    """Same class as the report repro: a non-string 'language' used to raise
+    in prompts.draft (language.lower()) AFTER the /chat debit, outside the
+    refund path. Clamping stringifies it, so the request just works."""
+    from conftest import sse_events
+
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'lang-int@example.com', 5)
+        upload_csv(client, SAMPLE_CSV)
+        resp = post_json(client, '/chat',
+                         {'filename': 'test.csv', 'prompt': 'summarize',
+                          'pro': True, 'language': 5})
+        assert resp.status_code == 200
+        events = sse_events(resp)
+        assert any(e.get('type') == 'done' for e in events)
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 4   # one real debit, nothing leaked
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
+def test_chat_prompt_failure_after_debit_refunds_credit(client, app, fake_llm,
+                                                        monkeypatch):
+    """/chat's draft prompt depends on feature selection (a paid call that
+    must stay behind the debit), so it cannot move above check_and_debit;
+    instead it is built inside the stream's try so a construction failure
+    lands on the refund path."""
+    from conftest import sse_events
+
+    from statlee import prompts
+    from statlee.extensions import db
+    from statlee.models import User
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('prompt construction exploded')
+    monkeypatch.setattr(prompts, 'draft', boom)
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        user_id = _register_with_credits(client, app,
+                                         'chat-window@example.com', 5)
+        upload_csv(client, SAMPLE_CSV)
+        resp = post_json(client, '/chat',
+                         {'filename': 'test.csv', 'prompt': 'summarize',
+                          'pro': True})
+        events = sse_events(resp)
+        assert any(e.get('type') == 'error' for e in events)
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # debit refunded, not stranded
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
