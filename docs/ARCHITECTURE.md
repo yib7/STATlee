@@ -147,6 +147,22 @@ to top up `credits`). Today it always returns `(True, None)`. Pro mode
 already calls it, so turning billing on is *implementing one function*, not a
 refactor.
 
+## Database schema & migrations (`migrations/`, `app.py`)
+
+The schema is versioned with Alembic (Flask-Migrate). At boot `create_app`
+brings the database up to date: a fresh DB is migrated to head, a legacy
+`create_all()` DB (tables but no `alembic_version`) is stamped at the baseline
+revision `171777e71dff` and then upgraded, and an already-migrated DB just
+upgrades to head. Each DB URI is upgraded once per process. The testing env
+keeps plain `create_all()` for fast throwaway DBs. Add a schema change with
+`flask db migrate -m "..."`, review the generated file under
+`migrations/versions/`, and the boot upgrade applies it on the next deploy.
+
+Caveat: stamping assumes a v1.2.0-era schema. A legacy database whose columns
+predate the baseline (i.e. missing columns the baseline revision assumes) cannot
+be auto-healed by stamping, since stamp only records the revision without
+altering tables; such a DB needs a manual column backfill before boot.
+
 ## Frontend (`static/js/`, `templates/index.html`)
 
 | File | Responsibility |

@@ -47,6 +47,62 @@ def _setup_logging():
 
 logger = logging.getLogger('statlee')
 
+# Alembic baseline revision (created by `flask db migrate` for the v1.2.0
+# schema). A legacy create_all() database gets stamped at this revision so that
+# future column-adding migrations apply on redeploy.
+BASELINE_REVISION = '171777e71dff'
+
+# DB URIs this process has already brought up to date, so re-building the app
+# (a second gunicorn worker importing wsgi:app, or a test rebuild) does not
+# re-run migrations against a DB it already handled.
+_upgraded_uris = set()
+
+# migrations/ lives at the repo root, a sibling of the statlee/ package, so the
+# boot upgrade works regardless of the current working directory.
+_MIGRATIONS_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'migrations'))
+
+
+def _init_schema(app, cfg):
+    """Bring the database schema up to date at boot.
+
+    Testing keeps plain ``create_all()`` (fast, throwaway DBs with no
+    alembic_version table). Every other env runs Alembic so that
+    column-adding migrations actually apply on redeploy, guarded by
+    ``_upgraded_uris`` so a given DB URI is only handled once per process:
+
+    - no tables at all           -> fresh install, migrate to head;
+    - tables but no alembic_version -> legacy create_all() DB, stamp the
+      baseline then upgrade (existing rows are preserved);
+    - alembic_version present     -> plain upgrade to head.
+    """
+    if cfg.is_testing:
+        db.create_all()
+        return
+
+    uri = app.config['SQLALCHEMY_DATABASE_URI']
+    if uri in _upgraded_uris:
+        return
+
+    from flask_migrate import stamp, upgrade
+    from sqlalchemy import inspect as sa_inspect
+
+    tables = set(sa_inspect(db.engine).get_table_names())
+    if not tables:
+        logger.info("DB schema: fresh database, migrating to head")
+        upgrade()
+    elif 'alembic_version' not in tables:
+        logger.info("DB schema: legacy create_all() database, stamping "
+                    "baseline %s then upgrading to head", BASELINE_REVISION)
+        stamp(revision=BASELINE_REVISION)
+        upgrade()
+    else:
+        logger.info("DB schema: already migrated, upgrading to head")
+        upgrade()
+
+    _upgraded_uris.add(uri)
+
+
 # Endpoints reachable without authorization (frontend loader, auth handshake).
 PUBLIC_ENDPOINTS = {
     'misc.index', 'misc.welcome', 'static', 'misc.health_check',
@@ -96,6 +152,8 @@ def create_app(config=None):
 
     # --- extensions -------------------------------------------------------
     db.init_app(app)
+    from flask_migrate import Migrate
+    Migrate(app, db, directory=_MIGRATIONS_DIR)
     login_manager.init_app(app)
     limiter.init_app(app)
     llm.init_service(cfg)
@@ -111,7 +169,7 @@ def create_app(config=None):
         return jsonify({'error': 'Unauthorized. Please log in.'}), 401
 
     with app.app_context():
-        db.create_all()
+        _init_schema(app, cfg)
 
     # --- blueprints ---------------------------------------------------------
     from .routes import analyze, auth, converse, datasets, misc

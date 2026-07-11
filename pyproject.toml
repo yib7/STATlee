@@ -18,7 +18,7 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["statlee/static/vendor", "__pycache__"]
+extend-exclude = ["statlee/static/vendor", "__pycache__", "migrations"]
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, isort, bugbear, pyupgrade, comprehensions, perf-lint.
