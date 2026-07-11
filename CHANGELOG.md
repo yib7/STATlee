@@ -4,6 +4,72 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Third audit-pass cycle: 21 findings closed (7 P1, 14 P2) across billing
+ordering, prompt-material caps, database migrations, account recovery, the
+execution sandbox, storage integrity, and browser-side hardening. No breaking
+changes for end users. The test suite grew from 229 to 311 passing (plus 4
+skip-marked Docker/POSIX tests that run in CI).
+
+### Security
+- All client-supplied prompt material is now length-capped server-side before
+  it reaches a model call (chat history, codebook, code, converse context,
+  interpret output and plots, report fields), closing an unmetered
+  input-token amplification vector on the operator's key.
+- `/generate_report` now moderates client text and, when billing is enabled,
+  debits a credit before the expensive first pass and refunds it if the stream
+  fails. It was previously unbilled, unmoderated, and uncapped.
+- `/interpret` grounds on the server-recorded last-run output, plots, and
+  executed script instead of trusting the client's spoofable copies, and
+  moderates the client fallback when no server run exists.
+- Login and registration have a dedicated rate limit (`RATE_LIMIT_AUTH`,
+  default 10 per minute).
+- Responses carry a strict Content-Security-Policy (`script-src 'self'`),
+  `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`. The inline
+  boot script moved to a static file fed by a JSON data island, and inline
+  onclick handlers were replaced with a delegated listener.
+- CSRF tokens are compared in constant time, and malformed tokens are
+  rejected cleanly.
+- Data-page filters treat the search term literally instead of as a regular
+  expression, removing a catastrophic-backtracking DoS and fixing searches
+  that contain ordinary punctuation.
+- Uploads are capped per identity (file count and total bytes) to prevent
+  disk-fill abuse, and oversized `.txt` uploads are rejected before the slow
+  PDF conversion starts.
+- Email verification tokens expire after 48 hours.
+
+### Added
+- Database migrations (Flask-Migrate/Alembic). Fresh installs migrate to head
+  at boot; legacy `create_all` databases are stamped at the v1.2.0 baseline
+  and upgraded, so future schema changes no longer break existing
+  deployments. gunicorn now preloads the app so migration runs once, not once
+  per worker.
+- Password reset flow: `/request_password_reset` (no account enumeration,
+  rate-limited) and `/reset_password` with single-use one-hour tokens, built
+  on the existing verification-email plumbing.
+- `flask grant-credits` CLI and an optional `MONTHLY_FREE_CREDITS` lazy
+  monthly top-up. The out-of-credits message now only promises a refresh when
+  one is actually configured.
+- `SANDBOX_WORK_ROOT` so the Docker sandbox works when the app itself runs in
+  a container with a socket-mounted host daemon (sibling-container bind
+  mounts), with the run directory made readable by the non-root runner.
+
+### Fixed
+- `/chat` validates the dataset before debiting a credit, so a stale or
+  invalid filename no longer costs a credit or a unit of the operator's
+  monthly ceiling, and a denied debit returns the ceiling unit it took.
+- All three LLM backends detect token-ceiling truncation and raise a clear
+  error instead of returning silently cut-off code.
+- Wrangling no longer clobbers the approved analysis script (approved scripts
+  are kept per content hash, newest five), and concurrent wrangles no longer
+  lose version-history entries (cross-worker file lock on the manifest).
+- Uploads whose filename ends in a reserved version suffix such as `__v2` are
+  rejected instead of silently overwriting wrangle history.
+- On POSIX, a timed-out subprocess-mode run now kills the whole process
+  group, so grandchild processes no longer outlive the timeout.
+- Saved history is capped at the newest 200 rows per user.
+
 ## [1.2.0] - 2026-07-07
 
 Follow-up correctness and hardening cycle. Closes a second audit pass with one
