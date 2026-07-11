@@ -242,8 +242,12 @@ def create_app(config=None):
         token = (request.headers.get('X-CSRF-Token')
                  or (request.form.get('csrf_token') if request.form else None))
         # Constant-time compare (P2-8). The `token and` guard keeps a missing or
-        # None token out of compare_digest, which requires two str/bytes args.
-        if token and hmac.compare_digest(token, session.get('csrf_token', '')):
+        # None token out of compare_digest; both sides are encoded because the
+        # str overload of compare_digest raises on non-ASCII input, and a
+        # garbage client token must be a normal 403 reject, not a 500.
+        expected = session.get('csrf_token', '')
+        if token and hmac.compare_digest(token.encode('utf-8', 'replace'),
+                                         expected.encode('utf-8', 'replace')):
             return None
         return jsonify({'error': 'Invalid or missing CSRF token. '
                                  'Reload the page and try again.'}), 403

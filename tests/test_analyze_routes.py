@@ -273,6 +273,33 @@ def test_interpret_grounds_on_server_run_ignoring_spoofed_output(app, client):
     assert 'CLIENT_SPOOF' not in sent
 
 
+def test_interpret_grounded_ignores_spoofed_client_code(app, client, fake_llm):
+    """P2-7 (follow-up): on the grounded path the debug `code` must come from the
+    server-recorded approved script, never the spoofable client `code`. An
+    attacker who /runs a failing script then POSTs arbitrary text in `code` must
+    not smuggle that text into the paid model call."""
+    from statlee import storage
+
+    identity = _identity_for(client)
+    with app.app_context():
+        # A failing run persists a Traceback (grounded + failed=True) and the
+        # run-guard records the executed script.
+        storage.save_last_run('Traceback (most recent call last): NameError: x',
+                              [], identity=identity)
+        storage.save_approved_script("print('SERVER_CODE_MARKER')", 'Python',
+                                     identity=identity)
+
+    fake_llm.calls.clear()
+    resp = post_json(client, '/interpret',
+                     {'output': 'ignored client output',
+                      'code': 'SPOOF_CLIENT_CODE_MARKER', 'success': False})
+    assert resp.status_code == 200
+
+    joined = '\n'.join(c[2] for c in fake_llm.calls)
+    assert 'SERVER_CODE_MARKER' in joined       # trusted server code was used
+    assert 'SPOOF_CLIENT_CODE_MARKER' not in joined  # client code never reached the model
+
+
 def test_interpret_moderates_client_output_when_no_server_run(app, client, fake_llm):
     """P2-7: with no server-side run on record, the client `output` is trusted
     only after passing moderation, which fails closed. A blocked payload must

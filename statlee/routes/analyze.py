@@ -298,11 +298,13 @@ def interpret_results():
     server_output, server_plot_paths = storage.last_run_artifacts()
     grounded = bool(server_output.strip() or server_plot_paths)
 
-    # 'code' is the user's own script, only used on the debug path; clamp it
-    # (P1-7) in either branch.
-    code = clamp(data.get('code'), FREE_TEXT_MAX)
-
     if grounded:
+        # The debug `code` must be server-side too: the run-guard store holds
+        # the script the server actually approved and executed, while the
+        # client `code` field is arbitrary spoofable text. Nothing
+        # client-supplied may reach the model unmoderated on this path (P2-7).
+        approved = storage.load_approved_script()
+        code = clamp((approved or {}).get('code'), FREE_TEXT_MAX)
         final_output = clamp(server_output, FREE_TEXT_MAX)
         plots = []
         for path in server_plot_paths[:3]:
@@ -318,7 +320,9 @@ def interpret_results():
             or final_output.strip().startswith('Error'))
     else:
         # P1-7: cap the client-supplied text and plot payloads before they reach
-        # the prompt.
+        # the prompt. Client `code` is allowed here only because the moderation
+        # gate below covers it together with `output`.
+        code = clamp(data.get('code'), FREE_TEXT_MAX)
         final_output = clamp(data.get('output'), FREE_TEXT_MAX)
         plots = data.get('plots')
         if plots is None:

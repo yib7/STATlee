@@ -47,6 +47,16 @@ def test_post_with_wrong_csrf_is_rejected(client):
     assert 'CSRF' in resp.get_json()['error']
 
 
+def test_non_ascii_csrf_token_is_rejected_not_500(client):
+    # P2-8: a non-ASCII token must be a normal 403 reject, not a 500 from
+    # hmac.compare_digest choking on non-ASCII str input.
+    csrf_token(client)                      # prime a real session token
+    resp = client.post('/data_page', json={'filename': 'x.csv'},
+                       headers={'X-CSRF-Token': 'café-tökén-☃'})
+    assert resp.status_code == 403
+    assert 'CSRF' in resp.get_json()['error']
+
+
 def test_unknown_route_is_generic_404(client):
     resp = client.get('/definitely-not-a-route')
     assert resp.status_code == 404
