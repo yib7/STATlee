@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 
@@ -87,6 +88,35 @@ def identity_root(identity=None):
     root = os.path.join(storage_root(), identity)
     os.makedirs(root, exist_ok=True)
     return root
+
+
+_VERSION_ARTIFACT_RE = re.compile(r'__v\d+\.')
+
+
+def identity_usage(identity=None):
+    """Return ``(dataset_count, total_bytes)`` for the caller's storage dir (P2-4).
+
+    ``dataset_count`` counts distinct uploaded files at the top level (hidden
+    sidecars and ``{stem}__vN.csv`` version artifacts excluded), so wrangling a
+    dataset into many versions does not, by itself, consume the upload-count
+    quota. ``total_bytes`` is the true on-disk size of everything the identity
+    has stored (uploads, version artifacts, sidecars, last-run plots), so the
+    byte cap reflects real disk pressure. A small over-count is acceptable: the
+    quota check that uses this fails safe toward rejecting.
+    """
+    root = identity_root(identity)
+    dataset_count = 0
+    total_bytes = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            try:
+                total_bytes += os.stat(os.path.join(dirpath, fn)).st_size
+            except OSError:
+                continue
+            if (dirpath == root and not fn.startswith('.')
+                    and not _VERSION_ARTIFACT_RE.search(fn)):
+                dataset_count += 1
+    return dataset_count, total_bytes
 
 
 def resolve_path(filename, identity=None):

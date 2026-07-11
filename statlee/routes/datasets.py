@@ -34,6 +34,43 @@ def _cfg():
     return current_app.config['STATLEE']
 
 
+def _incoming_size(file):
+    """Bytes the uploaded ``file`` will occupy, read from its stream without
+    consuming it. Best-effort: an unseekable stream reports 0 (the byte quota
+    then only reflects already-stored data, which still fails safe on the next
+    upload once the file has landed)."""
+    try:
+        stream = file.stream
+        pos = stream.tell()
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(pos)
+        return size
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def _quota_error(incoming_bytes):
+    """P2-4: return a 413 ``json_error`` if accepting ``incoming_bytes`` more
+    would push the caller's identity dir past its file-count or byte quota,
+    else ``None``. Uses a cheap directory scan BEFORE the new file is saved so
+    a burst of uploads cannot fill the disk ahead of the 2h TTL cleanup."""
+    cfg = _cfg()
+    count, used = storage.identity_usage()
+    if cfg.max_datasets_per_identity and count >= cfg.max_datasets_per_identity:
+        return json_error(
+            'Storage limit reached: at most '
+            f'{cfg.max_datasets_per_identity} files per session. Remove data '
+            'or use Reset before uploading more.', 413)
+    if (cfg.max_bytes_per_identity
+            and used + incoming_bytes > cfg.max_bytes_per_identity):
+        mb = cfg.max_bytes_per_identity // (1024 * 1024)
+        return json_error(
+            f'Storage quota of {mb} MB exceeded for this session. Remove data '
+            'or use Reset before uploading more.', 413)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Small caches (5.6 classification/suggestion cache, 5.8 parsed-frame cache)
 # ---------------------------------------------------------------------------
@@ -116,6 +153,10 @@ def upload_file():
     filepath = storage.resolve_path(filename)
     if not filepath:
         return json_error('Invalid filename')
+
+    quota = _quota_error(_incoming_size(file))
+    if quota is not None:
+        return quota
     file.save(filepath)
 
     try:
@@ -181,6 +222,28 @@ def upload_pdf():
     filepath = storage.resolve_path(filename)
     if not filepath:
         return json_error('Invalid filename')
+
+    incoming = _incoming_size(file)
+    quota = _quota_error(incoming)
+    if quota is not None:
+        return quota
+
+    # P2-5: a .txt is rendered to PDF page-by-page through fpdf (pure Python,
+    # slow) and only THEN measured against pdf_max_pages, so a 16 MB text file
+    # could hold a worker in that conversion before being rejected. Measure the
+    # raw bytes first. The budget (4096 bytes per allowed page) sits well above
+    # real text density (~3 KB per dense rendered page), so nothing short enough
+    # to pass the page cap is rejected here -- it only short-circuits the
+    # pathological oversized case before any conversion work happens.
+    if filename.lower().endswith('.txt'):
+        max_txt_bytes = max_pages * 4096
+        if incoming > max_txt_bytes:
+            return json_error(
+                f'Text file is too large ({incoming // 1024} KB). The '
+                f'{max_pages}-page documentation limit allows roughly '
+                f'{max_txt_bytes // 1024} KB of text. Please upload a shorter '
+                'document.')
+
     file.save(filepath)
 
     from pypdf import PdfReader

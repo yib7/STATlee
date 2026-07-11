@@ -65,6 +65,15 @@ class Config:
     s3_bucket: str = ''
     s3_prefix: str = 'statlee'
     file_ttl_seconds: int = 7200    # anonymous-file cleanup window (2h)
+    # Per-identity storage quota (P2-4). The 2h TTL is the only other reclaim,
+    # so without these one IP could park many uploads (20/min x 16MB) on disk
+    # for hours before cleanup runs. Enforced at /upload and /upload_pdf with a
+    # cheap directory scan BEFORE the incoming file is saved; 0 disables either
+    # cap. Counts uploaded files (not version artifacts) for the count cap, and
+    # true on-disk bytes (uploads + version artifacts + sidecars) for the byte
+    # cap, so the byte cap reflects real disk pressure.
+    max_datasets_per_identity: int = 10
+    max_bytes_per_identity: int = 200 * 1024 * 1024   # 200 MB
 
     # --- Execution sandbox (Tier 0) ------------------------------------------
     sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker' (0.3)
@@ -226,6 +235,9 @@ class Config:
             s3_bucket=os.environ.get('S3_BUCKET', '').strip(),
             s3_prefix=os.environ.get('S3_PREFIX', 'statlee').strip(),
             file_ttl_seconds=_env_int('FILE_TTL_SECONDS', 7200),
+            max_datasets_per_identity=_env_int('MAX_DATASETS_PER_IDENTITY', 10),
+            max_bytes_per_identity=_env_int(
+                'MAX_BYTES_PER_IDENTITY', 200 * 1024 * 1024),
             sandbox_mode=os.environ.get('SANDBOX_MODE', 'subprocess').strip().lower(),
             runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
             sandbox_work_root=os.environ.get('SANDBOX_WORK_ROOT', '').strip(),

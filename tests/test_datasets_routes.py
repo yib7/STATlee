@@ -78,6 +78,53 @@ def test_upload_tsv_is_normalized(client):
     assert resp.get_json()['filename'] == 'd.csv'   # converted to canonical CSV
 
 
+# --- P2-4: per-identity storage quota (disk-fill DoS) -----------------------
+
+def test_upload_rejects_past_file_count_quota(client, app):
+    """P2-4: once the per-identity dataset-count cap is reached, a further
+    upload is rejected instead of parking more files on disk until the TTL
+    sweep runs."""
+    app.config['STATLEE'].max_datasets_per_identity = 2
+    assert upload_csv(client, SAMPLE_CSV, filename='a.csv').status_code == 200
+    assert upload_csv(client, SAMPLE_CSV, filename='b.csv').status_code == 200
+    resp = upload_csv(client, SAMPLE_CSV, filename='c.csv')
+    assert resp.status_code == 413
+    assert 'limit' in resp.get_json()['error'].lower()
+
+
+def test_upload_rejects_past_byte_quota(client, app):
+    """P2-4: an upload that would push total stored bytes past the identity
+    byte cap is rejected before the file is saved."""
+    app.config['STATLEE'].max_bytes_per_identity = 10   # SAMPLE_CSV exceeds it
+    resp = upload_csv(client, SAMPLE_CSV, filename='big.csv')
+    assert resp.status_code == 413
+    assert 'quota' in resp.get_json()['error'].lower()
+
+
+def test_upload_under_quota_succeeds(client, app):
+    """P2-4: with generous caps a normal upload is unaffected."""
+    cfg = app.config['STATLEE']
+    cfg.max_datasets_per_identity = 10
+    cfg.max_bytes_per_identity = 200 * 1024 * 1024
+    assert upload_csv(client, SAMPLE_CSV).status_code == 200
+
+
+def test_upload_quota_ignores_version_artifacts_for_count(client, app, fake_llm):
+    """P2-4: wrangling a dataset into extra versions does not consume the
+    upload-count quota -- only distinct uploads count toward it."""
+    app.config['STATLEE'].max_datasets_per_identity = 1
+    assert upload_csv(client, SAMPLE_CSV, filename='only.csv').status_code == 200
+    # A wrangle adds only.csv__v2.csv (a version artifact), which must not count.
+    post_json(client, '/wrangle',
+              {'filename': 'only.csv', 'instruction': 'drop missing rows'})
+    from statlee import storage
+    with client.session_transaction() as sess:
+        identity = f"anon_{sess['sid']}"
+    with app.app_context():
+        count, _ = storage.identity_usage(identity=identity)
+    assert count == 1
+
+
 def test_data_page_pagination(client):
     upload_csv(client, SAMPLE_CSV)
     resp = post_json(client, '/data_page',
@@ -407,6 +454,40 @@ def test_reset_clears_workspace(client):
     # After reset the dataset is gone.
     resp = post_json(client, '/data_page', {'filename': 'test.csv'})
     assert resp.status_code == 400
+
+
+# --- P2-5: TXT->PDF size pre-check (before the slow fpdf conversion) ---------
+
+def test_upload_pdf_rejects_oversized_txt_before_conversion(
+        client, app, monkeypatch):
+    """P2-5: an oversized .txt is rejected on its raw byte size BEFORE the slow
+    fpdf conversion runs, so it cannot hold a worker rendering thousands of
+    pages. fpdf is trip-wired to prove the conversion path is never reached."""
+    app.config['STATLEE'].pdf_max_pages = 1   # budget = 1 * 4096 = 4096 bytes
+    import fpdf
+
+    def boom(*a, **k):
+        raise AssertionError('fpdf must not run for an oversized .txt')
+
+    monkeypatch.setattr(fpdf, 'FPDF', boom)
+    token = csrf_token(client)
+    data = {'file': (io.BytesIO(b'x' * 5000), 'huge.txt')}   # > 4096-byte budget
+    resp = client.post('/upload_pdf', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+    assert resp.status_code == 400
+    assert 'too large' in resp.get_json()['error'].lower()
+
+
+def test_upload_pdf_allows_small_txt(client):
+    """P2-5: a .txt within the size budget still converts to a PDF normally."""
+    token = csrf_token(client)
+    data = {'file': (io.BytesIO(b'Q1. Age?\nQ2. Sex?'), 'ok.txt')}
+    resp = client.post('/upload_pdf', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+    assert resp.status_code == 200
+    assert resp.get_json()['filename'].endswith('.pdf')
 
 
 def test_extract_pdf_codebook_survey_mode(client, fake_llm):
