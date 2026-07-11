@@ -129,6 +129,12 @@ class Config:
     # on the server's own key so nobody can run up an unbounded bill. 0 disables.
     # NOTE: per-process — across multiple workers each enforces its own count.
     monthly_priority_call_ceiling: int = 0
+    # Free credits granted to a logged-in free-plan user at the start of each
+    # calendar month, applied lazily on their first billed request that month
+    # (P2-10). 0 (default) disables the top-up, and the out-of-credits message
+    # then makes no promise of a monthly reset. When >0 the reset is real, so
+    # the deny message truthfully points at it.
+    monthly_free_credits: int = 0
 
     # --- Rate limits (1.4) --------------------------------------------------------
     rate_limit_enabled: bool = True
@@ -233,6 +239,7 @@ class Config:
             require_email_verification=_env_bool('REQUIRE_EMAIL_VERIFICATION', False),
             billing_enabled=_env_bool('BILLING_ENABLED', False),
             monthly_priority_call_ceiling=_env_int('MONTHLY_PRIORITY_CALL_CEILING', 0),
+            monthly_free_credits=_env_int('MONTHLY_FREE_CREDITS', 0),
             rate_limit_enabled=_env_bool('RATE_LIMIT_ENABLED', True),
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),

@@ -120,7 +120,7 @@ def _init_schema(app, cfg):
 PUBLIC_ENDPOINTS = {
     'misc.index', 'misc.welcome', 'static', 'misc.health_check',
     'auth.check_auth', 'auth.login', 'auth.register', 'auth.logout',
-    'auth.verify_email',
+    'auth.verify_email', 'auth.request_password_reset', 'auth.reset_password',
 }
 
 
@@ -191,6 +191,10 @@ def create_app(config=None):
     app.register_blueprint(datasets.bp)
     app.register_blueprint(analyze.bp)
     app.register_blueprint(converse.bp)
+
+    # --- CLI commands -------------------------------------------------------
+    from .cli import register_cli
+    register_cli(app)
 
     # --- request lifecycle ----------------------------------------------------
     @app.before_request

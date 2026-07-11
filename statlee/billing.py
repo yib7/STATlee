@@ -61,6 +61,42 @@ def _return_ceiling_unit():
             _spend['priority_calls'] -= 1
 
 
+def _apply_monthly_free_credits(user, config):
+    """Lazily top a free user's balance up to ``MONTHLY_FREE_CREDITS`` on the
+    first billed request of a new calendar month (P2-10).
+
+    Semantics: a *set-to-at-least-N* on month rollover, not an additive grant.
+    ``credits_month`` records the last month already topped up so the top-up
+    fires exactly once per month; the update is a single conditional statement
+    (``WHERE credits_month IS NULL OR credits_month != <month>``) so two
+    concurrent first-of-month requests can't both apply it.
+    """
+    free = getattr(config, 'monthly_free_credits', 0) or 0
+    if free <= 0:
+        return
+    if user is None or getattr(user, 'plan', 'free') != 'free':
+        return
+    month = datetime.now(UTC).strftime('%Y-%m')
+    if getattr(user, 'credits_month', None) == month:
+        return
+    from sqlalchemy import case, or_
+
+    from .extensions import db
+    from .models import User
+    rows = db.session.execute(
+        db.update(User)
+        .where(User.id == user.id,
+               or_(User.credits_month.is_(None), User.credits_month != month))
+        .values(
+            credits=case((User.credits < free, free), else_=User.credits),
+            credits_month=month)).rowcount
+    db.session.commit()
+    if rows:
+        # Bulk UPDATE does not sync onto the ORM instance; refresh so the debit
+        # below (and any downstream read) sees the topped-up balance.
+        db.session.refresh(user)
+
+
 def refund(user, *, priority=False, cost=None, config=None):
     """Reverse a debit made by ``check_and_debit`` (e.g. the request failed
     after the credit was taken, so the user got nothing for it).
@@ -103,6 +139,10 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     if config is None or not getattr(config, 'billing_enabled', False):
         return True, None
 
+    # P2-10: refresh this user's monthly free credits before deciding, so the
+    # first billed request of a new month sees the topped-up balance.
+    _apply_monthly_free_credits(user, config)
+
     need = cost if cost is not None else (PRIORITY_COST if priority else 0)
 
     # Operator-protecting global ceiling (applies to everyone, incl. anonymous).
@@ -135,8 +175,14 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
             # not erode the operator-wide quota for everyone else.
             if ceiling_unit_taken:
                 _return_ceiling_unit()
-            return False, ('Out of credits — upgrade or wait for your monthly '
-                           'reset.')
+            # Only promise a monthly reset when one actually exists (P2-10): a
+            # MONTHLY_FREE_CREDITS top-up is what refreshes the balance. With it
+            # off, saying "wait for your reset" would be a lie.
+            if getattr(config, 'monthly_free_credits', 0) > 0:
+                return False, ('Out of credits. Your free credits refresh at '
+                               'the start of next month.')
+            return False, ('Out of credits. Contact the site operator to add '
+                           'more credits.')
         # The UPDATE above is a bulk/Core statement — SQLAlchemy does not sync
         # it back onto the in-memory ORM instance, so `user.credits` is stale
         # here. Refresh it so any downstream read (this request's response

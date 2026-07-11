@@ -128,6 +128,133 @@ def test_monthly_ceiling_ignores_non_priority():
         billing.reset_spend()
 
 
+# --- P2-10: monthly free-credit top-up + honest deny message ----------------
+
+def test_monthly_free_credits_top_up_applied_on_new_month(app):
+    """On the first billed request of a new calendar month, a free user's
+    balance is topped up to MONTHLY_FREE_CREDITS, and credits_month advances."""
+    from datetime import UTC, datetime
+
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True, monthly_free_credits=5)
+    with app.app_context():
+        user = User(email='topup@example.com')
+        user.set_password('password123')
+        user.credits = 0
+        user.credits_month = '2000-01'     # a month firmly in the past
+        db.session.add(user)
+        db.session.commit()
+
+        allowed, message = billing.check_and_debit(
+            user, priority=True, config=cfg)
+        this_month = datetime.now(UTC).strftime('%Y-%m')
+        # Topped up to 5, then the priority request debited 1 -> 4.
+        assert allowed is True and message is None
+        assert user.credits == 4
+        assert user.credits_month == this_month
+
+
+def test_monthly_free_credits_not_reapplied_same_month(app):
+    """Within the same month the top-up fires once: a second request does not
+    refill, it just debits normally (so the balance keeps falling)."""
+    from datetime import UTC, datetime
+
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True, monthly_free_credits=5)
+    with app.app_context():
+        user = User(email='onceonly@example.com')
+        user.set_password('password123')
+        user.credits = 0
+        user.credits_month = '2000-01'
+        db.session.add(user)
+        db.session.commit()
+
+        billing.check_and_debit(user, priority=True, config=cfg)   # 5 -> 4
+        assert user.credits == 4
+        this_month = datetime.now(UTC).strftime('%Y-%m')
+        assert user.credits_month == this_month
+
+        # Second request in the SAME month: no refill, just another debit.
+        billing.check_and_debit(user, priority=True, config=cfg)   # 4 -> 3
+        assert user.credits == 3
+
+
+def test_monthly_free_credits_sets_to_at_least_not_additive(app):
+    """The top-up is a set-to-at-least-N, not an additive grant: a user who is
+    already above the monthly amount keeps their higher balance."""
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True, monthly_free_credits=5)
+    with app.app_context():
+        user = User(email='rolling@example.com')
+        user.set_password('password123')
+        user.credits = 9              # above the monthly free amount
+        user.credits_month = '2000-01'
+        db.session.add(user)
+        db.session.commit()
+
+        billing.check_and_debit(user, priority=True, config=cfg)
+        # max(9, 5) = 9, then debit 1 -> 8. Not 5+9.
+        assert user.credits == 8
+
+
+def test_monthly_free_credits_disabled_by_default(app):
+    """With MONTHLY_FREE_CREDITS unset (0) nothing is topped up: a 0-credit
+    free user is still denied."""
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=True)   # monthly_free_credits=0
+    with app.app_context():
+        user = User(email='nofree@example.com')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+        allowed, message = billing.check_and_debit(
+            user, priority=True, config=cfg)
+        assert allowed is False
+        assert user.credits == 0
+
+
+def test_deny_message_promises_reset_only_when_configured(app):
+    """The out-of-credits message must not promise a monthly reset unless one
+    actually exists (MONTHLY_FREE_CREDITS>0)."""
+    from datetime import UTC, datetime
+
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+
+    this_month = datetime.now(UTC).strftime('%Y-%m')
+    with app.app_context():
+        user = User(email='msgtest@example.com')
+        user.set_password('password123')
+        # Already topped up this month with a zero balance, so the top-up is a
+        # no-op and the denial path (with its message) is what we exercise.
+        user.credits = 0
+        user.credits_month = this_month
+        db.session.add(user)
+        db.session.commit()
+
+        # Off: no reset promise.
+        off = Config(env='testing', billing_enabled=True)
+        _, msg_off = billing.check_and_debit(user, priority=True, config=off)
+        assert 'reset' not in msg_off.lower()
+        assert 'month' not in msg_off.lower()
+        assert 'credit' in msg_off.lower()
+
+        # On: truthful reset promise.
+        on = Config(env='testing', billing_enabled=True, monthly_free_credits=5)
+        _, msg_on = billing.check_and_debit(user, priority=True, config=on)
+        assert 'month' in msg_on.lower()
+        assert 'credit' in msg_on.lower()
+
+
 # --- P1-4a: atomic debit (no double-spend / no negative credits) -----------
 
 def test_check_and_debit_refreshes_stale_in_memory_credits(app):
