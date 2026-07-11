@@ -25,8 +25,10 @@ malware/illegal requests.
 | [Flask](https://flask.palletsprojects.com/) | Web framework (app factory + blueprints) | BSD-3-Clause |
 | [Werkzeug](https://werkzeug.palletsprojects.com/) | WSGI utilities, security helpers, ProxyFix | BSD-3-Clause |
 | [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/) / [SQLAlchemy](https://www.sqlalchemy.org/) | ORM + models | BSD / MIT |
+| [Flask-Migrate](https://flask-migrate.readthedocs.io/) / [Alembic](https://alembic.sqlalchemy.org/) | Database schema migrations | MIT |
 | [Flask-Login](https://flask-login.readthedocs.io/) | Session/auth management | MIT |
 | [Flask-Limiter](https://flask-limiter.readthedocs.io/) | Per-identity rate limiting | MIT |
+| [filelock](https://github.com/tox-dev/filelock) | Cross-worker lock on the dataset version manifest | Unlicense (public domain) |
 | [pandas](https://pandas.pydata.org/) | Data loading and manipulation | BSD-3-Clause |
 | [statsmodels](https://www.statsmodels.org/) | Statistical models | BSD-3-Clause |
 | [matplotlib](https://matplotlib.org/) | Plotting | matplotlib (BSD-style) |
