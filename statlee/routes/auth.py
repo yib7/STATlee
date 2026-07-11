@@ -69,6 +69,7 @@ def check_auth():
 
 
 @bp.route('/login', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_auth)
 def login():
     cfg = _cfg()
     data = request.get_json(silent=True) or {}
@@ -98,6 +99,7 @@ def login():
 
 
 @bp.route('/register', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_auth)
 def register():
     cfg = _cfg()
     if not cfg.accounts_enabled:

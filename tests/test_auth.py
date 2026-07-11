@@ -244,6 +244,44 @@ def test_verify_email_is_rate_limited(tmp_path, fake_llm, reset_limiter_state):
     assert codes[2] == 429           # over the cap: rate limited
 
 
+def _rate_limited_auth_app(tmp_path, fake_llm):
+    """An app instance with a tight 2/min cap on /login and /register."""
+    from statlee import llm
+    from statlee.app import create_app
+    from statlee.config import Config
+    cfg = Config(
+        env='testing', upload_root=str(tmp_path / 'u'),
+        database_url='sqlite:///' + str(tmp_path / 'a.db').replace('\\', '/'),
+        flask_secret_key='k', rate_limit_enabled=True,
+        rate_limit_auth='2 per minute', accounts_enabled=True)
+    cfg.validate()
+    app = create_app(cfg)
+    llm.set_service(fake_llm)
+    return app
+
+
+def test_login_is_rate_limited(tmp_path, fake_llm, reset_limiter_state):
+    """P1-4: /login must carry a dedicated brute-force limit. With a 2/min cap,
+    the third password guess in a window gets a 429."""
+    c = _rate_limited_auth_app(tmp_path, fake_llm).test_client()
+    codes = [post_json(c, '/login', {'email': 'a@b.com', 'password': 'nope'}
+                       ).status_code for _ in range(3)]
+    assert codes[:2] == [401, 401]   # under the cap: normal wrong-password response
+    assert codes[2] == 429           # over the cap: rate limited
+
+
+def test_register_is_rate_limited(tmp_path, fake_llm, reset_limiter_state):
+    """P1-4: /register must carry the same cap so accounts can't be mass-created.
+    Each attempt uses a fresh anonymous client (like a signup bot would), so
+    every request lands in the same IP-keyed bucket."""
+    app = _rate_limited_auth_app(tmp_path, fake_llm)
+    codes = [post_json(app.test_client(), '/register',
+                       {'email': f'u{i}@x.com', 'password': 'longenough1'}
+                       ).status_code for i in range(3)]
+    assert codes[:2] == [201, 201]   # under the cap: accounts created normally
+    assert codes[2] == 429           # over the cap: rate limited
+
+
 @pytest.mark.parametrize('require_login', [True])
 def test_require_login_blocks_protected_routes(tmp_path, fake_llm, require_login):
     """REQUIRE_LOGIN=true makes the sandbox closed: protected routes 401 until
