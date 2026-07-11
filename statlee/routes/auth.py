@@ -25,6 +25,12 @@ bp = Blueprint('auth', __name__)
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
+# Hard cap on persisted history rows per user (P2-13). Field sizes are already
+# capped in history_save; this bounds the row count too, so a looping client
+# cannot grow the table without limit. Saves past the cap prune the oldest
+# rows in the same transaction.
+HISTORY_MAX_ROWS = 200
+
 
 def _cfg():
     return current_app.config['STATLEE']
@@ -236,5 +242,17 @@ def history_save():
         interpretation=(data.get('interpretation') or '')[:20000],
     )
     db.session.add(run)
+    db.session.flush()
+    # Keep only the newest HISTORY_MAX_ROWS rows for this user (P2-13); the
+    # prune rides the same transaction as the insert.
+    keep_ids = db.session.execute(
+        db.select(AnalysisRun.id)
+        .filter_by(user_id=u.id)
+        .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
+        .limit(HISTORY_MAX_ROWS)).scalars().all()
+    db.session.execute(
+        db.delete(AnalysisRun)
+        .where(AnalysisRun.user_id == u.id,
+               AnalysisRun.id.not_in(keep_ids)))
     db.session.commit()
     return jsonify({'saved': True, 'id': run.id})

@@ -123,6 +123,38 @@ def test_history_save_truncates_oversized_fields(client):
     assert len(run['language']) == 16
 
 
+def test_history_rows_beyond_cap_are_pruned(client, monkeypatch):
+    """P2-13: saving past the per-user cap deletes the oldest rows in the same
+    transaction, so a looping client cannot grow the table without bound."""
+    import statlee.routes.auth as auth_mod
+    monkeypatch.setattr(auth_mod, 'HISTORY_MAX_ROWS', 5)
+    post_json(client, '/register', {'email': 'cap@x.com', 'password': 'longenough1'})
+    for i in range(8):
+        saved = post_json(client, '/history', {'prompt': f'run {i}'})
+        assert saved.get_json()['saved'] is True
+    runs = client.get('/history').get_json()['runs']
+    assert len(runs) == 5
+    # The newest five survive; runs 0-2 were pruned.
+    assert {r['prompt'] for r in runs} == {f'run {i}' for i in range(3, 8)}
+
+
+def test_history_cap_is_per_user(client, monkeypatch):
+    """P2-13: pruning one user's overflow must not touch another user's rows."""
+    import statlee.routes.auth as auth_mod
+    monkeypatch.setattr(auth_mod, 'HISTORY_MAX_ROWS', 3)
+    post_json(client, '/register', {'email': 'keep@x.com', 'password': 'longenough1'})
+    post_json(client, '/history', {'prompt': 'keeper'})
+    post_json(client, '/logout', {})
+    post_json(client, '/register', {'email': 'flood@x.com', 'password': 'longenough1'})
+    for i in range(5):
+        post_json(client, '/history', {'prompt': f'flood {i}'})
+    assert len(client.get('/history').get_json()['runs']) == 3
+    post_json(client, '/logout', {})
+    post_json(client, '/login', {'email': 'keep@x.com', 'password': 'longenough1'})
+    kept = client.get('/history').get_json()['runs']
+    assert [r['prompt'] for r in kept] == ['keeper']
+
+
 def _verify_app(tmp_path, fake_llm):
     """An app instance with email verification required."""
     from statlee import llm
