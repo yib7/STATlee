@@ -66,16 +66,10 @@ def chat():
     if blocked:
         return json_error(f'Request denied. {reason}', 403)
 
-    # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
-    # request is allowed for this user. No-op unless billing is enabled. Runs
-    # AFTER moderation so a blocked/failed request never costs a credit or a
-    # unit of the operator's monthly priority ceiling.
-    billing_user = current_user_or_none()
-    allowed, deny_msg = billing.check_and_debit(
-        billing_user, priority=pro_mode, config=_cfg())
-    if not allowed:
-        return json_error(deny_msg or 'Out of credits.', 402)
-
+    # Gate 2: the dataset must resolve and read BEFORE any money moves. An
+    # invalid/expired filename (anonymous TTL cleanup makes stale tabs common)
+    # or an unreadable CSV returns here without touching credits or the
+    # operator's monthly priority ceiling (P1-1).
     filepath = storage.active_dataset_path(filename)
     if not filepath or not os.path.exists(filepath):
         return json_error('Invalid filename')
@@ -86,6 +80,17 @@ def chat():
     except Exception:
         logger.exception("Could not read dataset for /chat")
         return json_error('Could not read dataset headers.', 500)
+
+    # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
+    # request is allowed for this user. No-op unless billing is enabled. Runs
+    # AFTER moderation and dataset validation (moderate -> validate -> debit)
+    # so a blocked or doomed request never costs a credit or a unit of the
+    # operator's monthly priority ceiling.
+    billing_user = current_user_or_none()
+    allowed, deny_msg = billing.check_and_debit(
+        billing_user, priority=pro_mode, config=_cfg())
+    if not allowed:
+        return json_error(deny_msg or 'Out of credits.', 402)
 
     # Stage 1: feature selection on wide datasets.
     cfg = _cfg()

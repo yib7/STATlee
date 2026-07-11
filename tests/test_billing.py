@@ -252,6 +252,48 @@ def test_chat_moderation_block_does_not_debit(client, app, fake_llm):
         billing.reset_spend()
 
 
+# --- P1-1 (audit 4): /chat must validate the dataset before debiting --------
+
+def test_chat_invalid_filename_does_not_debit(client, app, fake_llm):
+    """A /chat request for an invalid/expired filename must fail with the
+    normal error AND leave both the user's credits and the operator's monthly
+    priority ceiling untouched -- the dataset must be validated BEFORE the
+    debit, so there is nothing to refund on these early error returns."""
+    from statlee.extensions import db
+    from statlee.models import User
+
+    cfg = app.config['STATLEE']
+    cfg.billing_enabled = True
+    billing.reset_spend()
+    try:
+        post_json(client, '/register',
+                  {'email': 'stale-tab@example.com', 'password': 'password123'})
+        with app.app_context():
+            registered = User.query.filter_by(
+                email='stale-tab@example.com').first()
+            registered.credits = 5
+            db.session.commit()
+            user_id = registered.id
+
+        # No upload: the filename cannot resolve (mirrors a TTL-expired file).
+        resp = post_json(client, '/chat',
+                         {'filename': 'expired.csv', 'prompt': 'summarize',
+                          'pro': True})
+
+        assert resp.status_code == 400
+        assert 'invalid filename' in resp.get_json()['error'].lower()
+
+        with app.app_context():
+            reloaded = db.session.get(User, user_id)
+            assert reloaded.credits == 5   # no net debit for a request that did nothing
+
+        # The monthly priority ceiling must not have advanced either.
+        assert billing._spend['priority_calls'] == 0
+    finally:
+        cfg.billing_enabled = False
+        billing.reset_spend()
+
+
 # --- P1-3: a mid-stream failure after the debit must refund the credit ------
 
 def test_chat_stream_failure_after_debit_refunds_credit(client, app, fake_llm):
