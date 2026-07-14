@@ -23,13 +23,19 @@
     --c-cont: #2f6df0; --c-nom: #e08600; --c-ord: #0a9d63;
     --pipe-pending: #a7a3b8; --pipe-active: #5b53e6; --pipe-done: #0a9d63;
     --pipe-failed: #e0463b; --pipe-skipped: #a7a3b8;
+    /* skeleton fill for the empty states. Not in the token sheet (which has no
+       skeleton surface); values taken from `STATlee Workspace Empty.dc.html`. */
+    --skel: #e9e8f2;
     --e1: 0 1px 2px rgba(20, 16, 40, .06);
     --e2: 0 8px 24px -8px rgba(20, 16, 40, .14);
     --e3: 0 28px 60px -18px rgba(20, 16, 40, .22);
 
-    /* editor / terminal - always dark, both themes */
+    /* editor / terminal - always dark, both themes (so these two do NOT flip
+       with the theme: they are read against the dark terminal in both) */
     --code-bg: #0c0a17; --code-chrome: #0f0c1e; --code-border: #241f3f;
     --code-text: #d8d4f0; --code-muted: #655f86;
+    --code-dim: #a7a1c4;   /* secondary terminal line (traceback File "..." rows) */
+    --code-err: #f8776b;   /* terminal error text; the dark-theme red, always */
 }
 
 .dark {
@@ -40,6 +46,7 @@
     --c-cont: #5b9bff; --c-nom: #f6b23c; --c-ord: #2fd398;
     --pipe-pending: #5f5980; --pipe-active: #8b7cf8; --pipe-done: #2fd398;
     --pipe-failed: #f8776b; --pipe-skipped: #5f5980;
+    --skel: #1a1533;
     --e1: 0 1px 2px rgba(0, 0, 0, .4);
     --e2: 0 10px 30px -10px rgba(0, 0, 0, .55);
     --e3: 0 34px 70px -20px rgba(0, 0, 0, .7);
@@ -76,7 +83,7 @@ body { font-family: var(--font-ui); }
 #pipelineChecklist { position: relative; }
 .pipeline-step {
     position: relative;
-    display: flex; align-items: center; gap: 0.65rem;
+    display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;
     padding: 0.35rem 0;
     font-family: var(--font-ui); font-size: 0.78rem; font-weight: 600;
     color: var(--text-1);
@@ -124,9 +131,349 @@ body { font-family: var(--font-ui); }
     100% { opacity: 0; }
 }
 
+/* Recovery actions on a failed step. Rendered by ui.js only for steps declared
+   retryable, so a failure is a fix path and never a dead end. The row is a
+   full-basis flex child: it drops under the label and leaves the single-line
+   look of every other step untouched. */
+.step-actions {
+    flex-basis: 100%; display: flex; gap: 0.45rem;
+    margin-left: calc(22px + 0.65rem); margin-top: 0.3rem;
+}
+.step-actions:empty { display: none; }
+.step-retry, .step-fix {
+    font-family: var(--font-ui); font-size: 0.69rem; font-weight: 600;
+    border-radius: var(--r-sm); cursor: pointer;
+    transition: background var(--dur-1) var(--ease);
+}
+.step-retry {
+    color: var(--pipe-failed); padding: 0.19rem 0.56rem;
+    background: color-mix(in srgb, var(--pipe-failed) 14%, transparent);
+    border: 1px solid var(--pipe-failed);
+}
+.step-retry:hover { background: color-mix(in srgb, var(--pipe-failed) 26%, transparent); }
+.step-fix { color: var(--indigo); background: transparent; border: 0; padding: 0.19rem 0.3rem; }
+.step-fix:hover { background: var(--indigo-soft); }
+
 /* ============ CodeMirror editor (5.4) - always dark ============ */
 .cm-wrap .CodeMirror { height: 100%; min-height: 260px; background: transparent; color: var(--code-text); font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.75; }
 .cm-wrap .CodeMirror-gutters { background: transparent; border-right: 1px solid var(--code-border); }
+
+/* ============ Run lifecycle: generating / executing / failed ============
+   Direction 1A: flat surfaces, hairline rules, precise mono. No gradients, no
+   glow. Hand-written rather than Tailwind utilities because tailwind.css is a
+   purged build with no local toolchain - a new utility class here would need a
+   rebuild and would silently no-op until then.
+   Markup contract (index.html + analyze.js):
+     #genHeader  .lc-header > #genPhase + (#genModelChip, #genElapsed)
+     #execHeader .lc-header > #execPhase + (#execElapsed)
+     #streamState / #autoScrollNote  - streaming editor chrome
+     #termState / #execProgress      - terminal chrome + running bar
+     #debugFrame .lc-debug           - the AI debug frame
+   Every .lc-* rule that sets `display` also declares an `.hidden` override:
+   app.css loads after tailwind.css, so at equal specificity these would
+   otherwise beat Tailwind's own `.hidden { display: none }`. */
+
+@keyframes cc-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+/* Indeterminate on purpose: /run is a single POST with no progress channel, so
+   a determinate percentage would be fiction. This says "working", not "64%". */
+@keyframes cc-indeterminate {
+    0% { transform: translateX(-105%); }
+    100% { transform: translateX(395%); }
+}
+
+.lc-dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; flex-shrink: 0; }
+.lc-dot.blink { animation: cc-blink 1s step-end infinite; }
+
+/* -- phase header strip (sits above the editor / terminal) -- */
+.lc-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 0.6rem 0.8rem;
+}
+.lc-header.hidden { display: none; }
+.lc-header-label {
+    display: flex; align-items: center; gap: 0.55rem; min-width: 0;
+    font-size: 0.8125rem; font-weight: 600; color: var(--indigo);
+}
+.lc-header-meta { display: flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
+.lc-header.failed {
+    background: color-mix(in srgb, var(--pipe-failed) 12%, var(--s1));
+    border-color: color-mix(in srgb, var(--pipe-failed) 40%, transparent);
+}
+.lc-header.failed .lc-header-label { color: var(--pipe-failed); }
+.lc-header.done .lc-header-label { color: var(--pipe-done); }
+
+/* round status glyph used by the executing / failed header */
+.lc-glyph {
+    width: 16px; height: 16px; border-radius: 9999px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--pipe-failed);
+    color: #fff; font-weight: 800; font-size: 0.69rem; line-height: 1;
+}
+.lc-glyph.hidden { display: none; }
+.lc-badge.hidden { display: none; }
+
+/* -- model chip + PRO badge + elapsed timer -- */
+.lc-model {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: var(--font-mono); font-size: 0.656rem; font-weight: 600;
+    color: var(--text-2); background: var(--s2);
+    border: 1px solid var(--border); border-radius: var(--r-pill);
+    padding: 0.19rem 0.56rem; max-width: 15rem;
+}
+.lc-model.hidden { display: none; }
+.lc-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-pro {
+    color: #fff; background: var(--violet); border-radius: 3px;
+    padding: 0 4px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+.lc-pro.hidden { display: none; }
+.lc-elapsed {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+}
+.lc-elapsed.live { font-size: 0.75rem; font-weight: 600; color: var(--indigo); }
+
+/* -- SANDBOX badge -- */
+.lc-badge {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+    letter-spacing: 0.06em; color: var(--indigo); background: var(--indigo-soft);
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+    padding: 0.25rem 0.5rem; flex-shrink: 0;
+}
+
+/* -- editor / terminal chrome state ("streaming", "running", "failed - exit 1") -- */
+.lc-term-state {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: var(--font-mono); font-size: 0.594rem; font-weight: 600;
+    color: var(--code-muted); white-space: nowrap;
+}
+.lc-term-state.hidden { display: none; }
+.lc-term-state.running, .lc-term-state.streaming { color: var(--indigo); }
+.lc-term-state.failed { color: var(--code-err); }
+.lc-term-state.done { color: var(--pipe-done); }
+/* The terminal icon goes red on a failed run (design parity). Done with our own
+   class, not `text-red-400`: that utility is purged out of the built Tailwind,
+   so it would silently no-op. */
+.lc-term-icon.failed { color: var(--code-err); }
+
+/* -- "Auto-scrolling with output" footer on the streaming editor -- */
+.lc-autoscroll {
+    display: flex; align-items: center; gap: 0.35rem;
+    padding: 0.4rem 0.75rem; background: var(--code-chrome);
+    border-top: 1px solid var(--code-border);
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--code-muted);
+}
+.lc-autoscroll.hidden { display: none; }
+
+/* -- running progress bar under the terminal -- */
+.lc-progress { height: 5px; background: var(--code-chrome); overflow: hidden; }
+.lc-progress.hidden { display: none; }
+.lc-progress-bar {
+    height: 100%; width: 26%; background: var(--indigo); border-radius: var(--r-pill);
+    animation: cc-indeterminate 1.4s var(--ease) infinite;
+}
+
+/* -- traceback rendering inside the terminal (analyze.js escapes, then wraps) -- */
+.lc-trace-err { color: var(--code-err); }
+.lc-trace-dim { color: var(--code-dim); }
+.lc-culprit { color: var(--code-err); text-decoration: underline wavy; text-underline-offset: 3px; }
+
+/* -- AI debug frame: "STATlee spotted the problem" -- */
+.lc-debug {
+    display: flex; gap: 0.7rem; background: var(--indigo-soft);
+    border: 1px solid var(--indigo); border-radius: var(--r-lg); padding: 0.8rem;
+}
+.lc-debug.hidden { display: none; }
+.lc-debug-icon {
+    width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px;
+    background: var(--indigo); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+}
+.lc-debug-title { font-size: 0.78rem; font-weight: 700; color: var(--text-1); margin-bottom: 0.2rem; }
+.lc-debug-body { font-size: 0.75rem; color: var(--text-2); line-height: 1.5; word-break: break-word; }
+.lc-debug-body code {
+    font-family: var(--font-mono); background: var(--s2); color: var(--pipe-failed);
+    padding: 0 4px; border-radius: 4px;
+}
+.lc-debug-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+.lc-btn-fix, .lc-btn-edit {
+    font-family: var(--font-ui); font-size: 0.72rem; border-radius: var(--r-sm);
+    padding: 0.44rem 0.75rem; cursor: pointer;
+    transition: background var(--dur-1) var(--ease);
+}
+.lc-btn-fix { font-weight: 700; color: #fff; background: var(--indigo); border: 0; }
+.lc-btn-fix:hover { background: var(--indigo-2); }
+.lc-btn-edit { font-weight: 600; color: var(--text-2); background: transparent; border: 1px solid var(--border-strong); }
+.lc-btn-edit:hover { background: var(--s2); }
+
+/* ============ Empty states: the workspace before any data / code / run ============
+   Direction 1A: flat surfaces, hairline rules, precise mono. The design's
+   shimmer skeletons and fade-to-solid scrims are both gradients, so they are
+   rendered flat here (same call SP2 made on the lifecycle shimmer).
+
+   Visibility is driven by body classes rather than per-element JS, so a state
+   can never half-apply. index.html ships all four set; the JS clears each at the
+   moment that surface's content becomes real:
+     cc-no-data  upload succeeds        (data.js)
+     cc-no-code  the editor has content (analyze.js, CodeMirror change hook)
+     cc-no-run   a run starts           (analyze.js execRunning)
+     cc-no-chat  the first message      (converse.js)
+   Hand-written, not Tailwind utilities: tailwind.css is a purged build with no
+   local toolchain, so a new utility would silently no-op. */
+
+/* Every empty-state layer is hidden by default and revealed by exactly one body
+   flag. Elements carry a type class (what it looks like) plus a state class
+   (which flag owns it): e.g. `es-veil es-code`. */
+.es-veil, .es-skels, .es-hero, .es-notice { display: none; }
+body.cc-no-data .es-data,
+body.cc-no-code .es-code,
+body.cc-no-run .es-run,
+body.cc-no-chat .es-chat { display: flex; }
+
+/* Flat skeleton bar (the design shimmers a gradient across it; 1A stays flat). */
+.es-skel { background: var(--skel); border-radius: 5px; flex-shrink: 0; }
+/* Skeleton layer: a sibling UNDER the veil, never a child of it. A child would
+   paint against the veil's own scrim and defeat it. */
+.es-skels {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    flex-direction: column; gap: 0.7rem; padding: 1.15rem 1.25rem;
+    opacity: 0.5;
+}
+
+/* Scrim + centred message, laid over the skeleton. `pointer-events: none`
+   matters: the CodeMirror editor underneath stays clickable and editable, so
+   pasting your own script into an "empty" workspace still works. */
+.es-veil {
+    position: absolute; inset: 0; z-index: 2;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.85rem; padding: 1rem; text-align: center;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--s0) 82%, transparent);
+}
+.es-veil.es-dark { background: color-mix(in srgb, var(--code-bg) 82%, transparent); }
+/* Buttons inside a veil opt back in. */
+.es-veil button { pointer-events: auto; }
+
+.es-icon {
+    width: 48px; height: 48px; border-radius: 13px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--indigo-soft); color: var(--indigo);
+}
+.es-icon.es-dark { background: #1a1533; border: 1px solid #2c2748; }
+.es-icon.es-lg { width: 52px; height: 52px; border-radius: 14px; }
+
+.es-title { font-family: var(--font-display); font-size: 1.0625rem; font-weight: 700; color: var(--text-1); }
+.es-title.es-lg { font-size: 1.25rem; }
+.es-title.es-on-dark { color: #f2f0fb; }
+.es-sub { font-size: 0.8125rem; color: var(--text-2); margin-top: 0.25rem; line-height: 1.5; }
+.es-sub.es-on-dark { color: #8b85ad; }
+.es-sub.es-wide { max-width: 29rem; margin-left: auto; margin-right: auto; }
+
+/* Centred hero (Results / Converse), in normal flow rather than over a skeleton. */
+.es-hero { flex-direction: column; align-items: center; text-align: center; padding: 0.85rem; }
+
+/* Classification legend / sample-question chips. */
+.es-legend-label {
+    font-family: var(--font-mono); font-size: 0.594rem; color: var(--text-3);
+    letter-spacing: 0.06em; margin-bottom: 0.4rem;
+}
+.es-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+.es-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: var(--font-mono); font-size: 0.656rem;
+    border-radius: var(--r-pill); padding: 0.19rem 0.56rem;
+}
+.es-chip .es-pip { width: 5px; height: 5px; border-radius: 9999px; background: currentColor; flex-shrink: 0; }
+.es-chip.es-cont { color: var(--c-cont); background: color-mix(in srgb, var(--c-cont) 16%, transparent); }
+.es-chip.es-nom { color: var(--c-nom); background: color-mix(in srgb, var(--c-nom) 16%, transparent); }
+.es-chip.es-ord { color: var(--c-ord); background: color-mix(in srgb, var(--c-ord) 16%, transparent); }
+
+/* Sample-question chips: fill the composer, never auto-send (a send is billable). */
+.es-ask {
+    font-family: var(--font-ui); font-size: 0.78rem; font-weight: 500; cursor: pointer;
+    color: var(--text-1); background: var(--s1);
+    border: 1px solid var(--border); border-radius: var(--r-pill);
+    padding: 0.5rem 0.94rem;
+    transition: all var(--dur-2) var(--ease);
+}
+.es-ask:hover { border-color: var(--indigo); background: var(--indigo-soft); color: var(--indigo); }
+
+/* Report: the locked notice + the staged form behind it. */
+.es-notice {
+    align-items: center; gap: 0.6rem;
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 0.7rem 0.85rem; margin-bottom: 0.25rem;
+}
+.es-notice-text { font-size: 0.78rem; color: var(--text-2); }
+body.cc-no-run .es-staged { opacity: 0.55; pointer-events: none; user-select: none; }
+
+/* Sidebar dropzone: format line, the Browse affordance, the privacy line.
+   `.es-browse` is decorative (aria-hidden, pointer-events: none): the real
+   control is the full-bleed <input type="file"> above it, which is what makes
+   both the drop target and keyboard focus work. */
+.es-browse {
+    display: inline-block; margin-top: 0.1rem; pointer-events: none;
+    font-family: var(--font-ui); font-size: 0.78rem; font-weight: 600;
+    color: #fff; background: var(--indigo); border-radius: var(--r-md);
+    padding: 0.5rem 1.13rem; white-space: nowrap;
+}
+.es-privacy {
+    display: flex; align-items: center; justify-content: center; gap: 0.375rem;
+    margin-top: 0.15rem;
+    font-family: var(--font-mono); font-size: 0.594rem; color: var(--text-3);
+}
+
+/* Composer hint under the disabled Generate button. */
+.es-hint {
+    display: none; text-align: center; margin-top: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-3);
+}
+body.cc-no-data .es-hint { display: block; }
+
+/* Pipeline header: eyebrow + the right-hand status note ("awaiting data"). */
+.es-pipe-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.7rem; }
+#pipelineStatus { font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-3); }
+
+/* Codebook tab: "How STATlee classifies" reference table. */
+.es-class-table {
+    width: 100%; max-width: 34rem; margin: 0 auto;
+    border: 1px solid var(--border); border-radius: var(--r-lg);
+    overflow: hidden; background: var(--s1); text-align: left;
+}
+.es-class-head {
+    padding: 0.6rem 0.94rem; background: var(--s2);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3);
+}
+.es-class-row {
+    display: flex; align-items: center; gap: 0.8rem;
+    padding: 0.8rem 0.94rem; flex-wrap: wrap;
+}
+.es-class-row + .es-class-row { border-top: 1px solid var(--border); }
+.es-class-dot { width: 10px; height: 10px; border-radius: 9999px; flex-shrink: 0; }
+.es-class-name { font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600; width: 5.75rem; flex-shrink: 0; }
+/* Wraps under the label rather than crushing when the pane is narrow. */
+.es-class-desc { font-size: 0.78rem; color: var(--text-2); flex: 1 1 11rem; min-width: 0; }
+
+/* Safe centring for the codebook empty state: it centres while it fits and
+   scrolls from the top once it does not. Plain `justify-content: center` (the
+   Tailwind class on the element) puts overflow ABOVE the scroll origin, where
+   it can never be reached. Deliberately does not set `display`: resetCodebook-
+   Viewer() toggles this element with Tailwind's `.hidden`, which an equal-
+   specificity display rule here would silently beat. */
+#codebookEmptyState { justify-content: flex-start; }
+#codebookEmptyState > :first-child { margin-top: auto; }
+#codebookEmptyState > :last-child { margin-bottom: auto; }
+/* Children keep their natural height instead of being flex-shrunk. Without this
+   the classification table (flex-shrink defaults to 1, and it clips its own rows
+   with overflow:hidden) is squashed rather than scrolled: the container then
+   reports scrollHeight == clientHeight, so the lost rows are unreachable. */
+#codebookEmptyState > * { flex-shrink: 0; }
 
 /* Split panes (6.1) */
 #paneDivider { width: 5px; cursor: col-resize; flex-shrink: 0; background: transparent; transition: background var(--dur-1); }

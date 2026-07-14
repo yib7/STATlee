@@ -39,6 +39,10 @@ def index():
         csrf_token=session.get('csrf_token', ''),
         accounts_enabled=cfg.accounts_enabled,
         model_prices=cfg.active_model_prices(),
+        # Code-generation model ids by role, so the generation header can name
+        # the model actually doing the work ('pro_max' is the Pro-mode
+        # upgrade). Display only: naming a model never selects or bills one.
+        model_roles={'draft': cfg.model_pro, 'pro_max': cfg.model_pro_max},
     )
 
 
@@ -125,7 +129,7 @@ def _email_report(cfg, report):
 
 
 # ---------------------------------------------------------------------------
-# AI report builder (5.17) — generation and targeted revision, streamed
+# AI report builder (5.17): generation and targeted revision, streamed
 # ---------------------------------------------------------------------------
 
 def _moderate_free_text(service, text):
@@ -178,7 +182,7 @@ def generate_report():
         interpretation = clamp(data.get('interpretation'), FREE_TEXT_MAX).strip()
         if not output and not interpretation:
             return json_error(
-                'Run an analysis first — the report must be grounded in '
+                'Run an analysis first: the report must be grounded in '
                 'actual results.', 422)
         background = clamp(data.get('background'), BACKGROUND_MAX)
         # Style fields are enum-ish UI values but still client text that is

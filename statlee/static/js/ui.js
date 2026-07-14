@@ -34,22 +34,42 @@
     });
 
     // --- pipeline status checklist (4.4) ---------------------------------------
+    // The full run spine, not just the upload half: the last two steps are the
+    // ones a run can actually fail on, so `execute` carries recovery actions.
     const PIPELINE_STEPS = [
         { id: 'load', label: 'Data loaded' },
         { id: 'codebook_link', label: 'Codebook linked' },
         { id: 'classify', label: 'Variables classified' },
         { id: 'suggest', label: 'Suggestions ready' },
+        { id: 'generate', label: 'Generate script' },
+        { id: 'execute', label: 'Execute in sandbox', retry: true },
     ];
 
+    // Recovery buttons rendered on a failed retryable step. They reach their
+    // handlers through boot.js's delegated data-action listener (CSP forbids
+    // inline onclick), which resolves window.retryRun / window.fixWithAI at
+    // click time; analyze.js defines both.
+    const RETRY_ACTIONS =
+        '<button type="button" class="step-retry" data-action="retryRun" ' +
+        'title="Run the same script again">Retry</button>' +
+        '<button type="button" class="step-fix" data-action="fixWithAI" ' +
+        'title="Send the error back to STATlee and regenerate">Fix with AI</button>';
+
     CC.pipeline = {
-        begin() {
+        /** `status` is the note beside the PIPELINE eyebrow. It reads
+         *  "awaiting data" on the empty workspace (see bootPipeline) and
+         *  "in progress" once an upload actually starts the run. */
+        begin(status) {
             const box = document.getElementById('pipelineChecklist');
             if (!box) return;
+            const statusEl = document.getElementById('pipelineStatus');
+            if (statusEl) statusEl.textContent = status || 'in progress';
             box.classList.remove('hidden');
             box.innerHTML = PIPELINE_STEPS.map(s =>
                 `<div class="pipeline-step" data-step="${s.id}" data-state="pending">` +
                 `<span class="step-dot" aria-hidden="true"></span>` +
-                `<span>${s.label}</span><span class="step-note font-normal normal-case tracking-normal opacity-80"></span></div>`
+                `<span>${s.label}</span><span class="step-note font-normal normal-case tracking-normal opacity-80"></span>` +
+                `<span class="step-actions"></span></div>`
             ).join('');
         },
         set(stepId, state, note) {
@@ -62,7 +82,13 @@
             if (state === 'done') dot.innerHTML = CHECK;
             else if (state === 'failed') dot.innerHTML = CROSS;
             else dot.innerHTML = '';
-            el.querySelector('.step-note').textContent = note ? ` — ${note}` : '';
+            el.querySelector('.step-note').textContent = note ? ` · ${note}` : '';
+            const actions = el.querySelector('.step-actions');
+            if (actions) {
+                const step = PIPELINE_STEPS.find(s => s.id === stepId);
+                actions.innerHTML =
+                    (state === 'failed' && step && step.retry) ? RETRY_ACTIONS : '';
+            }
         },
     };
 
@@ -297,7 +323,7 @@
             const safeClass = CC.escapeHtml(ABBR[classification] || classification);
             // Compact view hides the description behind a hover tooltip; the
             // expanded view (CSS .expanded) reveals the .codebook-desc line below.
-            btn.title = desc ? `${colName} — ${desc}` : colName;
+            btn.title = desc ? `${colName}: ${desc}` : colName;
             btn.className = `codebook-chip px-2.5 py-1.5 rounded-lg border text-left transition-all hover:shadow-md flex flex-col gap-1 cursor-pointer group ${colorClasses}`;
             const descHtml = desc
                 ? `<p class="codebook-desc text-[11px] leading-snug opacity-80">${CC.escapeHtml(desc)}</p>`
@@ -493,7 +519,16 @@
         if (localStorage.getItem('cc_sidebar_collapsed') === 'true') CC.setSidebarCollapsed(true);
     }
 
+    // The empty workspace shows the spine up front rather than materialising it
+    // on upload: the run is legible before you commit a file. Step 1 carries the
+    // active pulse because it is genuinely what the app is waiting on.
+    function bootPipeline() {
+        CC.pipeline.begin('awaiting data');
+        CC.pipeline.set('load', 'active', 'waiting for a dataset');
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
+        bootPipeline();
         initSplitControls();
         initSidebarResizer();
         initWorkspacePrefs();

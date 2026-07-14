@@ -28,11 +28,19 @@
 
     <!-- Server-injected boot config as a CSP-safe JSON data island (not
          executable, so a strict script-src 'self' does not block it). boot.js
-         reads it into window.CC_BOOT. -->
-    <script type="application/json" id="cc-boot-data">{{ {'accounts': accounts_enabled, 'prices': model_prices} | tojson }}</script>
+         reads it into window.CC_BOOT. 'models' carries the code-generation
+         model ids by role so the generation header can name the model that is
+         actually running (display only, exactly like 'prices'). -->
+    <script type="application/json" id="cc-boot-data">{{ {'accounts': accounts_enabled, 'prices': model_prices, 'models': model_roles} | tojson }}</script>
     <script src="{{ url_for('static', filename='js/boot.js') }}"></script>
 </head>
-<body class="bg-[var(--s1)] text-[var(--text-1)] h-screen flex flex-col overflow-hidden relative transition-colors duration-500">
+<!-- The three empty-state flags start set and are cleared by the JS as each
+     surface gets real content (see the empty-state block in app.css):
+       cc-no-data  cleared by data.js on a successful upload
+       cc-no-code  cleared by analyze.js when the editor has content
+       cc-no-run   cleared by analyze.js when a run starts
+       cc-no-chat  cleared by converse.js on the first message -->
+<body class="bg-[var(--s1)] text-[var(--text-1)] h-screen flex flex-col overflow-hidden relative transition-colors duration-500 cc-no-data cc-no-code cc-no-run cc-no-chat">
 
     <div id="toastArea" aria-live="polite"></div>
 
@@ -243,12 +251,27 @@
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                             </span>
                             <span class="text-sm font-semibold text-[var(--text-1)]">Drop your dataset here</span>
-                            <span class="text-[10px] font-mono uppercase tracking-widest text-[var(--text-3)]">CSV · TSV · Excel · Stata · SPSS</span>
+                            <span class="text-[10px] font-mono uppercase tracking-widest text-[var(--text-3)]">CSV · TSV · Excel · Stata (.dta) · SPSS (.sav)</span>
                         </div>
+                        <!-- Decorative: the real control is the full-bleed file
+                             input above, which is both the drop target and the
+                             keyboard-focusable picker. A second real button here
+                             would sit under that input and never fire. -->
+                        <span class="es-browse" aria-hidden="true">Browse files</span>
+                        <p class="es-privacy">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                        Anonymous · uploads auto-deleted
+                        </p>
                     </div>
 
-                    <!-- Persistent pipeline checklist (4.4) -->
-                    <div id="pipelineChecklist" class="hidden mt-3 flex flex-col gap-0.5" aria-live="polite"></div>
+                    <!-- Persistent pipeline checklist (4.4). Visible from first
+                         paint: before an upload it reads all-pending against an
+                         "awaiting data" status, so the run is legible up front. -->
+                    <div class="es-pipe-head mt-5">
+                        <span class="label-eyebrow">Pipeline</span>
+                        <span id="pipelineStatus">awaiting data</span>
+                    </div>
+                    <div id="pipelineChecklist" class="flex flex-col gap-0.5" aria-live="polite"></div>
 
                     <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden" aria-hidden="true"/>
                 </div>
@@ -350,10 +373,15 @@
 
                 <!-- Action Button -->
                 <div class="animate-fade-in-up pb-8" style="animation-delay: 0.5s;">
-                    <button id="generateBtn" class="w-full btn-primary py-4 px-4 shadow-[var(--e2)] flex justify-center items-center gap-2 text-base">
+                    <!-- Disabled until a dataset is classified: generate() needs
+                         CC.state.filename and would only toast without one.
+                         data.js re-enables it (both on success and on a failed
+                         classification, which is optional context). -->
+                    <button id="generateBtn" disabled class="w-full btn-primary py-4 px-4 shadow-[var(--e2)] flex justify-center items-center gap-2 text-base">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"></path></svg>
                         Generate Analysis
                     </button>
+                    <p class="es-hint">Upload a dataset to enable</p>
                     <div id="loading" class="hidden mt-4 text-center text-sm font-mono font-bold text-[var(--indigo)] flex justify-center items-center gap-2">
                         <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         <span class="animate-pulse uppercase tracking-wider">Compiling Script...</span>
@@ -414,15 +442,60 @@
 
                     <!-- CODE GENERATION TAB -->
                     <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto flex flex-col">
+
+                        <!-- Generation phase header: what is running, on which
+                             model, for how long. Shown only while generating. -->
+                        <div id="genHeader" class="lc-header hidden mb-3">
+                            <div id="genPhase" class="lc-header-label"></div>
+                            <div class="lc-header-meta">
+                                <span id="genModelChip" class="lc-model hidden" title="Model generating this script">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--violet)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 7v10l8 5 8-5V7z"></path></svg>
+                                    <span id="genModelName" class="lc-model-name"></span>
+                                    <span id="genProBadge" class="lc-pro hidden">PRO</span>
+                                </span>
+                                <span id="genElapsed" class="lc-elapsed" aria-hidden="true">0:00</span>
+                            </div>
+                        </div>
+
                         <div class="bg-[var(--code-bg)] rounded-[14px] border border-[var(--code-border)] shadow-[var(--e2)] overflow-hidden flex flex-col flex-1 min-h-0">
                             <div class="bg-[var(--code-chrome)] px-4 py-3 flex items-center gap-2 border-b border-[var(--code-border)]">
                                 <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
                                 <div class="w-3 h-3 rounded-full bg-amber-500/80"></div>
                                 <div class="w-3 h-3 rounded-full bg-emerald-500/80"></div>
                                 <div class="ml-2 text-sm font-mono text-[var(--code-text)]"><span id="scriptFilename">script.py</span> <span class="opacity-60 text-xs">· editable</span></div>
-                                <div id="genPhase" class="hidden ml-auto text-xs font-mono font-bold text-indigo-400 flex items-center gap-2"></div>
+                                <span id="streamState" class="lc-term-state streaming hidden ml-auto">
+                                    <span class="lc-dot blink"></span>streaming
+                                </span>
                             </div>
-                            <div class="cm-wrap overflow-auto flex-1" id="codeEditorHost"></div>
+                            <div class="relative flex-1 min-h-0 flex flex-col">
+                                <div class="cm-wrap overflow-auto flex-1" id="codeEditorHost"></div>
+                                <!-- Empty state, over the editor. The veil does not
+                                     take pointer events, so the editor underneath
+                                     stays clickable: pasting your own script into an
+                                     empty workspace still works, and typing clears
+                                     this state via the CodeMirror change hook. -->
+                                <div class="es-skels es-code" aria-hidden="true">
+                                    <div class="es-skel" style="height:11px;width:52%"></div>
+                                    <div class="es-skel" style="height:11px;width:38%"></div>
+                                    <div class="es-skel" style="height:11px;width:64%"></div>
+                                    <div class="es-skel" style="height:11px;width:30%"></div>
+                                    <div class="es-skel" style="height:11px;width:58%"></div>
+                                    <div class="es-skel" style="height:11px;width:44%"></div>
+                                </div>
+                                <div id="codeEmptyState" class="es-veil es-code es-dark">
+                                    <span class="es-icon es-dark">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--indigo)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"></path></svg>
+                                    </span>
+                                    <div>
+                                        <p class="es-title es-on-dark">Your generated script appears here</p>
+                                        <p class="es-sub es-on-dark">Upload a dataset, then describe an analysis to generate Python or R.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="autoScrollNote" class="lc-autoscroll hidden">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"></path></svg>
+                                Auto-scrolling with output
+                            </div>
                         </div>
                         <div id="runSection" class="mt-8 flex justify-end hidden animate-fade-in-up">
                             <button id="runBtn" class="btn-primary py-3 px-6 flex items-center gap-2 text-base shadow-[var(--e2)]">
@@ -441,11 +514,41 @@
                                 <button id="dataZoomReset" class="data-zoom-btn data-zoom-reset" title="Reset to 100%" aria-label="Reset data table zoom">100%</button>
                                 <button id="dataZoomIn" class="data-zoom-btn" title="Zoom in (Ctrl + scroll)" aria-label="Zoom in data table">+</button>
                             </div>
-                            <div id="tableScrollContainer" class="flex-1 min-h-0 overflow-auto">
+                            <div id="tableScrollContainer" class="flex-1 min-h-0 overflow-auto relative">
                                 <table id="dataTable" class="min-w-full text-base text-left">
                                     <thead id="dataTableHead" class="text-xs font-mono text-[var(--text-2)] uppercase bg-[var(--s1)] sticky top-0 shadow-sm z-10 tracking-widest border-b border-[var(--border)]"></thead>
                                     <tbody id="dataTableBody" class="text-[var(--text-1)] font-mono text-sm"></tbody>
                                 </table>
+                                <div class="es-skels es-data" aria-hidden="true">
+                                    <div class="es-skel" style="height:9px;width:60%"></div>
+                                    <div class="es-skel" style="height:8px;width:70%"></div>
+                                    <div class="es-skel" style="height:8px;width:45%"></div>
+                                    <div class="es-skel" style="height:8px;width:80%"></div>
+                                    <div class="es-skel" style="height:8px;width:55%"></div>
+                                    <div class="es-skel" style="height:8px;width:72%"></div>
+                                </div>
+                                <div id="dataEmptyState" class="es-veil es-data">
+                                    <span class="es-icon">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18v14H3zM3 10h18M9 10v9"></path></svg>
+                                    </span>
+                                    <div>
+                                        <p class="es-title">Preview your data here</p>
+                                        <!-- Describes what this tab actually does. The design's
+                                             "see variable-type badges" is not true of the table:
+                                             renderTableHeaders draws a column name and a filter
+                                             box, and the type chips live in the sidebar codebook. -->
+                                        <p class="es-sub">Upload a dataset to browse rows, filter any column, and page through the table.</p>
+                                    </div>
+                                    <div>
+                                        <p class="es-legend-label">Every variable is classified as</p>
+                                        <div class="es-chips">
+                                            <span class="es-chip es-cont"><span class="es-pip"></span>continuous</span>
+                                            <span class="es-chip es-nom"><span class="es-pip"></span>nominal</span>
+                                            <span class="es-chip es-ord"><span class="es-pip"></span>ordinal</span>
+                                        </div>
+                                    </div>
+                                    <button class="btn-primary py-2.5 px-4 text-sm" data-action="pickDataset">Upload a dataset</button>
+                                </div>
                             </div>
                             <div id="paginationFooter" class="hidden bg-[var(--s1)] border-t border-[var(--border)] p-4 flex justify-between items-center text-sm transition-colors duration-300">
                                 <span id="pageInfo" class="text-[var(--text-2)] font-mono text-xs font-bold uppercase tracking-wider">Page 1 of 1</span>
@@ -459,27 +562,113 @@
 
                     <!-- RESULTS TAB -->
                     <div id="contentResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6">
+
+                        <!-- Execution phase header: sandbox badge + live timer.
+                             Shown once a run starts; flips to a failed variant
+                             when the sandbox exits non-zero. -->
+                        <div id="execHeader" class="lc-header hidden">
+                            <div id="execPhase" class="lc-header-label">
+                                <span id="execBadge" class="lc-badge">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 7v10l8 5 8-5V7z"></path></svg>
+                                    SANDBOX
+                                </span>
+                                <span id="execFailGlyph" class="lc-glyph hidden" aria-hidden="true">!</span>
+                                <span id="execPhaseLabel">Executing in sandbox</span>
+                            </div>
+                            <span id="execElapsed" class="lc-elapsed live" aria-hidden="true"><span class="lc-dot blink"></span><span id="execElapsedVal">0:00</span></span>
+                        </div>
+
                         <div class="bg-[var(--code-bg)] border border-[var(--code-border)] rounded-[14px] shadow-[var(--e2)] flex flex-col overflow-hidden">
-                            <h3 class="text-xs font-mono uppercase text-[var(--code-text)] font-semibold tracking-widest flex items-center gap-2 bg-[var(--code-chrome)] border-b border-[var(--code-border)] px-4 py-3 m-0">
-                                <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 8l4 4-4 4M13 16h6"></path><rect x="2" y="3" width="20" height="18" rx="2"></rect></svg>
-                                Sandbox · Terminal Output
-                            </h3>
-                            <pre id="runOutput" class="text-[var(--code-text)] font-mono text-sm whitespace-pre-wrap leading-relaxed p-5 m-0">Awaiting code execution...</pre>
+                            <div class="bg-[var(--code-chrome)] border-b border-[var(--code-border)] px-4 py-3 flex items-center justify-between gap-2">
+                                <h3 class="text-xs font-mono uppercase text-[var(--code-text)] font-semibold tracking-widest flex items-center gap-2 m-0">
+                                    <svg id="termIcon" class="w-4 h-4 text-emerald-400 lc-term-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 8l4 4-4 4M13 16h6"></path><rect x="2" y="3" width="20" height="18" rx="2"></rect></svg>
+                                    Sandbox · Terminal Output
+                                </h3>
+                                <!-- Reads "idle" until execRunning() takes it over. -->
+                                <span id="termState" class="lc-term-state"><span class="lc-dot"></span>idle</span>
+                            </div>
+                            <!-- Idle terminal: empty until a run writes to it, with a
+                                 skeleton standing in. min-height is inline because
+                                 `min-h-[150px]` is not in the purged Tailwind build
+                                 and would silently do nothing. -->
+                            <div class="relative flex-1 min-h-0" style="min-height:150px">
+                                <pre id="runOutput" class="text-[var(--code-text)] font-mono text-sm whitespace-pre-wrap leading-relaxed p-5 m-0"></pre>
+                                <div class="es-skels es-run" aria-hidden="true">
+                                    <div class="es-skel" style="height:9px;width:40%"></div>
+                                    <div class="es-skel" style="height:9px;width:66%"></div>
+                                    <div class="es-skel" style="height:9px;width:30%"></div>
+                                </div>
+                            </div>
+                            <div id="execProgress" class="lc-progress hidden" role="progressbar" aria-label="Script running in the sandbox">
+                                <div class="lc-progress-bar"></div>
+                            </div>
+                        </div>
+
+                        <!-- AI debug frame (5.11): on a failed run this names the
+                             error and offers the two ways forward. The full
+                             diagnosis streams into Interpretation below. -->
+                        <div id="debugFrame" class="lc-debug hidden animate-fade-in-up">
+                            <div class="lc-debug-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 7v10l8 5 8-5V7z"></path><path d="M9 12h6M12 9v6"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="lc-debug-title">STATlee spotted the problem</p>
+                                <p id="debugSummary" class="lc-debug-body"></p>
+                                <div class="lc-debug-actions">
+                                    <button id="debugFixBtn" class="lc-btn-fix" title="Send the traceback back to STATlee and regenerate the script">Fix with AI</button>
+                                    <button id="debugEditBtn" class="lc-btn-edit" title="Open the script in the editor and fix it yourself">Edit script</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="bg-[var(--s1)] border border-[var(--border)] rounded-[14px] p-8 flex-1 shadow-[var(--e1)]">
                             <h3 class="label-eyebrow mb-6 flex items-center gap-2 border-b border-[var(--border)] pb-4">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 3a9 9 0 00-9 9c0 4 3 6 3 8h12c0-2 3-4 3-8a9 9 0 00-9-9zM9 21h6"></path></svg>
                                 Interpretation
                             </h3>
-                            <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body">Run a script to generate a statistical interpretation.</div>
+                            <div class="relative" style="min-height:76px">
+                                <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body"></div>
+                                <div class="es-skels es-run" aria-hidden="true" style="padding:0">
+                                    <div class="es-skel" style="height:9px;width:92%"></div>
+                                    <div class="es-skel" style="height:9px;width:80%"></div>
+                                    <div class="es-skel" style="height:9px;width:88%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Results empty state. Sits below the idle terminal and the
+                             skeleton interpretation, so the tab reads as "this is the
+                             shape of what you'll get" rather than as a blank panel. -->
+                        <div class="es-hero es-run">
+                            <span class="es-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"></path></svg>
+                            </span>
+                            <p class="es-title" style="margin-top:0.75rem">Results land here after a run</p>
+                            <p class="es-sub es-wide" style="margin-bottom:0.85rem">Terminal output, a plain-English interpretation, and any plots your script saves, all from one generated script.</p>
+                            <button class="btn-primary py-2.5 px-4 text-sm" data-action="switchTab" data-arg="generate">Generate a script first</button>
                         </div>
                     </div>
 
                     <!-- CONVERSE TAB -->
                     <div id="contentConverse" class="tab-content h-full flex flex-col hidden bg-transparent">
                         <div id="chatLog" class="flex-1 min-h-0 p-8 overflow-y-auto flex flex-col gap-6">
-                            <div class="self-start bg-white/95 text-slate-900 border border-slate-300 dark:border-slate-700/50 dark:bg-surface-2/90 backdrop-blur-md dark:text-slate-200 p-5 rounded-2xl rounded-tl-none max-w-[80%] text-base shadow-lg leading-relaxed font-medium">
-                                Hello! Once you run some code, we can discuss the results here. Ask me anything about your data, the methodology, or the statistical output. Flip on <span class="font-bold">Guide me</span> below if you'd like help turning a hypothesis into a rigorous analysis prompt.
+                            <!-- Converse empty state. The chips FILL the composer and
+                                 never auto-send: a send is a billable model call, so
+                                 it stays the user's decision. Their wording is
+                                 deliberately dataset-independent, because in this
+                                 state no dataset exists to ask about. -->
+                            <div id="converseEmptyState" class="es-hero es-chat" style="margin:2rem auto 0;max-width:40rem">
+                                <span class="es-icon es-lg">
+                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"></path></svg>
+                                </span>
+                                <p class="es-title es-lg" style="margin-top:0.9rem">Ask STATlee about your analysis</p>
+                                <p class="es-sub es-wide" style="margin-bottom:1.25rem">Follow-up questions, robustness checks, and plain-English explanations. Once you run a script, the discussion is grounded in those results. Try one:</p>
+                                <div class="es-chips" style="margin-bottom:0.5rem">
+                                    <button type="button" class="es-ask" data-action="askSample" data-arg="How do I choose the right statistical test?">How do I choose the right statistical test?</button>
+                                    <button type="button" class="es-ask" data-action="askSample" data-arg="What is the difference between nominal and ordinal?">What is the difference between nominal and ordinal?</button>
+                                    <button type="button" class="es-ask" data-action="askSample" data-arg="Help me turn a hunch into an analysis I can run.">Help me turn a hunch into an analysis</button>
+                                    <button type="button" class="es-ask" data-action="askSample" data-arg="What can you help me with?">What can you help me with?</button>
+                                </div>
+                                <p class="es-privacy">Chips fill the box below. You choose when to send.</p>
                             </div>
                         </div>
                         <div class="p-6 border-t border-[var(--border)] bg-[var(--s1)]">
@@ -506,7 +695,7 @@
                                 </h3>
                             </div>
                             <!-- Empty state: shown until a codebook document is loaded. -->
-                            <div id="codebookEmptyState" class="flex-1 flex flex-col items-center justify-center text-center p-10 gap-4">
+                            <div id="codebookEmptyState" class="flex-1 overflow-y-auto flex flex-col items-center justify-center text-center p-10 gap-4">
                                 <span class="w-12 h-12 rounded-[13px] bg-[var(--indigo-soft)] flex items-center justify-center text-[var(--indigo)]">
                                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 19.5A2.5 2.5 0 016.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"></path></svg>
                                 </span>
@@ -525,6 +714,28 @@
                                     </button>
                                 </div>
                                 <p class="text-[10px] font-mono uppercase tracking-widest text-[var(--text-3)]">Upload a dataset first if you haven't</p>
+
+                                <!-- The three levels prompts.classify() asks the model to
+                                     sort every column into (prompts.py:265). Colours match
+                                     the chips ui.js renders in the sidebar codebook. -->
+                                <div class="es-class-table">
+                                    <div class="es-class-head">How STATlee classifies</div>
+                                    <div class="es-class-row">
+                                        <span class="es-class-dot" style="background:var(--c-cont)"></span>
+                                        <span class="es-class-name" style="color:var(--c-cont)">continuous</span>
+                                        <span class="es-class-desc">Numeric values on a scale, like age or income.</span>
+                                    </div>
+                                    <div class="es-class-row">
+                                        <span class="es-class-dot" style="background:var(--c-nom)"></span>
+                                        <span class="es-class-name" style="color:var(--c-nom)">nominal</span>
+                                        <span class="es-class-desc">Unordered categories, like region or party.</span>
+                                    </div>
+                                    <div class="es-class-row">
+                                        <span class="es-class-dot" style="background:var(--c-ord)"></span>
+                                        <span class="es-class-name" style="color:var(--c-ord)">ordinal</span>
+                                        <span class="es-class-desc">Ranked categories, like an education level or a Likert scale.</span>
+                                    </div>
+                                </div>
                             </div>
                             <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white hidden" src="" title="Uploaded codebook document"></iframe>
                         </div>
@@ -537,9 +748,21 @@
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                 AI Report Builder
                             </h3>
-                            <span class="text-[11px] text-[var(--text-3)]">Grounded in your latest run. Run an analysis first, then generate.</span>
+                            <span class="text-[11px] text-[var(--text-3)]">Grounded in your latest run.</span>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+                        <!-- Locked until a run exists. "your first run", not the
+                             design's "your first successful run": tools.js gates
+                             generateReport on CC.state.lastRun.output, which a
+                             FAILED run also sets, so a failed run unlocks it too.
+                             The toast in tools.js stays the real guard; this is
+                             the visible half of the same rule. -->
+                        <div class="es-notice es-run">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pipe-pending)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+                            <span class="es-notice-text">The report builder unlocks after your first run.</span>
+                        </div>
+
+                        <div class="es-staged grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div class="md:col-span-3">
                                 <label class="label-eyebrow mb-1" for="reportContext">Background / context</label>
                                 <textarea id="reportContext" rows="2" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-2 px-3 outline-none focus:ring-2 focus:ring-[var(--indigo)] resize-none text-sm" placeholder="e.g., Term paper on income and turnout using the 2024 ANES pilot..."></textarea>
@@ -571,11 +794,11 @@
                                 <button id="reportGenerateBtn" class="btn-primary py-2.5 px-6 text-sm">Generate Report</button>
                             </div>
                         </div>
-                        <div class="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-[14px] overflow-hidden">
+                        <div class="es-staged flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-[14px] overflow-hidden">
                             <textarea id="reportEditor" class="flex-1 min-h-[260px] w-full bg-[var(--s0)] p-4 font-mono text-sm outline-none resize-none" placeholder="The generated report appears here as editable Markdown. Tweak it by hand, or select a passage and click 'Revise selection' for a targeted AI edit." aria-label="Report markdown editor"></textarea>
                             <div id="reportPreview" class="flex-1 min-h-[260px] overflow-y-auto p-5 markdown-body text-base hidden bg-[var(--s0)]"></div>
                         </div>
-                        <div class="flex gap-2 justify-end">
+                        <div class="es-staged flex gap-2 justify-end">
                             <button id="reportPreviewBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-[var(--border-strong)] rounded-lg hover:bg-[var(--s2)] transition-all">Preview</button>
                             <button id="reportReviseBtn" class="px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-[var(--border-strong)] rounded-lg hover:bg-[var(--s2)] transition-all">Revise selection</button>
                             <button id="reportDownloadBtn" class="btn-primary px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-lg">Download .md</button>
@@ -606,7 +829,11 @@
 
     <!-- Footer - in normal flow so it can never cover the UI (4.1) -->
     <footer class="w-full bg-[var(--s1)] border-t border-[var(--border)] text-center py-2 z-50 transition-colors duration-500 shrink-0">
-        <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">Sandbox Environment • Anonymous data not stored • AI powered by Google Gemini</p>
+        <!-- "auto-deleted", not "not stored": anonymous sessions never touch the
+             DB, but the uploaded file IS written to disk and reaped on a TTL
+             (config.file_ttl_seconds, 2h default). Same correction SP1 made to
+             the landing page, kept consistent with the dropzone line above. -->
+        <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">Sandbox Environment • Anonymous uploads auto-deleted • AI powered by Google Gemini</p>
     </footer>
 
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>

@@ -25,7 +25,7 @@
             usage: { input: 0, output: 0, calls: 0, by_model: {} },
         },
         // Per-model price estimates (USD per 1M tokens) injected by the server
-        // for the session-cost display. Display only — never triggers spend.
+        // for the session-cost display. Display only: never triggers spend.
         prices: (window.CC_BOOT && window.CC_BOOT.prices) || {},
         consoleErrors: [],
     };
@@ -80,7 +80,10 @@
         });
     };
 
-    /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError. */
+    /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
+     *  onPhase receives (phase, message): some phases are notices rather than
+     *  progress (P2-8's feature-selection fallback carries the text to show),
+     *  so the message must reach the caller instead of being dropped here. */
     CC.streamSSE = async function (response, handlers) {
         const h = handlers || {};
         const reader = response.body.getReader();
@@ -100,7 +103,7 @@
                 try { parsed = JSON.parse(dataLine.slice(6)); }
                 catch (e) { console.error('Bad SSE payload:', dataLine, e); continue; }
                 if (parsed.type === 'delta' && h.onDelta) h.onDelta(parsed.text || '');
-                else if (parsed.type === 'phase' && h.onPhase) h.onPhase(parsed.phase);
+                else if (parsed.type === 'phase' && h.onPhase) h.onPhase(parsed.phase, parsed.message);
                 else if (parsed.type === 'done' && h.onDone) h.onDone(parsed);
                 else if (parsed.type === 'error' && h.onError) h.onError(parsed.message || 'Stream error.');
             }
@@ -115,7 +118,7 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     };
 
-    /** Sanitized markdown rendering — the only path LLM text takes into the
+    /** Sanitized markdown rendering: the only path LLM text takes into the
      *  DOM (roadmap 0.5). */
     CC.renderMarkdown = function (md) {
         const html = marked.parse(md || '');

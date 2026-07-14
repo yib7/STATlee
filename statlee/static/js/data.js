@@ -109,6 +109,20 @@
     };
 
     // --- post-upload pipeline (classification → suggestions) ---------------------
+    /** Hand the composer back to the user once the dataset is profiled. Called
+     *  on BOTH the success and failure paths: classification is optional context
+     *  (generate() only requires CC.state.filename and merges an empty codebook
+     *  fine), so a failed /classify_variables must not strand the run behind a
+     *  Generate button that never re-enables. */
+    function releaseComposer() {
+        const generateBtn = document.getElementById('generateBtn');
+        const promptInput = document.getElementById('promptInput');
+        if (generateBtn) generateBtn.disabled = false;
+        if (promptInput) {
+            promptInput.placeholder = "e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals...";
+        }
+    }
+
     async function fetchCodebook(filename, quiet) {
         if (!quiet) CC.pipeline.set('classify', 'active');
         try {
@@ -118,15 +132,13 @@
                 CC.renderCodebookUI();
                 if (data.usage) CC.addUsage(data.usage);
                 if (!quiet) CC.pipeline.set('classify', 'done', data.cached ? 'cached' : '');
-                const generateBtn = document.getElementById('generateBtn');
-                const promptInput = document.getElementById('promptInput');
-                generateBtn.disabled = false;
-                promptInput.placeholder = "e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals...";
             } else if (!quiet) {
                 CC.pipeline.set('classify', 'failed', (data && data.error) || 'failed');
             }
         } catch (e) {
             if (!quiet) CC.pipeline.set('classify', 'failed', 'network error');
+        } finally {
+            releaseComposer();
         }
     }
     CC.fetchCodebook = fetchCodebook;
@@ -135,7 +147,7 @@
         const container = document.getElementById('suggestionsContainer');
         const list = document.getElementById('suggestionsList');
         const nowBtn = document.getElementById('suggestNowBtn');
-        if (nowBtn) nowBtn.classList.add('hidden');   // generating now — hide the prompt
+        if (nowBtn) nowBtn.classList.add('hidden');   // generating now: hide the prompt
         container.classList.remove('hidden');
         list.innerHTML = `<span class="text-xs text-indigo-700 dark:text-indigo-400 font-mono tracking-widest uppercase font-bold flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Reading data structure...</span>`;
         if (!previous) CC.pipeline.set('suggest', 'active');
@@ -176,7 +188,7 @@
         } else {
             // Disabled: don't auto-spend, but surface a one-click button so the
             // user can generate ideas on demand without re-uploading.
-            CC.pipeline.set('suggest', 'skipped', 'disabled — use the button');
+            CC.pipeline.set('suggest', 'skipped', 'disabled, use the button');
             const container = document.getElementById('suggestionsContainer');
             const list = document.getElementById('suggestionsList');
             const nowBtn = document.getElementById('suggestNowBtn');
@@ -185,6 +197,15 @@
             if (nowBtn) nowBtn.classList.remove('hidden');
         }
     }
+
+    // Opens the dataset picker from outside the sidebar (the Data tab's empty
+    // state), so the workspace is not a dead end when the sidebar is collapsed.
+    // Routed through boot.js's data-action contract; CSP forbids inline onclick.
+    CC.pickDataset = function () {
+        const input = document.getElementById('fileInput');
+        if (input) input.click();
+    };
+    window.pickDataset = CC.pickDataset;
 
     // --- upload flow ------------------------------------------------------------
     function initUpload() {
@@ -216,6 +237,9 @@
                 const { ok, data } = await CC.postForm('/upload', formData);
                 if (ok && data.filename) {
                     CC.state.filename = data.filename;
+                    // Real data exists now: retire the dropzone-era empty states
+                    // (Data tab skeleton, composer "upload to enable" hint).
+                    document.body.classList.remove('cc-no-data');
                     CC.state.chatHistory = [];
                     CC.state.converseHistory = [];
                     CC.state.headers = data.profile.headers;
@@ -336,7 +360,7 @@
                     `<div class="wrangle-msg applied"><svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg> ${CC.escapeHtml(v.summary)}</div>`;
                 list.appendChild(turn);
             } else {
-                // A milestone (original upload / reverted) — a centered note.
+                // A milestone (original upload / reverted): a centered note.
                 const note = document.createElement('div');
                 note.className = 'wrangle-note' + (active ? ' active-version' : '');
                 note.innerHTML = `<span class="v-badge">v${v.v}</span>${CC.escapeHtml(v.instruction)}`;
@@ -472,7 +496,7 @@
     }
     // The Codebook tab is always reachable now. Its empty-state buttons let the
     // user add a codebook (or a survey to generate descriptions) at any time
-    // WITHOUT re-uploading the dataset — they reuse the existing pdfInput flow.
+    // WITHOUT re-uploading the dataset: they reuse the existing pdfInput flow.
     function initCodebookTab() {
         const uploadBtn = document.getElementById('codebookTabUploadBtn');
         const surveyBtn = document.getElementById('codebookTabSurveyBtn');
