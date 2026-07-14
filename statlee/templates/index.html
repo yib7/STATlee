@@ -6,9 +6,9 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>STATlee | Social Science AI</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mark.png') }}">
-    <meta name="description" content="STATlee turns data questions into answers in plain English — upload your data, describe the analysis, and get runnable statistics, charts, and interpretation. Built for social scientists, no coding required.">
+    <meta name="description" content="STATlee turns data questions into answers in plain English: upload your data, describe the analysis, and get runnable statistics, charts, and interpretation. Built for social scientists, no coding required.">
     <meta name="theme-color" content="#5b53e6">
-    <meta property="og:title" content="STATlee — turn data questions into answers, in plain English">
+    <meta property="og:title" content="STATlee: turn data questions into answers, in plain English">
     <meta property="og:description" content="AI data analysis for social scientists. Describe your analysis in plain English; STATlee writes, runs, and interprets the statistics for you.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="{{ url_for('static', filename='images/logo-full.png') }}">
@@ -85,7 +85,7 @@
                         Upload Survey Questionnaire
                     </button>
                     <button id="surveySkipBtn" class="w-full btn-secondary py-3 px-4">
-                        Skip — proceed without one
+                        Skip: proceed without one
                     </button>
                 </div>
             </div>
@@ -102,7 +102,7 @@
                 <button data-close-modal="accountModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close account dialog">&times;</button>
             </div>
             <div id="accountLoginItem">
-                <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous sandbox use stays available — nothing is stored without an account.</p>
+                <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous sandbox use stays available. Nothing is stored without an account.</p>
                 <label class="label-eyebrow mb-1.5" for="accEmail">Email</label>
                 <input type="email" id="accEmail" autocomplete="email" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="you@university.edu">
                 <label class="label-eyebrow mb-1.5" for="accPassword">Password <span class="font-normal normal-case tracking-normal opacity-70">(8+ characters)</span></label>
@@ -150,7 +150,7 @@
             <div class="flex justify-between items-center p-6 pb-2">
                 <div>
                     <h2 id="catalogTitle" class="text-xl font-display font-bold text-[var(--text-1)] tracking-tight">Analysis Catalog</h2>
-                    <p class="text-xs text-[var(--text-2)] mt-1">Pick a method — STATlee drafts a prompt tailored to <span class="font-bold">your</span> columns.</p>
+                    <p class="text-xs text-[var(--text-2)] mt-1">Pick a method: STATlee drafts a prompt tailored to <span class="font-bold">your</span> columns.</p>
                 </div>
                 <button data-close-modal="catalogModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close catalog">&times;</button>
             </div>
@@ -221,13 +221,13 @@
 
                 <!-- Workspace toolbar -->
                 <div class="flex flex-wrap gap-1.5 mt-4 animate-fade-in-up" style="animation-delay: 0.15s;">
-                    <button id="resetBtn" class="btn-toolbar" title="Start over with a clean workspace" aria-label="New analysis — reset everything">New</button>
+                    <button id="resetBtn" class="btn-toolbar" title="Start over with a clean workspace" aria-label="New analysis: reset everything">New</button>
                     <button id="historyBtn" class="btn-toolbar" title="Past analyses" aria-label="Open analysis history">History</button>
                     <button id="catalogBtn" class="btn-toolbar" title="Browse statistical tests and plots" aria-label="Open analysis catalog">Catalog</button>
                     <button id="exportBtn" class="btn-toolbar" title="Download data + script + plots + report as a zip" aria-label="Download project archive">Export</button>
                     <button id="issueBtn" class="btn-toolbar" title="Report a problem" aria-label="Report an issue">Support</button>
                     <button id="accountBtn" class="btn-toolbar" title="Sign in to keep your work" aria-label="Account">Account</button>
-                    <button id="settingsBtn" class="btn-toolbar" title="Workspace settings — suggestions, split view" aria-label="Workspace settings">Settings</button>
+                    <button id="settingsBtn" class="btn-toolbar" title="Workspace settings: suggestions, split view" aria-label="Workspace settings">Settings</button>
                 </div>
             </div>
 
@@ -491,7 +491,7 @@
                             </div>
                             <div class="max-w-4xl mx-auto mt-2.5 flex items-center gap-2.5">
                                 <input type="checkbox" id="guideToggle" class="cc-switch cursor-pointer">
-                                <label for="guideToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Hypothesis coach: helps you formulate a rigorous analysis prompt from a hunch">Guide me — help me shape a hypothesis into an analysis</label>
+                                <label for="guideToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Hypothesis coach: helps you formulate a rigorous analysis prompt from a hunch">Guide me: help me shape a hypothesis into an analysis</label>
                             </div>
                         </div>
                     </div>
@@ -537,7 +537,7 @@
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                 AI Report Builder
                             </h3>
-                            <span class="text-[11px] text-[var(--text-3)]">Grounded in your latest run — run an analysis first, then generate.</span>
+                            <span class="text-[11px] text-[var(--text-3)]">Grounded in your latest run. Run an analysis first, then generate.</span>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div class="md:col-span-3">
@@ -604,7 +604,7 @@
         </div>
     </div>
 
-    <!-- Footer — in normal flow so it can never cover the UI (4.1) -->
+    <!-- Footer - in normal flow so it can never cover the UI (4.1) -->
     <footer class="w-full bg-[var(--s1)] border-t border-[var(--border)] text-center py-2 z-50 transition-colors duration-500 shrink-0">
         <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">Sandbox Environment • Anonymous data not stored • AI powered by Google Gemini</p>
     </footer>

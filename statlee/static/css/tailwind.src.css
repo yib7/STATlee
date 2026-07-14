@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer components {
-    /* One primary CTA in both themes — solid indigo token, 10px radius (1A). */
+    /* One primary CTA in both themes - solid indigo token, 10px radius (1A). */
     .btn-primary {
         @apply bg-[var(--indigo)] hover:bg-[var(--indigo-2)] text-white font-semibold rounded-[10px]
                transition-all duration-2 ease-std disabled:opacity-50 disabled:cursor-not-allowed;

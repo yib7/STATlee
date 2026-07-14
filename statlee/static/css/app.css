@@ -1,4 +1,4 @@
-/* STATlee application styles — UI elevation handoff (direction 1A).
+/* STATlee application styles - UI elevation handoff (direction 1A).
    Token layer first: :root = light theme, .dark = dark theme.
    Everything hand-written below consumes the tokens. */
 
@@ -27,7 +27,7 @@
     --e2: 0 8px 24px -8px rgba(20, 16, 40, .14);
     --e3: 0 28px 60px -18px rgba(20, 16, 40, .22);
 
-    /* editor / terminal — always dark, both themes */
+    /* editor / terminal - always dark, both themes */
     --code-bg: #0c0a17; --code-chrome: #0f0c1e; --code-border: #241f3f;
     --code-text: #d8d4f0; --code-muted: #655f86;
 }
@@ -71,7 +71,7 @@ body { font-family: var(--font-ui); }
     -webkit-backdrop-filter: blur(12px);
 }
 
-/* ============ Pipeline rail (4.4) — the sidebar's spine ============
+/* ============ Pipeline rail (4.4) - the sidebar's spine ============
    Markup contract (ui.js): .pipeline-step[data-state] > .step-dot + label + .step-note */
 #pipelineChecklist { position: relative; }
 .pipeline-step {
@@ -113,7 +113,7 @@ body { font-family: var(--font-ui); }
 .pipeline-step[data-state="failed"] { color: var(--pipe-failed); }
 .pipeline-step[data-state="failed"] .step-dot { border-color: var(--pipe-failed); color: var(--pipe-failed); }
 
-/* Skipped reads as "skipped by choice" — muted, no strikethrough. */
+/* Skipped reads as "skipped by choice" - muted, no strikethrough. */
 .pipeline-step[data-state="skipped"] { color: var(--text-3); }
 .pipeline-step[data-state="skipped"] .step-dot { border-color: var(--pipe-skipped); color: var(--pipe-skipped); }
 .pipeline-step[data-state="skipped"] .step-dot::after { content: '–'; font-size: 0.7rem; line-height: 1; }
@@ -124,7 +124,7 @@ body { font-family: var(--font-ui); }
     100% { opacity: 0; }
 }
 
-/* ============ CodeMirror editor (5.4) — always dark ============ */
+/* ============ CodeMirror editor (5.4) - always dark ============ */
 .cm-wrap .CodeMirror { height: 100%; min-height: 260px; background: transparent; color: var(--code-text); font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.75; }
 .cm-wrap .CodeMirror-gutters { background: transparent; border-right: 1px solid var(--code-border); }
 
@@ -147,7 +147,7 @@ body { font-family: var(--font-ui); }
 .cc-toast.error { background: color-mix(in srgb, var(--pipe-failed) 14%, var(--s1)); color: var(--pipe-failed); border-color: var(--pipe-failed); }
 .cc-toast.success { background: color-mix(in srgb, var(--pipe-done) 14%, var(--s1)); color: var(--pipe-done); border-color: var(--pipe-done); }
 
-/* Modal base — softer backdrop (modal pass, ask #10) */
+/* Modal base - softer backdrop (modal pass, ask #10) */
 .cc-modal { position: fixed; inset: 0; z-index: 95; background: rgba(8, 6, 15, 0.55); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .cc-modal.hidden { display: none; }
 
@@ -181,7 +181,7 @@ body { font-family: var(--font-ui); }
 select option { background-color: var(--s0); color: var(--text-1); }
 .dark select { color-scheme: dark; }
 
-/* ============ Switch-styled toggles (ask #4, CSS-only — same inputs, same IDs) ============ */
+/* ============ Switch-styled toggles (ask #4, CSS-only - same inputs, same IDs) ============ */
 input[type="checkbox"].cc-switch {
     appearance: none; -webkit-appearance: none;
     width: 34px; height: 20px; border-radius: var(--r-pill); flex-shrink: 0;
