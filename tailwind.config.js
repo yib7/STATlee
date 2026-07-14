@@ -20,6 +20,8 @@ module.exports = {
           3: '#0d0d12',
         },
       },
+      transitionDuration: { '2': '200ms' },
+      transitionTimingFunction: { 'std': 'cubic-bezier(.2, .8, .2, 1)' },
       animation: {
         'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         'blob': 'blob 10s infinite',

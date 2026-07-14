@@ -3,33 +3,35 @@
 @tailwind utilities;
 
 @layer components {
-    /* One primary call-to-action color in BOTH themes (was slate-900 in light,
-       indigo in dark — an inverted hierarchy). Instances keep their own
-       width/padding/rounding utilities, which override these defaults. */
+    /* One primary CTA in both themes — solid indigo token, 10px radius (1A). */
     .btn-primary {
-        @apply bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl
-               transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed;
+        @apply bg-[var(--indigo)] hover:bg-[var(--indigo-2)] text-white font-semibold rounded-[10px]
+               transition-all duration-2 ease-std disabled:opacity-50 disabled:cursor-not-allowed;
     }
 
     /* Secondary / ghost action. */
     .btn-secondary {
-        @apply bg-transparent border border-slate-300 dark:border-slate-700
-               text-slate-700 dark:text-slate-300 font-semibold rounded-xl
-               hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all duration-300;
+        @apply bg-transparent border border-[var(--border-strong)]
+               text-[var(--text-1)] font-semibold rounded-[10px]
+               hover:bg-[var(--s2)] hover:border-[var(--indigo)] transition-all duration-2 ease-std;
     }
 
-    /* Compact bordered pill for the sidebar workspace toolbar. Readable 12px
-       sentence case instead of the old 10px uppercase mono. */
+    /* Compact bordered pill for the sidebar workspace toolbar. */
     .btn-toolbar {
         @apply px-2.5 py-1.5 text-xs font-semibold rounded-lg
-               border border-slate-300 dark:border-slate-700
-               hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:border-indigo-400
-               transition-all;
+               text-[var(--text-2)] border border-transparent
+               hover:bg-[var(--s2)] hover:text-[var(--text-1)] hover:border-[var(--border)]
+               transition-all duration-2 ease-std;
     }
 
-    /* The one canonical small uppercase eyebrow label. */
+    /* The one canonical eyebrow label (type role: label). */
     .label-eyebrow {
-        @apply block text-[11px] font-mono font-bold uppercase tracking-wider
-               text-slate-700 dark:text-slate-300;
+        @apply block text-[11px] font-mono font-semibold uppercase tracking-[0.12em]
+               text-[var(--text-3)];
+    }
+
+    /* Token-surface panel (replaces per-element bg-white/60 dark:bg-black/30 pairs). */
+    .panel {
+        @apply bg-[var(--s0)] border border-[var(--border)] rounded-[14px];
     }
 }
