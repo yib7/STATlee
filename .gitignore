@@ -30,7 +30,6 @@ instance/
 .claude/
 
 # Agent/planning artifacts: working notes, not part of the shipped project.
-.autopilot/
 .superpowers/
 docs/superpowers/
 docs/IMPLEMENTATION_PLAN.md
