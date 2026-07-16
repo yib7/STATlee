@@ -38,5 +38,7 @@ docs/CLOSEOUT.md
 *_UPDATES.md
 *AUDIT*.md
 *FINDINGS*.md
+# AI-assistant instructions, kept local, not shipped in the public repo.
+CLAUDE.md
 # Operator deploy runbook kept local, not shipped in the public repo.
 docs/DEPLOYMENT_PLAYBOOK.md
