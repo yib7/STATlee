@@ -4,6 +4,39 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-07-16
+
+Security hardening for the primary analysis path. No breaking changes.
+
+### Security
+- `/chat` now re-moderates the model's own generated script through the
+  run-guard before approving it, not just the user's instruction. Previously
+  the primary code-generation path saved generated code as approved after only
+  a quality-validation pass, so in the default subprocess sandbox mode a
+  benign-looking prompt that steered the model toward network, environment, or
+  file-exfiltration code could reach execution with no code-level safety check.
+  `/wrangle` and the edited-`/run` guard already did this; `/chat` now upholds
+  the same "every executed generated script is moderated" invariant. A blocked
+  script is not approved or run, and the request's credit (when billing is on)
+  is refunded.
+
+## [1.3.1] - 2026-07-14
+
+User-interface rebuild on a shared design-token system. No breaking changes.
+
+### Changed
+- Adopted a token-layer front end: `index.html`, `app.css`, and a rebuilt
+  Tailwind config drive every screen from one set of design tokens.
+- Rebuilt the landing page and the password-reset page on the token system, and
+  built out the run lifecycle and empty states across the workspace.
+
+### Fixed
+- Four UI bugs surfaced while rebuilding the run lifecycle and empty states.
+
+### Internal
+- Test suite grew from 311 to 331 passing (plus 4 skip-marked Docker/POSIX
+  tests that run in CI).
+
 ## [1.3.0] - 2026-07-11
 
 Third audit-pass cycle: 21 findings closed (7 P1, 14 P2) across billing

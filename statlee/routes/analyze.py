@@ -185,12 +185,49 @@ def chat():
                 yield sse_event({'type': 'delta', 'text': delta})
 
             final_code = strip_code_fences(validated)
-            # 0.4 run-guard: the server remembers what it produced; /run only
-            # executes this (or a re-moderated edit of it).
+
+            # Run-guard (0.4): re-moderate the model's OWN generated script, not
+            # just the user's instruction (Gate 1). A jailbroken or misbehaving
+            # model can emit network / env-exfiltration / shell code from a
+            # benign-looking prompt, so moderating the instruction alone is not
+            # enough. This upholds the same "every executed LLM-generated script
+            # is moderated and recorded" invariant that /wrangle and the
+            # edited-/run guard enforce. Default-deny: a malformed/ambiguous
+            # verdict blocks (see moderation_blocked()).
+            try:
+                guard = service.generate(
+                    'lite', prompts.code_moderation(final_code, target_language),
+                    temperature=0.0, json_mode=True)
+            except Exception:
+                logger.exception("Run-guard code-moderation failed in /chat")
+                try:
+                    billing.refund(billing_user, priority=pro_mode, config=cfg)
+                except Exception:
+                    logger.exception("Failed to refund credit after guard failure")
+                yield sse_event({
+                    'type': 'error',
+                    'message': 'Could not verify the generated script. Please try again.'})
+                return
+            blocked, reason = moderation_blocked(guard.text)
+            if blocked:
+                # No runnable script was produced, so refund like the stream
+                # failure path below rather than charge for a rejected result.
+                try:
+                    billing.refund(billing_user, priority=pro_mode, config=cfg)
+                except Exception:
+                    logger.exception("Failed to refund credit after guard block")
+                yield sse_event({
+                    'type': 'error',
+                    'message': f'The generated script was rejected by the safety '
+                               f'check. {reason}'})
+                return
+
+            # Only a moderated script is remembered as approved; /run then
+            # executes this (or a re-moderated edit of it) without re-moderating.
             storage.save_approved_script(final_code, target_language)
 
             usage = _sum_usage(mod.usage, selection_usage,
-                               draft_usage, validation_usage)
+                               draft_usage, validation_usage, guard.usage)
             yield sse_event({'type': 'done', 'code': final_code,
                              'language': target_language, 'usage': usage})
         except Exception:

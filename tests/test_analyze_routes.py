@@ -73,6 +73,32 @@ def test_chat_streams_phases_and_final_code(client, fake_llm):
     assert done and done[0]['code'] == "print('final code')"
 
 
+def test_chat_moderates_its_own_generated_code(client, fake_llm):
+    """Run-guard (0.4): /chat re-moderates the model's OWN generated script, not
+    just the user's instruction -- the same "every executed LLM-generated script
+    is moderated" invariant /wrangle and edited-/run uphold. A code-moderation
+    BLOCK stops the script from being approved or run, even though the user's
+    prompt passed instruction-moderation."""
+    # Instruction passes moderation; the *generated* code is what the safety
+    # gate must catch (a jailbroken/misbehaving model emitting shell/exfil code).
+    fake_llm.set('validation', "import os; os.system('id')")
+    fake_llm.block_code('shell execution')
+    upload_csv(client, SAMPLE_CSV)
+    resp = post_json(client, '/chat',
+                     {'filename': 'test.csv', 'prompt': 'summarize the data'})
+    events = sse_events(resp)
+    # A code-moderation pass ran on the generated script during /chat.
+    assert any(c[1] == 'code_moderation' for c in fake_llm.calls)
+    # The blocked script is not delivered as runnable 'done'; an error streams.
+    assert not any(e.get('type') == 'done' for e in events)
+    assert any(e.get('type') == 'error' for e in events)
+    # It was never approved, so a follow-up /run refuses it.
+    run = post_json(client, '/run',
+                    {'filename': 'test.csv', 'code': "import os; os.system('id')",
+                     'language': 'Python'})
+    assert run.status_code == 403
+
+
 def test_chat_surfaces_feature_selection_fallback(client, fake_llm):
     """P2-8: when Stage-1 feature selection fails on a wide dataset, the pipeline
     falls back to the full schema — and now says so in an SSE 'phase' event
