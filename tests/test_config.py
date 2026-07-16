@@ -10,6 +10,26 @@ def test_invalid_env_raises():
         Config(env='staging').validate()
 
 
+def test_testing_db_defaults_to_in_memory(tmp_path):
+    """A testing app with no explicit DATABASE_URL resolves to an in-memory DB,
+    never the shared instance/statlee.db. Importing the package sets
+    APP_ENV=testing and builds a module-level app; if that wrote a create_all
+    database to the instance path, a later dev/prod boot would misread it as a
+    legacy database and crash replaying migrations onto existing columns."""
+    inst = tmp_path / 'instance'
+    url = Config(env='testing').resolved_database_url(str(inst))
+    assert url == 'sqlite://'                      # in-memory, no file
+    assert not (inst / 'statlee.db').exists()
+
+
+def test_explicit_database_url_is_honored_in_testing(tmp_path):
+    """An explicit DATABASE_URL still wins in testing (the test fixtures rely on
+    a per-test file DB)."""
+    target = 'sqlite:///' + str(tmp_path / 'x.db').replace('\\', '/')
+    cfg = Config(env='testing', database_url=target)
+    assert cfg.resolved_database_url(str(tmp_path / 'instance')) == target
+
+
 def test_production_requires_secrets():
     cfg = Config(env='production', gemini_api_key='', flask_secret_key='')
     with pytest.raises(ValueError) as exc:

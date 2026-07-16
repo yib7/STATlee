@@ -406,6 +406,16 @@ class Config:
     def resolved_database_url(self, instance_dir):
         if self.database_url:
             return self.database_url
+        # A testing app with no explicit DATABASE_URL must not write the shared
+        # instance/statlee.db. Importing the package sets APP_ENV=testing and
+        # builds a module-level app; a create_all database left at the instance
+        # path would be misread by a later dev/prod boot as a legacy (baseline-
+        # schema) database and crash replaying migrations onto columns that
+        # create_all already made. Tests that need a real file set DATABASE_URL
+        # (the conftest fixtures do); everything else gets a throwaway in-memory
+        # database.
+        if self.is_testing:
+            return 'sqlite://'
         os.makedirs(instance_dir, exist_ok=True)
         db_path = os.path.join(instance_dir, 'statlee.db')
         return 'sqlite:///' + db_path.replace('\\', '/')
