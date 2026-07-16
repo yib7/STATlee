@@ -20,7 +20,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-332%20passing-3fb950">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-334%20passing-3fb950">
   <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
@@ -136,7 +136,7 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest -q         # 332 tests, fully offline (deterministic fake LLM, no API key)
+pytest -q         # 334 tests, fully offline (deterministic fake LLM, no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,

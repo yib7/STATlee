@@ -6,7 +6,8 @@ All notable changes to STATlee are recorded here. The format follows
 
 ## [1.3.2] - 2026-07-16
 
-Security hardening for the primary analysis path. No breaking changes.
+Security hardening, a testing/boot-hygiene fix, and a dependency refresh. No
+breaking changes.
 
 ### Security
 - `/chat` now re-moderates the model's own generated script through the
@@ -19,6 +20,24 @@ Security hardening for the primary analysis path. No breaking changes.
   the same "every executed generated script is moderated" invariant. A blocked
   script is not approved or run, and the request's credit (when billing is on)
   is refunded.
+
+### Fixed
+- Running the test suite no longer poisons the instance database. Testing with
+  no `DATABASE_URL` now resolves to in-memory SQLite, so `python -m pytest`
+  followed by an `APP_ENV=development` boot no longer crashes with a
+  duplicate-column error from a half-migrated `instance/statlee.db`.
+
+### Changed
+- Refreshed pinned dependencies to current releases: google-genai 1.56 to
+  2.12, redis 5.2 to 8.0, anthropic 0.111 to 0.117, openai 2.43 to 2.45,
+  matplotlib 3.10 to 3.11, and filelock 3.25 to 3.30. The google-genai 2.x
+  major bump changes only its Interactions API (unused here); the
+  `generate_content` surface the app relies on is unchanged, confirmed by an
+  API-surface check and a live Gemini round-trip on the upgraded SDK.
+
+### Docs
+- Re-recorded the README demo GIF and workspace screenshot against the current
+  v1.3.x interface, from a real analysis run on the bundled sample dataset.
 
 ## [1.3.1] - 2026-07-14
 
