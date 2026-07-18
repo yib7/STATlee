@@ -326,6 +326,36 @@ def test_interpret_grounded_ignores_spoofed_client_code(app, client, fake_llm):
     assert 'SPOOF_CLIENT_CODE_MARKER' not in joined  # client code never reached the model
 
 
+def test_interpret_grounded_prefers_last_run_script_over_wrangle(app, client, fake_llm):
+    """P2-1: on the grounded debug path, the code fed to the debugger must be the
+    script that PRODUCED the last run, not a later /wrangle transform that became
+    the most-recent entry in the shared approved-script store. Preferring the
+    last-run script keeps the debugged code in sync with the last-run output."""
+    from statlee import storage
+
+    identity = _identity_for(client)
+    with app.app_context():
+        storage.save_last_run(
+            'Traceback (most recent call last): NameError: x', [],
+            script="print('ANALYSIS_MARKER')", language='Python',
+            identity=identity)
+        # A post-run /wrangle poisons "most recent" in the approved store.
+        storage.save_approved_script('df = df.dropna()', 'Python',
+                                     identity=identity)
+
+    fake_llm.set('interpret_debug', '### What went wrong\nA NameError.')
+    fake_llm.calls.clear()
+    resp = post_json(client, '/interpret',
+                     {'output': 'ignored client output',
+                      'code': 'SPOOF_CLIENT_CODE_MARKER', 'success': False})
+    assert resp.status_code == 200
+
+    joined = '\n'.join(c[2] for c in fake_llm.calls)
+    assert 'ANALYSIS_MARKER' in joined              # last-run analysis script used
+    assert 'df = df.dropna()' not in joined         # wrangle snippet NOT used
+    assert 'SPOOF_CLIENT_CODE_MARKER' not in joined  # client code never reached model
+
+
 def test_interpret_moderates_client_output_when_no_server_run(app, client, fake_llm):
     """P2-7: with no server-side run on record, the client `output` is trusted
     only after passing moderation, which fails closed. A blocked payload must

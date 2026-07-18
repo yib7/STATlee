@@ -176,6 +176,28 @@ def test_approved_script_reads_legacy_single_slot(app):
         ctx.pop()
 
 
+def test_last_run_script_roundtrips_producing_script(app):
+    """P2-1: save_last_run persists the script that produced the run in a
+    sidecar so /export and /interpret can read exactly what ran, independent of
+    the shared approved-script store (which a later /wrangle poisons)."""
+    ctx = _req(app)
+    try:
+        # No run recorded yet -> None.
+        assert storage.last_run_script() is None
+        # A run WITHOUT a script (back-compat callers) leaves no sidecar.
+        storage.save_last_run('some output', [])
+        assert storage.last_run_script() is None
+        # A run WITH a script round-trips code + language.
+        storage.save_last_run('out', [], script='ANALYSIS', language='Python')
+        assert storage.last_run_script() == {'code': 'ANALYSIS',
+                                             'language': 'Python'}
+        # A later run without a script wipes the sidecar (rundir is recreated).
+        storage.save_last_run('newer output', [])
+        assert storage.last_run_script() is None
+    finally:
+        ctx.pop()
+
+
 def test_add_dataset_version_concurrent_no_lost_update(app):
     """P2-9: two concurrent add_dataset_version calls on the same dataset must
     yield two DISTINCT versions -- the per-manifest lock prevents the second

@@ -328,7 +328,8 @@ def run_code():
         output_limit=cfg.exec_output_limit, mode=cfg.sandbox_mode,
         runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
 
-    storage.save_last_run(result.output, result.plots)
+    storage.save_last_run(result.output, result.plots,
+                          script=code, language=language)
 
     if result.timed_out:
         return json_error(result.output, 500)
@@ -366,12 +367,16 @@ def interpret_results():
     grounded = bool(server_output.strip() or server_plot_paths)
 
     if grounded:
-        # The debug `code` must be server-side too: the run-guard store holds
-        # the script the server actually approved and executed, while the
-        # client `code` field is arbitrary spoofable text. Nothing
-        # client-supplied may reach the model unmoderated on this path (P2-7).
-        approved = storage.load_approved_script()
-        code = clamp((approved or {}).get('code'), FREE_TEXT_MAX)
+        # The debug `code` must be server-side too: prefer the script that
+        # actually PRODUCED this run (recorded next to the last-run artifacts),
+        # falling back to the most-recent approved script. Both are server-side
+        # and trusted; the client `code` field is arbitrary spoofable text and
+        # nothing client-supplied may reach the model unmoderated on this path
+        # (P2-1/P2-7). Preferring the last-run script keeps the debugged code in
+        # sync with `final_output` after a post-run /wrangle poisons the shared
+        # approved-script store's "most recent" slot.
+        record = storage.last_run_script() or storage.load_approved_script()
+        code = clamp((record or {}).get('code'), FREE_TEXT_MAX)
         final_output = clamp(server_output, FREE_TEXT_MAX)
         plots = []
         for path in server_plot_paths[:3]:

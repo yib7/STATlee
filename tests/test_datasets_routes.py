@@ -4,7 +4,7 @@ project export (5.3), reset (4.6)."""
 import io
 import zipfile
 
-from conftest import SAMPLE_CSV, csrf_token, post_json, upload_csv
+from conftest import SAMPLE_CSV, csrf_token, post_json, sse_events, upload_csv
 
 
 def test_upload_accepts_csv(client):
@@ -446,6 +446,38 @@ def test_export_skips_non_dict_history_items(client):
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     report_text = zf.read('report.md').decode('utf-8')
     assert 'analyze it' in report_text
+
+
+def test_export_bundles_last_run_script_not_wrangle_snippet(client, fake_llm):
+    """P2-1: after an analysis /run followed by a /wrangle, /export must bundle
+    the analysis script that produced the last run — NOT the wrangle transform
+    that became the 'most recent' entry in the shared approved-script store."""
+    fake_llm.set('validation', "print('ANALYSIS_MARKER')")
+    upload_csv(client, SAMPLE_CSV)
+
+    # /chat: drain the SSE stream so the analysis script is approved.
+    sse_events(post_json(client, '/chat',
+                         {'filename': 'test.csv', 'prompt': 'summarize'}))
+
+    # /run the exact approved analysis script -> save_last_run records it.
+    run = post_json(client, '/run',
+                    {'filename': 'test.csv', 'code': "print('ANALYSIS_MARKER')",
+                     'language': 'Python'})
+    assert run.get_json()['success'] is True
+
+    # /wrangle: its transform (df = df.dropna()) becomes most-recent-approved.
+    post_json(client, '/wrangle',
+              {'filename': 'test.csv', 'instruction': 'drop missing rows'})
+
+    # /export must select the analysis script, not the poisoning wrangle snippet.
+    resp = post_json(client, '/export',
+                     {'filename': 'test.csv', 'language': 'Python'})
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    assert 'script.py' in zf.namelist()
+    script = zf.read('script.py').decode('utf-8')
+    assert 'ANALYSIS_MARKER' in script
+    assert 'df = df.dropna()' not in script
 
 
 def test_reset_clears_workspace(client):

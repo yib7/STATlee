@@ -403,20 +403,54 @@ def load_approved_script(identity=None):
     return store[next(reversed(store))]
 
 
-def save_last_run(output, plots_b64, identity=None):
-    """Keep the latest run's artifacts server-side so /export can bundle them."""
+def save_last_run(output, plots_b64, script=None, language=None, identity=None):
+    """Keep the latest run's artifacts server-side so /export can bundle them.
+
+    When ``script`` is provided, the exact script that PRODUCED this run is
+    persisted alongside the output as a small ``script.json`` sidecar. /export
+    and the /interpret grounded-debug path read THAT (via ``last_run_script``)
+    so a later /wrangle — which saves its own transform into the shared
+    approved-script store and thereby becomes "most recent" — cannot substitute
+    the transform snippet for the analysis script that actually ran (P2-1/P2-7).
+    ``save_last_run`` wipes and recreates the run dir on every call, so omitting
+    ``script`` leaves no stale sidecar behind.
+    """
     import base64
     run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
     shutil.rmtree(run_dir, ignore_errors=True)
     os.makedirs(run_dir, exist_ok=True)
     with open(os.path.join(run_dir, 'output.txt'), 'w', encoding='utf-8') as f:
         f.write(output or '')
+    if script is not None:
+        _write_json_atomic(
+            os.path.join(run_dir, 'script.json'),
+            {'code': script, 'language': language or 'Python'})
     for i, b64 in enumerate(plots_b64 or [], start=1):
         try:
             with open(os.path.join(run_dir, f'plot_{i}.png'), 'wb') as f:
                 f.write(base64.b64decode(b64))
         except Exception:
             logger.warning("Could not persist plot %d for export", i)
+
+
+def last_run_script(identity=None):
+    """Return the script that produced the last run as ``{code, language}``.
+
+    Reads the ``script.json`` sidecar written by ``save_last_run``. Returns
+    None when no run has recorded a script (or the sidecar is missing/corrupt),
+    tolerating a bad file the same way the other loaders do."""
+    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
+    path = os.path.join(run_dir, 'script.json')
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get('code'), str):
+        return None
+    return {'code': data['code'], 'language': data.get('language') or 'Python'}
 
 
 def last_run_artifacts(identity=None):

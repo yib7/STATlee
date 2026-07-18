@@ -670,8 +670,14 @@ def export_project():
     interpretation = data.get('interpretation') or ''
     report_md = data.get('report') or ''
 
-    approved = storage.load_approved_script()
-    code = (approved or {}).get('code') or data.get('code') or ''
+    # Prefer the script that produced the last run over the "most recent
+    # approved" one: a /wrangle after an analysis saves its bare transform into
+    # the shared approved-script store, so load_approved_script() would bundle
+    # the transform snippet instead of the analysis script (P2-1). Both sources
+    # are server-side/trusted; the client `code` is only a last-resort fallback.
+    record = storage.last_run_script() or storage.load_approved_script()
+    code = (record or {}).get('code') or data.get('code') or ''
+    language = (record or {}).get('language') or language
     last_output, plot_paths = storage.last_run_artifacts()
 
     buf = io.BytesIO()
