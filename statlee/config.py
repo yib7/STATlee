@@ -171,6 +171,10 @@ class Config:
     rate_limit_default: str = '120 per minute'
     rate_limit_run: str = '10 per minute'
     rate_limit_chat: str = '20 per minute'
+    # /data_page re-reads the active CSV and re-applies every column filter over
+    # the whole frame per request, so it gets a tighter cap than the 120/min
+    # default (paging is cheaper than an LLM call but far from free).
+    rate_limit_data_page: str = '60 per minute'
     # Guards the token-consuming /verify_email endpoint against brute force
     # (token entropy is high, so this is defense-in-depth, not the primary
     # control).
@@ -281,6 +285,8 @@ class Config:
             rate_limit_default=os.environ.get('RATE_LIMIT_DEFAULT', '120 per minute'),
             rate_limit_run=os.environ.get('RATE_LIMIT_RUN', '10 per minute'),
             rate_limit_chat=os.environ.get('RATE_LIMIT_CHAT', '20 per minute'),
+            rate_limit_data_page=os.environ.get(
+                'RATE_LIMIT_DATA_PAGE', '60 per minute'),
             rate_limit_verify=os.environ.get('RATE_LIMIT_VERIFY', '5 per minute'),
             rate_limit_auth=os.environ.get('RATE_LIMIT_AUTH', '10 per minute'),
             rate_limit_storage_uri=(

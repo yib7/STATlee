@@ -101,6 +101,21 @@ def test_exec_output_limit_from_env(monkeypatch):
     assert cfg.exec_output_limit == 1024
 
 
+def test_rate_limit_data_page_default():
+    # P2-5: /data_page gets a tighter explicit cap than the 120/min default.
+    assert Config.rate_limit_data_page == '60 per minute'
+    cfg = Config(env='testing')
+    cfg.validate()
+    assert cfg.rate_limit_data_page == '60 per minute'
+
+
+def test_rate_limit_data_page_from_env(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('RATE_LIMIT_DATA_PAGE', '5 per minute')
+    cfg = Config.from_env()
+    assert cfg.rate_limit_data_page == '5 per minute'
+
+
 def test_production_subprocess_sandbox_warns():
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  sandbox_mode='subprocess')

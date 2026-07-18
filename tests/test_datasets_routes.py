@@ -213,6 +213,38 @@ def test_data_page_filter_pathological_pattern_is_literal_non_match(client):
     assert body['total_rows'] == 0
 
 
+def test_data_page_reuses_filtered_frame(client):
+    """P2-5: the first /data_page for a filter set filters the frame once and
+    caches it under the (path, mtime, filters) key; a second page request with
+    the SAME filter reuses that entry and returns a consistent total_rows."""
+    import statlee.routes.datasets as datasets_mod
+
+    datasets_mod.clear_caches()
+    upload_csv(client, SAMPLE_CSV)
+
+    first = post_json(client, '/data_page',
+                      {'filename': 'test.csv', 'filters': {'group': 'A'},
+                       'per_page': 1, 'page': 1})
+    b1 = first.get_json()
+    assert b1['status'] == 'success'
+    assert b1['total_rows'] == 2                     # SAMPLE_CSV has 2 group-A rows
+
+    # The filtered frame is now memoized under a (path, mtime, filters) key whose
+    # filter component is the normalized ('group', 'A') tuple.
+    assert any(k[2] == (('group', 'A'),) for k in datasets_mod._filtered_cache)
+
+    # A second page with the SAME filter reuses the cached frame; totals stay
+    # consistent and it does not error.
+    second = post_json(client, '/data_page',
+                       {'filename': 'test.csv', 'filters': {'group': 'A'},
+                        'per_page': 1, 'page': 2})
+    b2 = second.get_json()
+    assert b2['status'] == 'success'
+    assert b2['total_rows'] == 2
+    assert b2['current_page'] == 2
+    assert all(r['group'] == 'A' for r in b2['data'])
+
+
 def test_data_page_rejects_non_integer_page(client):
     """P1-5: malformed 'page' must return a structured 400, not a 500."""
     upload_csv(client, SAMPLE_CSV)

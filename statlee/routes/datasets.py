@@ -76,9 +76,14 @@ def _quota_error(incoming_bytes):
 # ---------------------------------------------------------------------------
 _analysis_cache = OrderedDict()   # (sha256, kind) -> result
 _frame_cache = OrderedDict()      # (path, mtime) -> DataFrame
+# (path, mtime, filters) -> filtered DataFrame. Lets /data_page filter the frame
+# ONCE per filter set and then serve any page of it, instead of re-filtering the
+# whole (up to data_page_row_cap) frame on every page request (P2-5).
+_filtered_cache = OrderedDict()
 _cache_lock = threading.Lock()
 ANALYSIS_CACHE_MAX = 128
 FRAME_CACHE_MAX = 4
+FILTERED_CACHE_MAX = 8
 
 
 def _cache_get(cache, key):
@@ -101,6 +106,10 @@ def clear_caches():
     with _cache_lock:
         _analysis_cache.clear()
         _frame_cache.clear()
+        # Belt-and-suspenders: the mtime/path in each filtered key already
+        # invalidates on any data change, but a wrangle/undo/revert/reset should
+        # drop stale filtered frames immediately too.
+        _filtered_cache.clear()
 
 
 def _read_active(filename, nrows=None):
@@ -347,6 +356,7 @@ def extract_pdf_codebook():
 # ---------------------------------------------------------------------------
 
 @bp.route('/data_page', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_data_page)
 def data_page():
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')
@@ -376,19 +386,29 @@ def data_page():
             'view is disabled for files this large.', 413)
 
     try:
-        for col, term in filters.items():
-            if term and col in df.columns:
-                # regex=False (P1-3): filter terms are literal text, so users
-                # can type '(' or '$' and a hostile pattern like '(a+)+$'
-                # cannot pin a worker thread with catastrophic backtracking.
-                df = df[df[col].astype(str).str.contains(
-                    str(term), case=False, na=False, regex=False)]
+        # Reuse a previously-filtered frame for this exact (path, mtime, filters)
+        # set (P2-5), so paging through many pages of one filter set filters the
+        # frame ONCE instead of re-scanning up to data_page_row_cap rows per page.
+        # The mtime/path in the key invalidate the entry on any data change.
+        key = (path, os.stat(path).st_mtime,
+               tuple(sorted((c, str(t)) for c, t in filters.items() if t)))
+        filtered = _cache_get(_filtered_cache, key)
+        if filtered is None:
+            filtered = df
+            for col, term in filters.items():
+                if term and col in filtered.columns:
+                    # regex=False (P1-3): filter terms are literal text, so users
+                    # can type '(' or '$' and a hostile pattern like '(a+)+$'
+                    # cannot pin a worker thread with catastrophic backtracking.
+                    filtered = filtered[filtered[col].astype(str).str.contains(
+                        str(term), case=False, na=False, regex=False)]
+            _cache_put(_filtered_cache, key, filtered, FILTERED_CACHE_MAX)
 
-        total_rows = len(df)
+        total_rows = len(filtered)
         total_pages = max(1, -(-total_rows // per_page)) if total_rows else 0
         page = max(1, min(page, total_pages) if total_pages else 1)
         start = (page - 1) * per_page
-        df_page = df.iloc[start:start + per_page].fillna('')
+        df_page = filtered.iloc[start:start + per_page].fillna('')
         return jsonify({
             'status': 'success',
             'data': df_page.to_dict(orient='records'),

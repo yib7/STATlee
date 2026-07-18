@@ -26,12 +26,17 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD ["python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','5000')+'/health')"]
 
 # Production WSGI server honoring $PORT, threaded workers for SSE (1.2).
-# WEB_CONCURRENCY controls the worker count. NOTE: the default in-memory rate
-# limiter is per-worker — with >1 worker, set RATELIMIT_STORAGE_URI to a shared
-# store (e.g. redis://) so the limits actually hold, or pin WEB_CONCURRENCY=1.
+# WEB_CONCURRENCY controls the worker count and defaults to 1 so the in-memory
+# rate-limit buckets and the in-process monthly billing ceiling hold at their
+# configured numbers out of the box (a single process owns both counters). An
+# operator raising WEB_CONCURRENCY above 1 MUST set a shared RATELIMIT_STORAGE_URI
+# (e.g. redis://) — otherwise each worker keeps its own copy of the rate-limit
+# buckets and the configured limits no longer hold across the fleet. And if
+# billing is enabled, note the monthly priority ceiling is ALSO per-process, so
+# it multiplies by the worker count without a shared backing store.
 # --preload imports wsgi:app (and runs the boot schema upgrade in _init_schema)
 # ONCE in the arbiter before forking workers, so multiple workers never run
 # Alembic concurrently against the same DB (which would race on DDL and crash a
 # worker). _init_schema calls db.engine.dispose() so no pooled connection is
-# shared across the fork.
-CMD ["sh", "-c", "gunicorn --preload --bind 0.0.0.0:${PORT:-5000} --workers ${WEB_CONCURRENCY:-2} --threads 8 --timeout 120 --graceful-timeout 30 wsgi:app"]
+# shared across the fork. --threads 8 keeps workers threaded (SSE needs it).
+CMD ["sh", "-c", "gunicorn --preload --bind 0.0.0.0:${PORT:-5000} --workers ${WEB_CONCURRENCY:-1} --threads 8 --timeout 120 --graceful-timeout 30 wsgi:app"]
