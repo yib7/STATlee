@@ -57,10 +57,16 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   variable (nominal / ordinal / continuous) so the model won't run a linear
   model on a categorical outcome. Codebooks can be inferred from a PDF data
   dictionary or even the original survey questionnaire.
-- **Secure sandbox.** Generated code runs in a throwaway, **network-less**
-  working directory with a **secret-free environment**; `SANDBOX_MODE=docker`
-  adds a non-root, read-only, resource-capped container per run. A **run-guard**
-  re-moderates any hand-edited script before it executes.
+- **Secure sandbox.** Generated code runs in a throwaway working directory with
+  a **secret-free environment**, screened first by a non-LLM **static pre-check**
+  (an AST denylist rejecting network access, process/shell spawning, `os`/env
+  exfiltration, and file reads outside the run dir) and a **run-guard** that
+  re-moderates any hand-edited script. The default `SANDBOX_MODE=subprocess`
+  scrubs secrets from the environment but does **not** isolate the network or
+  host filesystem, so those two gates are the boundary; `SANDBOX_MODE=docker`
+  adds a **network-less**, non-root, read-only, resource-capped container per run
+  for kernel-enforced isolation. Prefer docker mode where the host holds secrets
+  or network access that matters.
 - **Answers you can explain.** Dense terminal output and p-values become
   plain-English Markdown (effect sizes, significance, caveats), and a debugging
   assistant kicks in when a run fails.
@@ -177,10 +183,18 @@ billing seam backs it are in [Pricing](docs/PRICING.md).
 
 ## Security
 
-The execution **sandbox** is the real security boundary: secret-free env,
-throwaway dir, optional network-less container, plus a run-guard that
-re-moderates edited scripts. Rate limits are keyed per-identity (client IP /
-account, not a resettable cookie) to protect against bill abuse. Responses carry
+Because STATlee executes model-generated (and user-editable) code, execution
+safety is layered. Every script passes a **non-LLM static pre-check** (an AST
+denylist rejecting network access, process/shell spawning, `os`/env
+exfiltration, and reads outside the run directory) and an LLM **run-guard** that
+re-moderates edited scripts, before running in a throwaway, secret-free working
+directory. In the default `SANDBOX_MODE=subprocess` those two gates *are* the
+boundary: the environment is scrubbed of secrets, but the network and host
+filesystem remain reachable, so run that mode only where the host holds nothing
+sensitive. `SANDBOX_MODE=docker` makes the boundary kernel-enforced with a
+**network-less**, non-root, read-only, resource-capped container per run. Rate
+limits are keyed per-identity (client IP / account, not a resettable cookie) to
+protect against bill abuse. Responses carry
 a strict Content-Security-Policy and the usual hardening headers, CSRF is
 double-submit with a constant-time check, and the schema is versioned with
 Alembic so an existing database upgrades cleanly instead of breaking on a new

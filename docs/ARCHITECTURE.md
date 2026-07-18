@@ -125,14 +125,30 @@ Anthropic, or OpenAI behind one provider-neutral seam. Highlights:
 The module exposes `init_service` / `get_service` / `set_service`; tests inject a
 deterministic `FakeLLMService` via `set_service`.
 
-## Sandbox (`sandbox.py`)
+## Sandbox (`sandbox.py` + `codecheck.py`)
 
-The real security boundary for executed code:
+Execution safety is layered; the strength of the boundary depends on the mode:
 
+- **`codecheck.check_code` (non-LLM static pre-check)**: before any sandbox run,
+  every generated/edited script passes a deterministic AST denylist (Python) /
+  regex denylist (R) that rejects network access, process/shell spawning,
+  `os`/env exfiltration, dynamic-exec builtins, reflective sandbox escapes, and
+  file opens outside the run directory. It encodes the same prohibitions
+  `prompts.code_moderation` describes to the model, so the gate is not solely
+  LLM-dependent. Wired into `/chat`, `/run`, and `/wrangle`; fails open only on a
+  `SyntaxError` (an unparseable script cannot execute).
+- **run-guard (LLM `code_moderation`)**: re-moderates the model's own generated
+  script and any hand-edited script before execution (default-deny).
 - **`_safe_env`**: an explicit allowlist environment; **no app secret** (LLM
   provider key, Flask secret, SMTP creds, DB URL) is ever present.
 - **throwaway working dir**: contains only the one dataset, deleted after the run.
 - **POSIX rlimits**: cap memory/CPU/file-size/processes (no-op on Windows dev).
+
+In the default **`SANDBOX_MODE=subprocess`** the pre-check + run-guard are the
+boundary: the environment is scrubbed of secrets, but the process shares the
+host network and filesystem, so run it only where the host holds nothing
+sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
+
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
   read-only, resource-capped sibling container built from `runner.Dockerfile`.
   When the app itself is containerized with the host docker socket mounted,
