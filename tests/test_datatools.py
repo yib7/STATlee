@@ -76,6 +76,72 @@ def test_normalize_xlsx_missing_engine_names_openpyxl(tmp_path, monkeypatch):
     assert 'openpyxl' in str(exc_info.value)
 
 
+# --- P2-2: decompression-bomb / oversized-parse bounds ----------------------
+
+def test_normalize_post_read_cell_guard_rejects(tmp_path):
+    """A dataset whose rows*cols exceeds max_cells raises ParseLimitError from
+    the post-read backstop. Uses TSV (a real parse); CSV is a passthrough."""
+    src = tmp_path / 'big.tsv'
+    pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]}).to_csv(
+        src, sep='\t', index=False)   # 3x2 = 6 cells
+    with pytest.raises(datatools.ParseLimitError) as exc_info:
+        datatools.normalize_to_csv(str(src), max_cells=2)
+    assert 'too large' in str(exc_info.value).lower()
+    assert src.exists()   # rejected before the source is consumed/removed
+
+
+def test_normalize_cell_guard_generous_limit_succeeds(tmp_path):
+    """A generous max_cells leaves a normal parse unchanged."""
+    src = tmp_path / 'ok.tsv'
+    pd.DataFrame({'a': [1, 2], 'b': [3, 4]}).to_csv(src, sep='\t', index=False)
+    out, labels = datatools.normalize_to_csv(str(src), max_cells=1_000_000)
+    assert out.endswith('.csv')
+    assert os.path.exists(out)
+
+
+def test_normalize_no_limits_is_unaffected(tmp_path):
+    """Passing no limit args (falsy) skips every check — existing callers are
+    untouched even for a frame that would blow a tiny cap."""
+    src = tmp_path / 'plain.tsv'
+    pd.DataFrame({'a': list(range(50)), 'b': list(range(50))}).to_csv(
+        src, sep='\t', index=False)   # 100 cells
+    out, _ = datatools.normalize_to_csv(str(src))   # no max_cells at all
+    assert os.path.exists(out)
+
+
+def test_normalize_csv_passthrough_ignores_cell_cap(tmp_path):
+    """A .csv is a passthrough (not materialized here), so even a tiny cell cap
+    can't reject it — it stays the canonical artifact untouched."""
+    src = _write_csv(tmp_path)
+    out, labels = datatools.normalize_to_csv(str(src), max_cells=2)
+    assert out == src
+    assert labels == {}
+
+
+def test_normalize_xlsx_zip_bomb_guard_rejects(tmp_path):
+    """The .xlsx zip guard rejects on the central-directory uncompressed total
+    BEFORE a normal read, so an absurdly low cap trips even a tiny workbook."""
+    pytest.importorskip('openpyxl')
+    src = tmp_path / 'book.xlsx'
+    pd.DataFrame({'a': [1, 2], 'b': [3, 4]}).to_excel(str(src), index=False)
+    with pytest.raises(datatools.ParseLimitError) as exc_info:
+        datatools.normalize_to_csv(str(src), max_uncompressed_bytes=10)
+    assert 'too large' in str(exc_info.value).lower()
+    assert src.exists()   # source untouched — rejected before read
+
+
+def test_normalize_xlsx_generous_uncompressed_cap_reads(tmp_path):
+    """With a generous uncompressed cap the same .xlsx reads normally."""
+    pytest.importorskip('openpyxl')
+    src = tmp_path / 'book.xlsx'
+    pd.DataFrame({'a': [1, 2], 'b': [3, 4]}).to_excel(str(src), index=False)
+    out, labels = datatools.normalize_to_csv(
+        str(src), max_uncompressed_bytes=512 * 1024 * 1024, max_cells=1_000_000)
+    assert out.endswith('.csv')
+    df = pd.read_csv(out)
+    assert list(df.columns) == ['a', 'b']
+
+
 def test_file_sha256_is_stable(tmp_path):
     src = _write_csv(tmp_path)
     assert datatools.file_sha256(src) == datatools.file_sha256(src)

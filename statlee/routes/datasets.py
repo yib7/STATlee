@@ -159,8 +159,20 @@ def upload_file():
         return quota
     file.save(filepath)
 
+    cfg = _cfg()
     try:
-        csv_path, labels = datatools.normalize_to_csv(filepath)
+        # P2-2: bound the parse so a decompression bomb can't OOM/pin the
+        # worker. 0 disables either cap (0 * 1024 * 1024 == 0).
+        csv_path, labels = datatools.normalize_to_csv(
+            filepath,
+            max_cells=cfg.max_upload_cells,
+            max_uncompressed_bytes=cfg.max_upload_uncompressed_mb * 1024 * 1024)
+    except datatools.ParseLimitError as e:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+        return json_error(str(e), 413)
     except datatools.MissingDependencyError as e:
         try:
             os.remove(filepath)

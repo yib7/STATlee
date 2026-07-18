@@ -10,6 +10,7 @@
 import hashlib
 import json
 import os
+import zipfile
 
 import pandas as pd
 
@@ -24,6 +25,20 @@ class MissingDependencyError(RuntimeError):
     pass
 
 
+class ParseLimitError(ValueError):
+    """An upload that parses within request-body limits but would still expand
+    to too many cells / too much decompressed data to materialize safely in the
+    web worker (P2-2). The route maps this to a 413."""
+    pass
+
+
+def _cell_limit_message(n_cells, cap):
+    return (
+        f"This file is too large to process: it expands to ~{n_cells:,} cells, "
+        f"above the {cap:,}-cell limit. Please upload a smaller extract or a "
+        "CSV.")
+
+
 def file_sha256(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -32,24 +47,50 @@ def file_sha256(path):
     return h.hexdigest()
 
 
-def normalize_to_csv(src_path):
+def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
     """Read any supported format and write a CSV next to it.
 
     Returns ``(csv_path, labels)`` where ``labels`` maps column names to
     human-readable variable labels when the source format carries them
     (.sav/.dta); empty dict otherwise. The source file is removed once the
     CSV exists (one canonical artifact per dataset).
+
+    ``max_cells`` and ``max_uncompressed_bytes`` bound the parse against a
+    decompression bomb (P2-2): a small compressed request body can still expand
+    to a DataFrame of gigabytes in the web worker. When a limit is ``None`` or
+    otherwise falsy that check is skipped, so direct callers that pass nothing
+    are unaffected. A dataset that would exceed a limit raises
+    ``ParseLimitError`` — ideally BEFORE full materialization (zip central
+    directory for .xlsx, reader metadata for .sav/.dta), with a post-read cell
+    count as the final backstop for anything that slipped the pre-checks.
     """
     ext = os.path.splitext(src_path)[1].lower()
     labels = {}
 
     if ext == '.csv':
+        # Passthrough: no DataFrame is built and the file is not compressed, so
+        # it is already bounded by the request-body size cap. Nothing to guard.
         return src_path, labels
 
     if ext == '.tsv':
         df = pd.read_csv(src_path, sep='\t')
     elif ext in ('.xlsx', '.xls'):
         engine_pkg = 'openpyxl' if ext == '.xlsx' else 'xlrd'
+        # .xlsx is a zip container: a 16 MB upload can hold cells that unpack to
+        # gigabytes. Sum the central-directory uncompressed sizes (this reads
+        # metadata only — it does NOT extract) and reject before pd.read_excel.
+        # .xls is a legacy compound binary (inherently capped near 65k rows),
+        # not a zip, so the post-read cell guard below covers it.
+        if max_uncompressed_bytes and zipfile.is_zipfile(src_path):
+            with zipfile.ZipFile(src_path) as zf:
+                total = sum(zi.file_size for zi in zf.infolist())
+            if total > max_uncompressed_bytes:
+                raise ParseLimitError(
+                    "This file is too large to process: it unpacks to "
+                    f"~{total // (1024 * 1024)} MB, above the "
+                    f"{max_uncompressed_bytes // (1024 * 1024)} MB "
+                    "uncompressed-size limit. Please upload a smaller extract "
+                    "or a CSV.")
         try:
             df = pd.read_excel(src_path)
         except ImportError as e:
@@ -66,6 +107,15 @@ def normalize_to_csv(src_path):
                 "server. Please upload a CSV instead, or ask the "
                 "administrator to install pyreadstat.") from e
         reader = pyreadstat.read_sav if ext == '.sav' else pyreadstat.read_dta
+        # Read metadata only (no data rows) first, so an oversized dataset is
+        # rejected before every cell is materialized into memory.
+        if max_cells:
+            _, meta = reader(src_path, metadataonly=True)
+            n_rows = getattr(meta, 'number_rows', 0) or 0
+            n_cols = getattr(meta, 'number_columns', 0) or 0
+            if n_rows * n_cols > max_cells:
+                raise ParseLimitError(
+                    _cell_limit_message(n_rows * n_cols, max_cells))
         df, meta = reader(src_path)
         # Native variable labels seed the codebook (no LLM call needed).
         names = list(getattr(meta, 'column_names', []) or [])
@@ -76,6 +126,12 @@ def normalize_to_csv(src_path):
         raise UnsupportedFormatError(
             f"Unsupported file format '{ext}'. Supported: "
             + ", ".join(SUPPORTED_EXTENSIONS))
+
+    # Final backstop for every format that produced a DataFrame (TSV, .xls, and
+    # anything that slipped the pre-checks): bound total cells before writing.
+    if max_cells and df.shape[0] * df.shape[1] > max_cells:
+        raise ParseLimitError(
+            _cell_limit_message(df.shape[0] * df.shape[1], max_cells))
 
     csv_path = os.path.splitext(src_path)[0] + '.csv'
     df.to_csv(csv_path, index=False)

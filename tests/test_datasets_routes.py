@@ -125,6 +125,49 @@ def test_upload_quota_ignores_version_artifacts_for_count(client, app, fake_llm)
     assert count == 1
 
 
+# --- P2-2: parse bounds against a decompression bomb ------------------------
+
+def _upload_bytes(client, content, filename):
+    token = csrf_token(client)
+    data = {'file': (io.BytesIO(content), filename)}
+    return client.post('/upload', data=data,
+                       content_type='multipart/form-data',
+                       headers={'X-CSRF-Token': token})
+
+
+def test_upload_rejects_oversized_cell_count(client, app):
+    """P2-2: an upload whose parsed rows*cols exceeds max_upload_cells is
+    rejected with 413 (not OOM'd). Driven via a tiny cap over a small TSV,
+    which is materialized and caught by the post-read cell guard."""
+    app.config['STATLEE'].max_upload_cells = 2
+    tsv = b"a\tb\n1\t2\n3\t4\n5\t6\n"   # 3x2 = 6 cells > 2
+    resp = _upload_bytes(client, tsv, 'big.tsv')
+    assert resp.status_code == 413
+    assert 'too large' in resp.get_json()['error'].lower()
+
+
+def test_upload_cell_guard_disabled_when_zero(client, app):
+    """P2-2: max_upload_cells=0 disables the cap (quota-knob convention), so a
+    normal upload still succeeds."""
+    app.config['STATLEE'].max_upload_cells = 0
+    tsv = b"a\tb\n1\t2\n3\t4\n"
+    assert _upload_bytes(client, tsv, 'ok.tsv').status_code == 200
+
+
+def test_upload_parse_limit_maps_to_413(client, app, monkeypatch):
+    """P2-2: whatever raises ParseLimitError inside normalize_to_csv, the route
+    surfaces it as a 413 (and cleans up the saved upload)."""
+    from statlee import datatools
+
+    def _boom(*args, **kwargs):
+        raise datatools.ParseLimitError('expands to ~9,000,000 cells')
+
+    monkeypatch.setattr(datatools, 'normalize_to_csv', _boom)
+    resp = upload_csv(client, SAMPLE_CSV)
+    assert resp.status_code == 413
+    assert 'cells' in resp.get_json()['error'].lower()
+
+
 def test_data_page_pagination(client):
     upload_csv(client, SAMPLE_CSV)
     resp = post_json(client, '/data_page',

@@ -74,6 +74,18 @@ class Config:
     # cap, so the byte cap reflects real disk pressure.
     max_datasets_per_identity: int = 10
     max_bytes_per_identity: int = 200 * 1024 * 1024   # 200 MB
+    # Parse-time bounds against a decompression bomb (P2-2). max_upload_mb caps
+    # the request body, but normalize_to_csv fully materializes Excel/Stata/SPSS
+    # into a pandas DataFrame in the web request handler before writing CSV, so
+    # a crafted 16 MB .xlsx (a zip) can decompress to gigabytes of cells and
+    # OOM/pin a worker. These bound the parse and reject early; 0 disables
+    # either check (matching the quota knobs' convention above).
+    # Reject a zip-based upload (.xlsx) whose total UNCOMPRESSED size exceeds
+    # this — guards the zip-bomb ratio (16 MB compressed -> GBs).
+    max_upload_uncompressed_mb: int = 512
+    # Reject a dataset whose rows*cols exceeds this — bounds DataFrame memory.
+    # Very generous for social-science surveys (typically <1M cells).
+    max_upload_cells: int = 10_000_000
 
     # --- Execution sandbox (Tier 0) ------------------------------------------
     sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker' (0.3)
@@ -241,6 +253,9 @@ class Config:
             max_datasets_per_identity=_env_int('MAX_DATASETS_PER_IDENTITY', 10),
             max_bytes_per_identity=_env_int(
                 'MAX_BYTES_PER_IDENTITY', 200 * 1024 * 1024),
+            max_upload_uncompressed_mb=_env_int(
+                'MAX_UPLOAD_UNCOMPRESSED_MB', 512),
+            max_upload_cells=_env_int('MAX_UPLOAD_CELLS', 10_000_000),
             sandbox_mode=os.environ.get('SANDBOX_MODE', 'subprocess').strip().lower(),
             runner_image=os.environ.get('RUNNER_IMAGE', 'statlee-runner').strip(),
             sandbox_work_root=os.environ.get('SANDBOX_WORK_ROOT', '').strip(),
