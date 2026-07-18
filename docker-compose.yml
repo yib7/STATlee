@@ -24,6 +24,15 @@ services:
       # DEV ONLY: live-syncs your local code into the container so you don't
       # have to rebuild on every edit. Remove this for a production-like run.
       - .:/app
+      # Mask the host .env (P1-1b): the default SANDBOX_MODE=subprocess has NO
+      # filesystem isolation, so without this, generated/edited code could read
+      # the operator's secrets straight off disk at /app/.env. The container
+      # gets its configuration from the `environment:` block above, not from
+      # this file, so masking it changes nothing at runtime. /dev/null is an
+      # empty file on the Docker host, so the app's load_dotenv() reads it
+      # harmlessly. (Also blocked in-process by the AST pre-check, which rejects
+      # reads outside the run directory — this is defense in depth.)
+      - /dev/null:/app/.env:ro
       # For SANDBOX_MODE=docker (sibling containers), also mount the socket:
       # - /var/run/docker.sock:/var/run/docker.sock
       # ...and a shared run dir at the SAME absolute path both sides, then set

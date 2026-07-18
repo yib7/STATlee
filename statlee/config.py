@@ -336,11 +336,19 @@ class Config:
 
         if self.sandbox_mode not in ('subprocess', 'docker'):
             raise ValueError("SANDBOX_MODE must be 'subprocess' or 'docker'")
-        if self.is_production and self.sandbox_mode == 'subprocess':
+        if self.sandbox_mode == 'subprocess' and not self.is_testing:
+            # Warn in DEVELOPMENT too, not only production (P1-1b). Subprocess
+            # mode has no network or filesystem isolation: generated code runs
+            # as the app user with full read access, so the AST static pre-check
+            # (statlee/codecheck.py) and the LLM moderation gates are the only
+            # barriers, and both are best-effort. A self-hoster whose machine
+            # holds real secrets or network access should run SANDBOX_MODE=docker.
             self._warn(
-                "SANDBOX_MODE=subprocess in production — generated code runs as "
-                "the app user with full filesystem read access. Use "
-                "SANDBOX_MODE=docker for real isolation in production.")
+                "SANDBOX_MODE=subprocess — generated code runs as the app user "
+                "with no network or filesystem isolation; the AST static "
+                "pre-check and LLM moderation are the only barriers. Use "
+                "SANDBOX_MODE=docker for kernel-enforced isolation where the "
+                "host holds secrets or network access that matters.")
         if self.storage_backend not in ('local', 's3'):
             raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
         if self.storage_backend == 's3' and not self.s3_bucket:

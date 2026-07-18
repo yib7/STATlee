@@ -108,6 +108,21 @@ def test_production_subprocess_sandbox_warns():
     assert any('SANDBOX_MODE=subprocess' in w for w in cfg.warnings)
 
 
+def test_development_subprocess_sandbox_warns():
+    # P1-1b: the no-isolation warning now fires in development too, not only
+    # production, since the default self-host mode is subprocess.
+    cfg = Config(env='development', sandbox_mode='subprocess')
+    cfg.validate()
+    assert any('SANDBOX_MODE=subprocess' in w for w in cfg.warnings)
+
+
+def test_testing_subprocess_sandbox_is_quiet():
+    # ...but testing stays silent (the suite must not accrue this warning).
+    cfg = Config(env='testing', sandbox_mode='subprocess')
+    cfg.validate()
+    assert not any('SANDBOX_MODE' in w for w in cfg.warnings)
+
+
 def test_production_docker_sandbox_is_quiet():
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  sandbox_mode='docker')
