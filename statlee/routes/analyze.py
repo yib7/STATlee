@@ -12,7 +12,7 @@ import os
 import pandas as pd
 from flask import Blueprint, current_app, jsonify, request
 
-from .. import billing, datatools, llm, prompts, sandbox, storage
+from .. import billing, codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
@@ -222,6 +222,25 @@ def chat():
                                f'check. {reason}'})
                 return
 
+            # Static pre-check (P1-1a): a non-LLM AST gate encoding the same
+            # prohibitions as prompts.code_moderation, run as the LAST gate after
+            # the (bypassable) LLM pass. Defense-in-depth ADDED to, never
+            # replacing, the LLM guard above. On a block, refund like the guard
+            # path and refuse to approve/save the script.
+            static_blocked, static_reason = codecheck.check_code(
+                final_code, target_language)
+            if static_blocked:
+                try:
+                    billing.refund(billing_user, priority=pro_mode, config=cfg)
+                except Exception:
+                    logger.exception(
+                        "Failed to refund credit after static-check block")
+                yield sse_event({
+                    'type': 'error',
+                    'message': f'The generated script was rejected by the safety '
+                               f'check (static analysis). {static_reason}'})
+                return
+
             # Only a moderated script is remembered as approved; /run then
             # executes this (or a re-moderated edit of it) without re-moderating.
             storage.save_approved_script(final_code, target_language)
@@ -290,6 +309,17 @@ def run_code():
     if filename:
         dataset_path = storage.active_dataset_path(filename)
         dataset_name = os.path.basename(storage.resolve_path(filename) or '') or None
+
+    # Static pre-check (P1-1a): the FINAL, non-LLM gate before execution, for
+    # both the approved-from-chat and the edited-and-re-moderated paths. This
+    # AST denylist is defense-in-depth added to the LLM code_moderation above,
+    # not a replacement — an LLM gate is prompt-injection bypassable and the
+    # default subprocess sandbox has no network/filesystem isolation.
+    static_blocked, static_reason = codecheck.check_code(code, language)
+    if static_blocked:
+        return json_error(
+            f'Script rejected by the safety check (static analysis). '
+            f'{static_reason}', 403)
 
     cfg = _cfg()
     result = sandbox.run_in_sandbox(

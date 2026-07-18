@@ -20,7 +20,7 @@ import pandas as pd
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
-from .. import datatools, llm, prompts, sandbox, storage
+from .. import codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..usage import usage_breakdown
 from . import json_error, moderation_blocked
@@ -547,6 +547,15 @@ def wrangle():
         return json_error(
             f'The generated transform was rejected by the safety check. {reason}',
             403)
+
+    # Static pre-check (P1-1a): a non-LLM AST gate on the generated transform,
+    # run AFTER the (bypassable) LLM code_moderation as defense-in-depth, before
+    # the transform is approved and the harness executes it.
+    static_blocked, static_reason = codecheck.check_code(plan['code'], 'Python')
+    if static_blocked:
+        return json_error(
+            f'The generated transform was rejected by the safety check '
+            f'(static analysis). {static_reason}', 403)
 
     # Record the moderated transform in the approved-script store so /wrangle
     # upholds the same "every executed LLM-generated script is moderated and
