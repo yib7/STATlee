@@ -5,6 +5,7 @@ Implements roadmap items 0.4 (run-guard), 5.5 (streamed draft), 5.11
 (auto-debug), 5.12 (refinement mode), 5.14 (method picker), 5.2 (multi-plot),
 plus the per-analysis usage accounting from 3.4.
 """
+import base64
 import json
 import logging
 import os
@@ -350,8 +351,6 @@ def run_code():
 @bp.route('/interpret', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def interpret_results():
-    import base64
-
     data = request.get_json(silent=True) or {}
     service = llm.get_service()
 

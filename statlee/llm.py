@@ -408,6 +408,9 @@ class LLMService:
     # ------------------------------------------------------------------
     def _resolve(self, role):
         cfg = self.config
+        # NB (P2-4): 'pro' and 'draft' BOTH map to model_pro — the default,
+        # cheaper code-gen tier. The real "Pro mode" upgrade is 'pro_max' ->
+        # model_pro_max. So MODEL_PRO changes the default tier, NOT Pro mode.
         mapping = {
             'pro': cfg.model_pro,
             'pro_max': cfg.model_pro_max,   # "Pro mode" code-gen upgrade

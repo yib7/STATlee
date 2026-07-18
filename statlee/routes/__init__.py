@@ -147,7 +147,10 @@ def sse_event(payload):
 def strip_code_fences(text):
     """Defensive fence-stripping for models that ignore the no-markdown rule."""
     final_code = (text or '').strip()
-    match = re.search(r'```(?:python|r)?\n(.*?)```', final_code,
+    # Broadened fence tag (P2-6): match any language label (```py, ```python,
+    # ```r, ```javascript, or a bare ```), not just python/r, so a mis-tagged
+    # fence is stripped cleanly instead of falling through to the line-strip.
+    match = re.search(r'```[a-zA-Z]*\n(.*?)```', final_code,
                       re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()

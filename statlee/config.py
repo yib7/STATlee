@@ -107,6 +107,10 @@ class Config:
     # (gemini-3.1-pro-preview) for the hardest analyses — a bigger, stronger, costlier
     # model. Cost ordering: pro_max (2.00/12.00) > pro=flash-default (1.50/9.00) >
     # flash = lite (0.25/1.50). Override any role independently via MODEL_* env.
+    # FOOTGUN (P2-4): model_pro is the DEFAULT code-gen tier (roles 'pro' AND
+    # 'draft' both resolve to it in llm._resolve) — it is NOT the "Pro mode"
+    # model. Setting MODEL_PRO changes every normal generation; to change what
+    # the in-app Pro-mode toggle runs, set MODEL_PRO_MAX (model_pro_max) below.
     model_pro: str = 'gemini-3.5-flash'        # default code-gen / 'draft' role
     # "Pro mode" code-gen upgrade. Pinned to the -preview snapshot deliberately:
     # gemini-3.1-pro ships only under the -preview id (no non-preview GA alias),

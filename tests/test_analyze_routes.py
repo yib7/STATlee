@@ -31,6 +31,20 @@ def test_chat_empty_decision_is_blocked(client, fake_llm):
     assert resp.status_code == 403
 
 
+def test_strip_code_fences_handles_any_language_tag():
+    """P2-6: the fence regex now matches any language label (```py, ```r,
+    ```javascript, or a bare ```), not only python/r, so a mis-tagged fence is
+    stripped cleanly instead of leaving the tag line in the code."""
+    from statlee.routes import strip_code_fences
+    assert strip_code_fences("```py\nprint('x')\n```") == "print('x')"
+    assert strip_code_fences("```python\nprint('x')\n```") == "print('x')"
+    assert strip_code_fences("```R\nsummary(df)\n```") == "summary(df)"
+    assert strip_code_fences("```javascript\nvar x=1;\n```") == "var x=1;"
+    assert strip_code_fences("```\nprint('x')\n```") == "print('x')"
+    # Un-fenced code passes through untouched.
+    assert strip_code_fences("print('x')") == "print('x')"
+
+
 def test_moderation_blocked_helper_fails_closed():
     from statlee.routes import moderation_blocked
     assert moderation_blocked('{"decision": "pass"}') == (False, '')
