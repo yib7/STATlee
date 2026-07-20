@@ -33,6 +33,18 @@ BLOCKED_PY = [
     '().__class__.__bases__[0].__subclasses__()',
     "getattr(__builtins__, 'eval')('1')",   # reflective bare-name escape
     '__builtins__',
+    # aliased / from-imported host-module primitives (os/sys/shutil are not on
+    # the import denylist, so these must be caught by alias resolution + the
+    # from-import member check, not the import rule).
+    "import os as o\no.system('id')",
+    "import os as _o\n_o.popen('id')",
+    "from os import system\nsystem('id')",
+    "from os import popen\npopen('id')",
+    "from os import environ\nprint(environ)",
+    "from os import remove\nremove('x')",
+    'from sys import modules',
+    "from shutil import rmtree\nrmtree('/')",
+    "from shutil import move\nmove('a', 'b')",
 ]
 
 
@@ -78,6 +90,10 @@ def test_python_allows_realistic_pandas_analysis():
     "open('plot.png', 'w')",
     'import sys',
     "df.eval('a + b')",          # legit pandas method must not be blocked
+    'import os as o\nprint(o.getcwd())',      # aliased-but-harmless os member
+    "from os.path import join\nprint(join('a', 'b'))",  # os.path re-export, safe
+    "from os import getcwd\nprint(getcwd())",           # harmless os member
+    'import numpy as np\nprint(np.mean([1, 2]))',       # alias map must not over-block
 ])
 def test_python_allows_individual_safe_snippets(code):
     blocked, reason = check_code(code, 'Python')

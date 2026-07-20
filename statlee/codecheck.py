@@ -55,6 +55,13 @@ _OS_ATTRS = frozenset({
 # import denylist; this catches access through a name bound some other way).
 _WHOLESALE_MODULES = frozenset({'subprocess', 'socket', 'pty', 'importlib'})
 
+# Host modules that are NOT on the import denylist (a bare ``import os`` is
+# legitimate and analysis code touches ``os.path``) but expose dangerous
+# attributes. ``from os import system`` binds the primitive directly as a bare
+# name, and ``import os as o`` rebinds the module under another name; both are
+# resolved so the ``os.*``/``sys.*``/``shutil.*`` attribute rules still apply.
+_HOST_ATTR_MODULES = frozenset({'os', 'sys', 'shutil'})
+
 # Attribute names used by the classic ``().__class__.__bases__[0].
 # __subclasses__()`` sandbox-escape / builtins-reflection idiom. Any attribute
 # with one of these names is blocked regardless of what it hangs off.
@@ -138,6 +145,17 @@ def _check_python(code):
         # fail CLOSED here.
         return True, 'the script could not be statically analyzed'
 
+    # Pre-pass: map every locally-bound module name to the canonical top-level
+    # module it refers to (``import os`` -> os->os, ``import os as o`` -> o->os,
+    # ``import os.path`` -> os->os). The attribute rules below resolve through
+    # this map so an aliased module cannot dodge them.
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bound = (alias.asname or alias.name).split('.', 1)[0]
+                aliases[bound] = _top_module(alias.name)
+
     for node in ast.walk(tree):
         # --- imports ---------------------------------------------------------
         if isinstance(node, ast.Import):
@@ -150,13 +168,22 @@ def _check_python(code):
             mod = _top_module(node.module) if node.module else ''
             if mod in _DANGEROUS_MODULES:
                 return True, f'imports a network/process module: {mod}'
+            # ``from os import system`` binds a dangerous primitive directly as a
+            # bare name (``os`` itself is deliberately not import-denylisted);
+            # block the same members the ``os.*`` attribute rule blocks.
+            if node.module in _HOST_ATTR_MODULES:
+                for alias in node.names:
+                    reason = _module_attr_reason(node.module, alias.name)
+                    if reason:
+                        return True, reason
 
         # --- attribute access ------------------------------------------------
         elif isinstance(node, ast.Attribute):
             if node.attr in _DUNDER_ESCAPE:
                 return True, f'uses a sandbox-escape attribute: {node.attr}'
             if isinstance(node.value, ast.Name):
-                reason = _module_attr_reason(node.value.id, node.attr)
+                owner = aliases.get(node.value.id, node.value.id)
+                reason = _module_attr_reason(owner, node.attr)
                 if reason:
                     return True, reason
 
