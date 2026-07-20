@@ -4,6 +4,64 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-20
+
+Sandbox hardening (a new non-LLM static pre-check), a decompression-bomb upload
+fix, and correctness/perf fixes from a full code audit. No breaking changes.
+
+### Security
+- Added a non-LLM static pre-check (`statlee/codecheck.py`) that runs before
+  every sandbox execution on all three code paths (`/chat`, `/run`, `/wrangle`).
+  It is a deterministic AST denylist (Python) / regex denylist (R) that rejects
+  network and process imports, `os`/environment/file-exfiltration primitives,
+  dynamic code execution (`eval`/`exec`/`compile`/`__import__`), the classic
+  `__subclasses__`/`__globals__` sandbox-escape idioms, and file opens outside
+  the run directory. It is defense in depth added to the LLM moderation gates,
+  so in the default `subprocess` mode the safety boundary is no longer solely
+  LLM-dependent. A blocked script is refused before execution and its credit
+  (when billing is on) is refunded.
+- The static pre-check resolves module aliases (`import os as o; o.system(...)`)
+  and blocks direct from-imports of `os`/`sys`/`shutil` primitives
+  (`from os import system`), closing two one-line evasions of the attribute
+  rules.
+- Docker Compose no longer bind-mounts a readable `.env` secret into the
+  untrusted-execution container, and the subprocess-isolation warning now fires
+  in development too, not only in production.
+
+### Fixed
+- `/export` and `/interpret` now use the script that produced the last run
+  instead of the most-recently-approved script. A `/wrangle` performed after an
+  analysis no longer makes the project export bundle the one-line wrangle
+  transform as `script.py`, or feed it to the auto-debugger, in place of the
+  analysis script.
+- Bounded upload parsing against a decompression bomb. Excel/Stata/SPSS uploads
+  are size/row/cell-capped before full materialization (zip central-directory
+  metadata for `.xlsx`, reader metadata for `.sav`/`.dta`, with a post-read cell
+  backstop) and rejected with a 413, so a small compressed file can no longer
+  expand to gigabytes and pin a worker.
+
+### Changed
+- `/data_page` caches the filtered frame per filter set and gets an explicit
+  tighter rate limit, removing the repeated full-frame rescan on the paging hot
+  path.
+- The container image now defaults `WEB_CONCURRENCY` to 1 so the in-memory
+  rate-limit store and the monthly priority ceiling hold at their configured
+  numbers by default; running more than one worker is documented to require a
+  shared `RATELIMIT_STORAGE_URI`.
+
+### Docs
+- README and `docs/ARCHITECTURE.md` now qualify the "network-less" and
+  "secret-free" isolation claims by mode (kernel-enforced in `docker` mode; the
+  static pre-check plus moderation gates in the default `subprocess` mode) and
+  document the static pre-check as the non-LLM boundary.
+- Documented the model-role mapping (`MODEL_PRO` is the default/draft tier;
+  `MODEL_PRO_MAX` is the Pro-mode model) in `config.py`, `.env.example`, and the
+  README to prevent misconfiguration.
+
+### Internal
+- Test suite grew from 334 to 400 passing (plus 4 skip-marked Docker/POSIX tests
+  that run in CI); the README badge reflects the new count.
+
 ## [1.3.2] - 2026-07-16
 
 Security hardening, a testing/boot-hygiene fix, and a dependency refresh. No
