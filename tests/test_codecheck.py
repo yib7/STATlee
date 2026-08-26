@@ -45,6 +45,17 @@ BLOCKED_PY = [
     'from sys import modules',
     "from shutil import rmtree\nrmtree('/')",
     "from shutil import move\nmove('a', 'b')",
+    # constant-argument getattr on a host module resolves the same primitive the
+    # os.*/shutil.* attribute rule blocks -- a literal name must not launder it.
+    "getattr(os, 'system')('id')",
+    "getattr(os, 'popen')('x')",
+    "getattr(shutil, 'rmtree')('/')",
+    "import os as o\ngetattr(o, 'system')('id')",   # aliased owner + constant attr
+    # plain assignment aliasing (`o = os`) must be tracked like `import os as o`,
+    # including chains, so it can't dodge the attribute rules either.
+    "o = os\no.system('id')",
+    "s = shutil\ns.rmtree('/tmp')",
+    "a = os\nb = a\nb.popen('id')",
 ]
 
 
@@ -94,6 +105,10 @@ def test_python_allows_realistic_pandas_analysis():
     "from os.path import join\nprint(join('a', 'b'))",  # os.path re-export, safe
     "from os import getcwd\nprint(getcwd())",           # harmless os member
     'import numpy as np\nprint(np.mean([1, 2]))',       # alias map must not over-block
+    "getattr(os, 'getcwd')()",              # constant getattr on a HARMLESS os member
+    'o = os\nprint(o.getcwd())',            # assignment alias to a harmless member
+    "x = df\nprint(x.eval('a + b'))",       # assigning a non-module name must not over-block
+    'g = getattr\nprint(g(df, "mean"))',    # rebinding a builtin name is not a module alias
 ])
 def test_python_allows_individual_safe_snippets(code):
     blocked, reason = check_code(code, 'Python')

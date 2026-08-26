@@ -57,10 +57,16 @@ _WHOLESALE_MODULES = frozenset({'subprocess', 'socket', 'pty', 'importlib'})
 
 # Host modules that are NOT on the import denylist (a bare ``import os`` is
 # legitimate and analysis code touches ``os.path``) but expose dangerous
-# attributes. ``from os import system`` binds the primitive directly as a bare
-# name, and ``import os as o`` rebinds the module under another name; both are
-# resolved so the ``os.*``/``sys.*``/``shutil.*`` attribute rules still apply.
+# attributes. Every way of reaching such a primitive is resolved back to the
+# ``os.*``/``sys.*``/``shutil.*`` attribute rules: ``from os import system``
+# (bare-name binding), ``import os as o`` (import alias), ``o = os`` (assignment
+# alias, chains included), and ``getattr(os, 'system')`` (constant reflection).
 _HOST_ATTR_MODULES = frozenset({'os', 'sys', 'shutil'})
+
+# Every module ``_module_attr_reason`` has a rule for. A local name is only
+# tracked as a module alias through an assignment (``o = os``) when it resolves
+# to one of these, so assignment tracking never over-blocks a non-module name.
+_ATTR_RULE_MODULES = _HOST_ATTR_MODULES | _WHOLESALE_MODULES | frozenset({'pickle'})
 
 # Attribute names used by the classic ``().__class__.__bases__[0].
 # __subclasses__()`` sandbox-escape / builtins-reflection idiom. Any attribute
@@ -156,6 +162,28 @@ def _check_python(code):
                 bound = (alias.asname or alias.name).split('.', 1)[0]
                 aliases[bound] = _top_module(alias.name)
 
+    # Also follow plain ``name = <module>`` rebindings (``o = os``), including
+    # chains (``a = os; b = a``), so an assignment can't launder a module past
+    # the attribute rules the same way an ``import ... as`` alias can't. Collect
+    # the ``target = source`` name edges in one walk, then close over just that
+    # small edge list to a fixpoint (cheaper than re-walking the tree per pass).
+    # Only names resolving to a module the rules care about are bound, so a plain
+    # ``x = df`` never over-blocks.
+    assign_edges = [
+        (tgt.id, node.value.id)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
+        for tgt in node.targets if isinstance(tgt, ast.Name)
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for tgt_id, src_id in assign_edges:
+            rhs = aliases.get(src_id, src_id)
+            if rhs in _ATTR_RULE_MODULES and aliases.get(tgt_id) != rhs:
+                aliases[tgt_id] = rhs
+                changed = True
+
     for node in ast.walk(tree):
         # --- imports ---------------------------------------------------------
         if isinstance(node, ast.Import):
@@ -204,12 +232,21 @@ def _check_python(code):
                 if name in _DANGEROUS_BUILTINS:
                     return True, f'calls a dangerous builtin: {name}'
                 if name in _DYNAMIC_ATTR_BUILTINS:
-                    # args[1] is the attribute name; block only if it is not a
+                    # args[1] is the attribute name; block if it is not a
                     # constant string (dynamic access used to defeat static
-                    # analysis). getattr(obj, 'literal') is fine.
+                    # analysis). getattr(obj, 'literal') is fine for a plain obj.
                     if len(node.args) >= 2 and not _is_str_constant(node.args[1]):
                         return True, (f'uses dynamic attribute access to bypass '
                                       f'static checks: {name}(...)')
+                    # A constant attr name still can't launder a host-module
+                    # primitive: getattr(os, 'system') resolves the same
+                    # os.system the attribute rule blocks, so check the pair.
+                    if (len(node.args) >= 2 and _is_str_constant(node.args[1])
+                            and isinstance(node.args[0], ast.Name)):
+                        owner = aliases.get(node.args[0].id, node.args[0].id)
+                        reason = _module_attr_reason(owner, node.args[1].value)
+                        if reason:
+                            return True, reason
                 if name == 'open' and node.args:
                     reason = _open_call_reason(node.args[0])
                     if reason:
