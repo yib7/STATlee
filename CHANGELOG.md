@@ -4,6 +4,29 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-26
+
+Two security fixes from a re-audit: a vulnerable PDF-parser dependency and two
+gaps in the non-LLM static pre-check. No breaking changes, no change to how
+legitimate analysis scripts run.
+
+### Security
+- Closed two evasions of the `codecheck.py` static pre-check that reached
+  `os`/`shutil` primitives past the attribute rules: `getattr(os, 'system')`
+  with a literal attribute name, and plain assignment aliasing (`o = os; o.system(...)`,
+  chains included). The gate now tracks `name = <module>` rebindings and resolves
+  constant `getattr`/`setattr`/`delattr` owners, so every route to a host-module
+  primitive lands on the same rule that already blocked `os.system`. Harmless
+  forms (`getattr(os, 'getcwd')`, a DataFrame named after a module, aliased
+  numpy) still pass.
+- Bumped `pypdf` 6.13.3 to 6.16.2. The pinned version had six 2026 advisories
+  (PYSEC-2026-3610/3611/3612/3613/3655/3656) in the parser that reads untrusted
+  PDF uploads; the bump clears them.
+
+### Internal
+- Test suite grew from 400 to 411 passing (plus 4 skip-marked Docker/POSIX tests
+  that run in CI); the README badge reflects the new count.
+
 ## [1.4.0] - 2026-07-20
 
 Sandbox hardening (a new non-LLM static pre-check), a decompression-bomb upload
