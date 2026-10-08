@@ -30,6 +30,11 @@ logger = logging.getLogger('statlee.codebook')
 
 bp = Blueprint('codebook', __name__)
 register_field_errors(bp)
+bp.register_error_handler(
+    cb.CodebookStorageError,
+    lambda e: json_error("The dataset's metadata could not be read, so the "
+                         'codebook was not saved. Upload the dataset again.',
+                         500))
 
 UNKNOWN_DATASET = 'Unknown dataset.'
 OPTIONS = {'types': list(cb.TYPES), 'roles': list(cb.ROLES),

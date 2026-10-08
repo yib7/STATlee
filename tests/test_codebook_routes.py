@@ -412,11 +412,63 @@ def test_import_round_trips_an_export(app, client):
     assert resp.status_code == 200, resp.get_json()
     body = resp.get_json()
     assert body['ignored'] == ['extra_col']
-    assert body['imported'] == 3
+    assert body['imported'] == 1            # only the user-edited column
     group = body['codebook']['group']
     assert group['value_labels'] == {'A': 'Control'}
     assert group['source'] == 'user'
-    assert 'type' in group['user_fields']
+    assert group['user_fields'] == ['type', 'value_labels']
+    assert body['codebook']['age'] == cb.default_entry()
+
+
+def test_import_keeps_the_targets_native_labels(app, client, tmp_path):
+    """A CSV copy's export (defaults plus one user edit) imported into the
+    .sav dataset: the native value labels and missing codes survive."""
+    _upload_bytes(client, _sav_bytes(tmp_path), 'survey.sav')
+    other = app.test_client()
+    upload_csv(other, 'gender,age,agree\n1,30,1\n2,40,5\n',
+               filename='plain.csv')
+    _put(other, {'filename': 'plain.csv',
+                 'codebook': {'age': {'label': 'Age (years)'}}})
+    doc = json.loads(other.get('/codebook/export', query_string={
+        'filename': 'plain.csv'}).get_data(as_text=True))
+    resp = post_json(client, '/codebook/import',
+                     {'filename': 'survey.csv', 'codebook': doc})
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body['imported'] == 1
+    gender = body['codebook']['gender']
+    assert gender['value_labels'] == {'1': 'Male', '2': 'Female',
+                                      '-9': 'Refused'}
+    assert gender['missing_codes'] == ['-9']
+    assert gender['label'] == 'Respondent gender'
+    assert gender['source'] == 'native' and gender['user_fields'] == []
+    assert body['codebook']['age']['label'] == 'Age (years)'
+    assert body['codebook']['age']['missing_codes'] == ['98 to 99']
+
+
+def test_corrupt_sidecar_is_never_overwritten(app, client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    ident = _identity(client)
+    with app.app_context():
+        path = storage._meta_path('test.csv', identity=ident)
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write('{"sha256": "abc", "original_na')
+    resp = _put(client, {'filename': 'test.csv',
+                         'codebook': {'age': {'label': 'x'}}})
+    assert resp.status_code == 500
+    assert 'error' in resp.get_json()
+    with open(path, encoding='utf-8') as fh:
+        assert fh.read() == '{"sha256": "abc", "original_na'
+    with app.app_context():
+        with pytest.raises(cb.CodebookStorageError):
+            cb.apply('test.csv', 'llm', {'age': {'type': 'nominal'}},
+                     identity=ident)
+    # A seed never fails its route over it: classification still answers.
+    fake_llm.set('classify', json.dumps({'age': 'Continuous'}))
+    assert post_json(client, '/classify_variables',
+                     {'filename': 'test.csv'}).status_code == 200
+    with open(path, encoding='utf-8') as fh:
+        assert fh.read() == '{"sha256": "abc", "original_na'
 
 
 @pytest.mark.parametrize('payload,status', [

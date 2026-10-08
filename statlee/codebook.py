@@ -40,6 +40,7 @@ import json
 import logging
 import math
 import os
+import re
 from datetime import UTC, datetime
 
 logger = logging.getLogger('statlee.codebook')
@@ -73,6 +74,12 @@ _EXCLUDED_ROLES = ('id', 'ignore')
 
 class CodebookError(ValueError):
     """An invalid codebook payload. The message is client-safe (a 400)."""
+
+
+class CodebookStorageError(RuntimeError):
+    """The dataset's meta sidecar exists but could not be read, so a codebook
+    write is refused rather than replacing it with a sidecar that has lost
+    its sha256, original name and labels."""
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +328,31 @@ def parse_import(doc, columns):
             cleaned = clean_fields(fields, lenient=True)
         except CodebookError as exc:
             raise CodebookError(f"Column '{str(column)[:80]}': {exc}") from exc
+        cleaned = _imported_fields(fields, cleaned)
         if cleaned:
             updates[column] = cleaned
     return updates, ignored
+
+
+_DEFAULT_VALUES = {'type': None, 'label': '', 'value_labels': {},
+                   'missing_codes': [], 'role': 'analyze', 'scale_group': None}
+
+
+def _imported_fields(raw, cleaned):
+    """The fields of one imported entry that become user fields.
+
+    An exported entry (it lists ``user_fields``) carries every field, most of
+    them defaults or values from the source dataset's own seeds; only the
+    fields the user edited there are imported, so an empty default never
+    outranks the target's native labels or missing codes. A hand-written
+    entry without ``user_fields`` imports every field that differs from the
+    default; an entry marked ``source: "default"`` imports nothing."""
+    if raw.get('source') == DEFAULT_SOURCE:
+        return {}
+    listed = raw.get('user_fields')
+    if isinstance(listed, list):
+        return {k: v for k, v in cleaned.items() if k in listed}
+    return {k: v for k, v in cleaned.items() if v != _DEFAULT_VALUES[k]}
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +361,33 @@ def parse_import(doc, columns):
 
 def _is_default(entry):
     return entry.get('source') == DEFAULT_SOURCE
+
+
+_WS_RE = re.compile(r'\s+')
+_OPEN_RE = re.compile(r'<{3,}')
+_CLOSE_RE = re.compile(r'>{3,}')
+
+
+def prompt_text(value):
+    """Codebook text as it may appear in a prompt: one line (whitespace runs,
+    newlines included, collapse to a single space, so a label cannot forge a
+    ``- column:`` line) and no ``<<<``/``>>>`` runs (so it cannot close or
+    open an untrusted-data block). Storage keeps the original text."""
+    text = _WS_RE.sub(' ', str(value)).strip()
+    return _CLOSE_RE.sub('>>', _OPEN_RE.sub('<<', text))
+
+
+def _prompt_entry(entry):
+    """A merged entry with every text field passed through ``prompt_text``."""
+    out = dict(entry)
+    out['label'] = prompt_text(entry.get('label') or '')
+    out['value_labels'] = {prompt_text(k): prompt_text(v) for k, v in
+                           (entry.get('value_labels') or {}).items()}
+    out['missing_codes'] = [prompt_text(c)
+                            for c in entry.get('missing_codes') or []]
+    group = entry.get('scale_group')
+    out['scale_group'] = prompt_text(group) if group else None
+    return out
 
 
 def _capped_labels(value_labels):
@@ -350,6 +406,7 @@ def prompt_dict(entries):
     for column, entry in entries.items():
         if _is_default(entry):
             continue
+        entry = _prompt_entry(entry)
         compact = {}
         if entry.get('type'):
             compact['type'] = entry['type']
@@ -375,6 +432,7 @@ def role_summary(compact):
     for column, entry in compact.items():
         if not isinstance(entry, dict):
             continue
+        column = prompt_text(column)
         role = entry.get('role')
         if role == 'weight':
             weight.append(column)
@@ -382,7 +440,7 @@ def role_summary(compact):
             exclude.append(column)
         group = entry.get('scale_group')
         if group:
-            groups.setdefault(group, []).append(column)
+            groups.setdefault(prompt_text(group), []).append(column)
     return {'weight': weight, 'exclude': exclude, 'scale_groups': groups}
 
 
@@ -391,6 +449,7 @@ def describe(entry):
     codes, role, scale group). Empty for a default entry."""
     if _is_default(entry):
         return ''
+    entry = _prompt_entry(entry)
     parts = []
     if entry.get('label'):
         parts.append(entry['label'])
@@ -500,7 +559,12 @@ def apply(filename, source, updates, identity=None):
         raise ValueError(f'unknown codebook source {source!r}')
     st = _st()
     with st.dataset_meta_lock(filename, identity):
-        meta = st.load_dataset_meta(filename, identity) or {}
+        try:
+            meta = st.load_dataset_meta_checked(filename, identity)
+        except st.MetaUnreadable as exc:
+            logger.warning("Refusing a codebook write over an unreadable "
+                           "meta sidecar")
+            raise CodebookStorageError(str(filename)) from exc
         layers = layers_from_meta(meta)
         if updates:
             apply_to_layers(layers, source, updates)

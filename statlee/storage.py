@@ -598,6 +598,24 @@ def load_dataset_meta(filename, identity=None):
     return data if isinstance(data, dict) else {}
 
 
+class MetaUnreadable(OSError):
+    """A meta sidecar exists but is not a readable JSON object."""
+
+
+def load_dataset_meta_checked(filename, identity=None):
+    """``load_dataset_meta`` for a read-modify-write: ``{}`` only when there
+    is no sidecar; an existing one that does not parse raises
+    ``MetaUnreadable`` instead of reading as empty (writing that back would
+    drop the sha256, original name and labels)."""
+    path = _meta_path(filename, identity)
+    if not os.path.exists(path):
+        return {}
+    data = _read_json(path)
+    if not isinstance(data, dict):
+        raise MetaUnreadable(path)
+    return data
+
+
 def dataset_meta_lock(filename, identity=None):
     """Cross-process lock for a read-modify-write of one dataset's meta
     sidecar (SP2: the codebook lives there and is edited concurrently by

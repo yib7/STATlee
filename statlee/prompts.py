@@ -151,11 +151,17 @@ _CODEBOOK_RULES = """Codebook fields: `type` is the measurement level;
     scale."""
 
 
-def _codebook_roles(codebook):
+CODEBOOK_ROLES_MAX = 20000
+
+
+def _codebook_roles(codebook, summary=None):
     """The codebook's weight column(s), columns excluded from modelling and
-    scale groups, as a delimited block (column names are data)."""
+    scale groups, as a delimited block (column names are data). ``summary``
+    (``codebook.role_summary`` of the unclamped entries) wins over deriving
+    it from ``codebook``, which may have been cut to its budget."""
     from .codebook import role_summary
-    summary = role_summary(codebook if isinstance(codebook, dict) else {})
+    if summary is None:
+        summary = role_summary(codebook if isinstance(codebook, dict) else {})
     lines = []
     if summary['weight']:
         lines.append('weight: ' + ', '.join(summary['weight']))
@@ -168,12 +174,15 @@ def _codebook_roles(codebook):
                      for group, cols in summary['scale_groups'].items())
     if not lines:
         return ''
+    text = '\n'.join(lines)
+    if len(text) > CODEBOOK_ROLES_MAX:
+        text = text[:CODEBOOK_ROLES_MAX] + '\n...[truncated]'
     return ('\n    CODEBOOK ROLES:\n    '
-            + untrusted('CODEBOOK ROLES', '\n'.join(lines)))
+            + untrusted('CODEBOOK ROLES', text))
 
 
 def draft(filename, headers, codebook, language, metadata_summary,
-          history, user_prompt, current_code=None):
+          history, user_prompt, current_code=None, roles=None):
     """Draft-stage prompt. When ``current_code`` is given, the model is
     instructed to MODIFY the existing script instead of regenerating (5.12)."""
     system = f"""
@@ -189,7 +198,7 @@ def draft(filename, headers, codebook, language, metadata_summary,
     CODEBOOK (the researcher's variable definitions):
     {untrusted('CODEBOOK', json.dumps(codebook))}
     *CRITICAL*: Use this codebook to ensure statistical validity. Do not run continuous models (like OLS) on Nominal data. Select the appropriate tests based on variable type.
-    {_CODEBOOK_RULES}{_codebook_roles(codebook)}
+    {_CODEBOOK_RULES}{_codebook_roles(codebook, roles)}
 
     COLUMN METADATA (dtype, uniques, missingness, numeric ranges — use this to
     handle missing values and choose sensible encodings):

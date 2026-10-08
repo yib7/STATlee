@@ -512,7 +512,10 @@ def _seed_pdf_layer(dataset, columns, mapping):
         fields = codebook_store.clean_fields({'label': text}, lenient=True)
         if fields.get('label'):
             updates[column] = fields
-    codebook_store.apply(dataset, 'pdf', updates)
+    try:
+        codebook_store.apply(dataset, 'pdf', updates)
+    except codebook_store.CodebookStorageError:
+        return 0
     return len(updates)
 
 
@@ -614,8 +617,12 @@ def _seed_llm_layer(filename, levels):
     """Classification seeds the llm layer's ``type`` (SP2); the user's and
     native fields still win in the merged view. The response keeps the
     model's levels for older clients."""
-    codebook_store.apply(filename, 'llm', {
-        column: {'type': level.lower()} for column, level in levels.items()})
+    try:
+        codebook_store.apply(filename, 'llm', {
+            column: {'type': level.lower()}
+            for column, level in levels.items()})
+    except codebook_store.CodebookStorageError:
+        pass    # logged by apply; the classification is still returned
 
 
 @bp.route('/classify_variables', methods=['POST'])

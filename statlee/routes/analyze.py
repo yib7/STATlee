@@ -133,7 +133,6 @@ def chat():
         return json_error('Invalid filename')
     headers = df.columns.tolist()
     entries = codebook_store.merged(filename, [str(h) for h in headers]) or {}
-    codebook = clamp_codebook(codebook_store.prompt_dict(entries))
 
     # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
     # request is allowed for this user. No-op unless billing is enabled. Runs
@@ -150,7 +149,6 @@ def chat():
     cfg = _cfg()
     debit = DebitGuard(billing_user, priority=pro_mode, config=cfg)
     filtered_headers = headers
-    filtered_codebook = codebook
     selection_usage = None
     selection_degraded = False   # feature selection failed -> full-schema fallback
     if len(headers) >= cfg.feature_selection_threshold:
@@ -178,9 +176,6 @@ def chat():
                     if isinstance(c, str) and c in header_set))
                 if validated:
                     filtered_headers = validated
-                    if codebook:
-                        filtered_codebook = {
-                            c: codebook[c] for c in validated if c in codebook}
             logger.info("[/chat] Stage 1 selected %d/%d columns",
                         len(filtered_headers), len(headers))
         except Exception:
@@ -190,6 +185,14 @@ def chat():
     else:
         logger.info("[/chat] Stage 1 skipped: %d columns below threshold (%d)",
                     len(headers), cfg.feature_selection_threshold)
+
+    # SP2: the codebook budget applies to the columns the draft will use
+    # (after selection), so a selected late column keeps its entry; the roles
+    # block is built from the unclamped entries (bounded by column count).
+    selected = codebook_store.prompt_dict(
+        {c: entries[c] for c in map(str, filtered_headers) if c in entries})
+    filtered_codebook = clamp_codebook(selected)
+    codebook_roles = codebook_store.role_summary(selected)
 
     def generate():
         draft_usage, validation_usage = {}, {}
@@ -206,7 +209,7 @@ def chat():
             draft_prompt = prompts.draft(
                 filename, filtered_headers, filtered_codebook, target_language,
                 metadata_summary, history, user_prompt,
-                current_code=current_code)
+                current_code=current_code, roles=codebook_roles)
             # Surface the feature-selection fallback (P2-8): the user already
             # paid for the request, so if Stage 1 failed and we quietly reverted
             # to the full schema, tell them rather than swallowing it server-side.
