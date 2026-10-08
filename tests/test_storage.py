@@ -335,9 +335,9 @@ def test_save_manifest_survives_simulated_crash(app, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_cleanup_old_files_prunes_empty_subdirs(app):
-    """A leftover empty .last_run/ subdir (after its file ages out) must not
-    strand the identity dir forever — the whole anon_ dir should be removed
-    once every file and subdir underneath it is gone."""
+    """An idle workspace is removed as a whole, subdirs included, so a leftover
+    .last_run/ can never strand the identity dir (D1-3: expiry is keyed on the
+    workspace's last activity, so every file -- the marker too -- is old)."""
     ctx = _req(app, 'anon-cleanup-sid')
     try:
         identity = storage.current_identity()
@@ -351,7 +351,8 @@ def test_cleanup_old_files_prunes_empty_subdirs(app):
             f.write('old run output')
 
         old_time = time.time() - 999999
-        os.utime(stale_file, (old_time, old_time))
+        for p in (stale_file, os.path.join(root, storage.LAST_SEEN)):
+            os.utime(p, (old_time, old_time))
 
         storage.cleanup_old_files(ttl_seconds=1)
     finally:
@@ -361,14 +362,15 @@ def test_cleanup_old_files_prunes_empty_subdirs(app):
     assert not os.path.isdir(root)
 
 
-def test_cleanup_old_files_removes_empty_subdir_even_without_stale_files(app):
-    """An already-empty subdir (e.g. a stray .last_run/ with no files) should
-    be pruned so it doesn't keep the identity dir non-empty forever."""
+def test_cleanup_old_files_removes_workspace_without_files(app):
+    """A workspace holding no files at all (only an empty subdir) has nothing
+    to lose and is removed regardless of the TTL."""
     ctx = _req(app, 'anon-empty-subdir-sid')
     try:
         root = storage.identity_root()
         empty_dir = os.path.join(root, storage.LAST_RUN_DIR)
         os.makedirs(empty_dir, exist_ok=True)
+        os.remove(os.path.join(root, storage.LAST_SEEN))
 
         storage.cleanup_old_files(ttl_seconds=7200)
     finally:

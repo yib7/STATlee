@@ -128,10 +128,33 @@ def storage_root():
     return current_app.config['UPLOAD_FOLDER']
 
 
+LAST_SEEN = '.last_seen'
+_ACTIVITY_TOUCH_INTERVAL = 60   # seconds; bounds the touch to ~1 write/minute
+
+
+def _touch_activity(root):
+    """Record that this workspace was used (D1-3). Every storage access goes
+    through ``identity_root``, so reads count as activity too; throttled so a
+    burst of requests costs one ``stat`` each, not one write each."""
+    marker = os.path.join(root, LAST_SEEN)
+    try:
+        if time.time() - os.stat(marker).st_mtime < _ACTIVITY_TOUCH_INTERVAL:
+            return
+    except OSError:
+        pass
+    try:
+        with open(marker, 'a', encoding='utf-8'):
+            pass
+        os.utime(marker, None)
+    except OSError:
+        pass
+
+
 def identity_root(identity=None):
     identity = identity or current_identity()
     root = os.path.join(storage_root(), identity)
     os.makedirs(root, exist_ok=True)
+    _touch_activity(root)
     return root
 
 
@@ -632,10 +655,33 @@ def reset_identity(identity=None):
     shutil.rmtree(root, ignore_errors=True)
 
 
+def _last_activity(identity_dir):
+    """Newest mtime of the activity marker and every file in the workspace
+    (the files cover dirs written before the marker existed). None when the
+    workspace holds no files at all."""
+    newest = None
+    for dirpath, _dirnames, filenames in os.walk(identity_dir):
+        for fn in filenames:
+            try:
+                mtime = os.stat(os.path.join(dirpath, fn)).st_mtime
+            except OSError:
+                continue
+            newest = mtime if newest is None else max(newest, mtime)
+    return newest
+
+
 def cleanup_old_files(ttl_seconds=7200):
-    """Prune files older than the TTL inside every ANONYMOUS identity dir,
-    then remove empty dirs. Logged-in users' files are kept (their data is
-    account-scoped; bucket lifecycle rules own that in 7.3)."""
+    """Expire every ANONYMOUS workspace that has been idle longer than the TTL,
+    as a whole. Logged-in users' files are kept (their data is
+    account-scoped; bucket lifecycle rules own that in 7.3).
+
+    D1-3/D5-16: this used to delete files one by one by their own age. Reads
+    never refresh a file's mtime, so an active session lost its original upload
+    and metadata two hours after upload while the manifest and later versions
+    survived (revert 404'd, undo pointed at a deleted file). Idleness is now
+    the session's last activity (``.last_seen``, touched by every storage
+    access, or any newer file), and an expired workspace is removed in one
+    ``rmtree`` so no half-deleted history can remain."""
     now = time.time()
     root = storage_root()
     if not os.path.isdir(root):
@@ -644,22 +690,7 @@ def cleanup_old_files(ttl_seconds=7200):
         identity_dir = os.path.join(root, entry)
         if not os.path.isdir(identity_dir) or not entry.startswith('anon_'):
             continue
-        for dirpath, _dirnames, filenames in os.walk(identity_dir, topdown=False):
-            for fn in filenames:
-                fp = os.path.join(dirpath, fn)
-                try:
-                    if os.stat(fp).st_mtime < now - ttl_seconds:
-                        os.remove(fp)
-                        logger.info("Cleaned up old file: %s", fp)
-                except OSError:
-                    pass
-            try:
-                if dirpath != identity_dir and not os.listdir(dirpath):
-                    os.rmdir(dirpath)
-            except OSError:
-                pass
-        try:
-            if not os.listdir(identity_dir):
-                os.rmdir(identity_dir)
-        except OSError:
-            pass
+        last = _last_activity(identity_dir)
+        if last is None or now - last > ttl_seconds:
+            shutil.rmtree(identity_dir, ignore_errors=True)
+            logger.info("Expired idle anonymous workspace: %s", entry)
