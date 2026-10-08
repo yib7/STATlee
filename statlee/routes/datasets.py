@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import tempfile
 import textwrap
 import threading
 import time
@@ -1042,6 +1043,10 @@ def _cleaning_script(lineage, data_name, include_prompts=True):
     return '\n'.join(lines) + '\n'
 
 
+# The export zip stays in memory up to this size, then spools to disk.
+EXPORT_SPOOL_MAX = 16 * 1024 * 1024
+
+
 def _report_md(stem, history, last_output, interpretation, include_prompts):
     lines = [f'# Project: {stem}', '',
              f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']
@@ -1070,10 +1075,12 @@ def _export_options(data):
 
 
 @bp.route('/export', methods=['POST'])
+@limiter.limit(lambda: _cfg().rate_limit_run)
 def export_project():
     """The reproducibility bundle (SP4): it runs as unzipped and documents
     what produced it (statlee/bundle.py builds provenance.json and
-    README.md; statlee/environment.py captures environment.txt)."""
+    README.md; statlee/environment.py captures environment.txt). Rate
+    limited like /run: an export can run the sandboxed environment probe."""
     data = request_json()
     filename = _filename(data)
     language = language_field(data)
@@ -1087,68 +1094,103 @@ def export_project():
     client_code = str_field(data, 'code')
     cfg = _cfg()
 
-    code, language, script_source, editor_differs = _export_script(
-        client_code, language)
-    last_output, _plots = storage.last_run_artifacts()
     root = storage.identity_root()
+    staged = storage.resolve_path(filename) if filename else None
+    dataset_name = os.path.basename(staged) if staged else None
+    # Only runs on this dataset (their meta records the stored name).
     records = bundle.load_runs(bundle.select_run_ids(
-        runs_selection, cfg.max_runs_per_identity))
+        runs_selection, cfg.max_runs_per_identity, dataset_name))
+
+    # analysis.py|analysis.R is the latest run in the bundle, so its hash
+    # matches a provenance step; with no such run, the latest approved
+    # script as before (_export_script).
+    script_run = bundle.latest_scripted_run(records)
+    if script_run:
+        run_id, record = script_run
+        code = record['script']['code']
+        language = ('R' if str(record['script'].get('language')).lower() == 'r'
+                    else 'Python')
+        script_source = f'script of run {run_id}'
+        editor_differs = bool(client_code) and \
+            client_code.strip() != code.strip()
+        last_output = record.get('output') or ''
+        interpretation = record.get('interpretation') or ''
+        script_run_id = run_id
+    else:
+        code, language, script_source, editor_differs = _export_script(
+            client_code, language)
+        last_output, _plots = storage.last_run_artifacts()
+        script_run_id = None
     env_text = environment.capture(cfg)
 
-    buf = io.BytesIO()
     stem = os.path.splitext(secure_filename(filename or 'project'))[0] or 'project'
     script_name = None
     data_name = None
     lineage = None
-    has_codebook = False
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        if filename:
-            active = storage.active_dataset_path(filename)
-            staged = storage.resolve_path(filename)
+    has_codebook = has_original = has_cleaning = False
+    # Spooled: small bundles stay in memory, big ones (many runs of plots)
+    # roll over to a temp file. Closed by the response (or below on error).
+    spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MAX)
+    try:
+        with zipfile.ZipFile(spool, 'w', zipfile.ZIP_DEFLATED) as zf:
+            active = storage.active_dataset_path(filename) if filename else None
             if active and os.path.exists(active) and staged:
                 # D4-9: /run stages the active version under the dataset's
-                # stored name (dataset_name in run_code), and the script reads
-                # it from its working directory -- so it goes at the zip root
-                # under that name, not as data/<name>__vN.csv.
-                data_name = os.path.basename(staged)
-                bundle.write_file(zf, active, data_name, root)
+                # stored name (dataset_name in run_code), and the script
+                # reads it from its working directory -- so it goes at the
+                # zip root under that name, not as data/<name>__vN.csv.
                 lineage = storage.dataset_lineage(filename)
-                original = (lineage or {}).get('original') or active
-                bundle.write_file(zf, original, f'data/original_{data_name}',
-                                  root)
-                if lineage and lineage['steps'] and lineage['replayable']:
+                if bundle.write_file(zf, active, dataset_name, root):
+                    data_name = dataset_name
+                    original = (lineage or {}).get('original') or active
+                    has_original = bundle.write_file(
+                        zf, original, f'data/original_{data_name}', root)
+                if (data_name and has_original and lineage
+                        and lineage['steps'] and lineage['replayable']):
                     zf.writestr('cleaning.py', _cleaning_script(
                         lineage, data_name, include_prompts))
+                    has_cleaning = True
                 codebook_json = codebook_store.export_json(filename)
                 if codebook_json:
                     zf.writestr('codebook.json', codebook_json)
                     has_codebook = True
-        if code:
-            script_name = ('analysis.py' if language.lower() == 'python'
-                           else 'analysis.R')
-            zf.writestr(script_name, code)
+            if code:
+                script_name = ('analysis.py' if language.lower() == 'python'
+                               else 'analysis.R')
+                zf.writestr(script_name, code)
 
-        run_dirs = bundle.write_run_outputs(zf, records, root)
-        zf.writestr('environment.txt', env_text)
-        zf.writestr('provenance.json', json.dumps(
-            bundle.provenance(cfg, lineage, records, include_prompts, root),
-            indent=2, ensure_ascii=False))
-        zf.writestr('README.md', bundle.readme(
-            stem, script_name=script_name, script_source=script_source,
-            editor_differs=editor_differs, data_name=data_name,
-            lineage=lineage, run_dirs=run_dirs,
-            runs_selection=runs_selection, include_prompts=include_prompts,
-            has_codebook=has_codebook, has_report=bool(report_md),
-            provider=cfg.llm_provider,
-            generated=time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())))
-        zf.writestr('report.md', _report_md(
-            stem, history, last_output, interpretation, include_prompts))
-        if report_md:
-            zf.writestr('full_report.md', report_md)
-
-    buf.seek(0)
-    return send_file(buf, mimetype='application/zip', as_attachment=True,
-                     download_name=f'Project_{stem}.zip')
+            run_dirs = bundle.write_run_outputs(zf, records, root)
+            zf.writestr('environment.txt', env_text)
+            zf.writestr('provenance.json', json.dumps(
+                bundle.provenance(cfg, lineage, records, include_prompts,
+                                  root),
+                indent=2, ensure_ascii=False))
+            zf.writestr('README.md', bundle.readme(
+                stem, script_name=script_name, script_source=script_source,
+                editor_differs=editor_differs, data_name=data_name,
+                lineage=lineage, run_dirs=run_dirs,
+                runs_selection=runs_selection,
+                include_prompts=include_prompts,
+                has_codebook=has_codebook, has_report=bool(report_md),
+                provider=cfg.llm_provider,
+                generated=time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime()),
+                script_run=script_run_id, has_original=has_original,
+                has_cleaning=has_cleaning))
+            zf.writestr('report.md', _report_md(
+                stem, history, last_output, interpretation, include_prompts))
+            if report_md:
+                zf.writestr('full_report.md', report_md)
+        size = spool.tell()
+        spool.seek(0)
+        response = send_file(spool, mimetype='application/zip',
+                             as_attachment=True,
+                             download_name=f'Project_{stem}.zip')
+    except BaseException:
+        spool.close()
+        raise
+    response.content_length = size
+    response.call_on_close(spool.close)
+    return response
 
 
 @bp.route('/reset', methods=['POST'])

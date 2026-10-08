@@ -112,12 +112,24 @@ def test_export_ships_original_upload_and_readme(client, fake_llm):
 # D4-9: which script gets bundled
 # ---------------------------------------------------------------------------
 
-def test_export_bundles_newer_generated_script_over_older_run(
+def test_export_bundles_the_script_of_the_latest_included_run(
         client, fake_llm):
+    """SP4 ruling: analysis.py is the latest run in the bundle, so its
+    script_sha256 matches a provenance step, even when a newer script was
+    generated but not run."""
     upload_csv(client, SAMPLE_CSV)
     _chat(client, fake_llm, "print('FIRST')")
     _run(client, "print('FIRST')")
     _chat(client, fake_llm, "print('SECOND')")       # generated, not yet run
+    script = _export(client).read('analysis.py').decode('utf-8')
+    assert 'FIRST' in script and 'SECOND' not in script
+
+
+def test_export_without_runs_bundles_the_newest_generated_script(
+        client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    _chat(client, fake_llm, "print('FIRST')")
+    _chat(client, fake_llm, "print('SECOND')")
     script = _export(client).read('analysis.py').decode('utf-8')
     assert 'SECOND' in script
 

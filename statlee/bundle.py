@@ -25,6 +25,7 @@ import os
 import re
 import time
 import tomllib
+import zipfile
 from datetime import UTC, datetime
 
 from . import datatools, storage
@@ -99,14 +100,23 @@ def file_sha(path, root):
         return None
 
 
+# Already-compressed formats are stored as-is (deflating a PNG costs CPU and
+# saves nothing).
+_STORED_SUFFIXES = ('.png',)
+
+
 def write_file(zf, path, arcname, root):
     """Copy ``path`` into the zip when it is inside ``root`` and still
-    readable. Returns True when written."""
+    readable. Returns True when written. ``zf.write`` copies the file in
+    chunks; where the archive itself lives (a spooled temp file) is up to the
+    caller."""
     if not within(path, root):
         logger.warning("Export skipped a path outside the identity root")
         return False
+    compress = (zipfile.ZIP_STORED if arcname.lower().endswith(_STORED_SUFFIXES)
+                else None)
     try:
-        zf.write(path, arcname=arcname)   # streamed, not read into memory
+        zf.write(path, arcname=arcname, compress_type=compress)
     except OSError:
         return False
     return True
@@ -116,16 +126,26 @@ def write_file(zf, path, arcname, root):
 # Runs
 # ---------------------------------------------------------------------------
 
-def select_run_ids(selection, cap):
+def select_run_ids(selection, cap, dataset_name):
     """The caller's run ids for ``selection``, oldest first, at most ``cap``
-    (the newest are kept)."""
-    ids = storage.run_ids()
+    (the newest are kept). Only runs on the exported dataset count: a run's
+    meta ``filename`` is the stored dataset name (``dataset_name``, the
+    basename the sandbox staged); with no dataset, only runs that recorded
+    none."""
+    metas = []
+    for run_id in storage.run_ids():
+        meta = storage.run_meta(run_id)
+        if meta is None:
+            continue
+        if (meta.get('filename') or None) != (dataset_name or None):
+            continue
+        metas.append((run_id, meta))
     if selection == 'latest':
-        ids = ids[-1:]
+        metas = metas[-1:]
     elif selection == 'starred':
-        ids = [r for r in ids if (storage.run_meta(r) or {}).get('starred')]
+        metas = [(r, m) for r, m in metas if m.get('starred')]
     cap = cap if isinstance(cap, int) and cap >= 1 else storage.RUNS_MAX
-    return ids[-cap:]
+    return [r for r, _m in metas][-cap:]
 
 
 def load_runs(run_ids):
@@ -141,6 +161,17 @@ def load_runs(run_ids):
 
 def run_dir_name(run_id):
     return 'run_' + run_id[1:]
+
+
+def latest_scripted_run(records):
+    """``(run_id, record)`` of the newest included run that kept its script,
+    or None. Its script is the bundle's analysis.py|analysis.R, so that file's
+    hash matches a provenance step."""
+    for run_id, record in reversed(records):
+        script = record.get('script')
+        if script and isinstance(script.get('code'), str) and script['code']:
+            return run_id, record
+    return None
 
 
 def _script_name(language):
@@ -241,7 +272,7 @@ def _run_steps(run_id, record, include_prompts):
             step[key] = _str(meta.get(key), 64)
     if isinstance(meta.get('dataset_sha256'), str) and \
             _SHA_RE.fullmatch(meta['dataset_sha256']):
-        step['dataset_sha256'] = meta['dataset_sha256']
+        step['dataset_sha256_before'] = meta['dataset_sha256']
     script = record.get('script')
     if script and isinstance(script.get('code'), str):
         step['script_sha256'] = _sha_text(script['code'])
@@ -286,9 +317,11 @@ _RUNS_LABEL = {'all': 'all runs in the workbook',
 
 def readme(stem, *, script_name, script_source, editor_differs, data_name,
            lineage, run_dirs, runs_selection, include_prompts, has_codebook,
-           has_report, provider, generated):
-    """README.md for the bundle (plain Markdown, no em dashes)."""
-    replay = bool(lineage and lineage['steps'] and lineage['replayable'])
+           has_report, provider, generated, script_run=None,
+           has_original=True, has_cleaning=False):
+    """README.md for the bundle (plain Markdown, no em dashes). Only files
+    that were actually written are listed."""
+    replay = bool(has_cleaning)
     out = [f'# STATlee project export: {stem}', '',
            f'Exported {generated} with STATlee {app_version()} '
            f'(LLM provider: {provider}).', '', '## How to run', '']
@@ -315,7 +348,11 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
                    'so none is included.')
 
     out += ['', '## Contents', '']
-    if script_name:
+    if script_name and script_run:
+        out.append(f'- {script_name}: the script of run {script_run}, the '
+                   'latest run in this bundle (its outputs are in '
+                   f'outputs/{run_dir_name(script_run)}/).')
+    elif script_name:
         out.append(f'- {script_name}: the analysis script ({script_source}).')
     if data_name:
         if lineage and lineage['active_v'] != 1:
@@ -323,14 +360,15 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
                        f'(version {lineage["active_v"]}).')
         else:
             out.append(f'- {data_name}: the dataset the analysis used.')
-        out.append(f'- data/original_{data_name}: the dataset as first '
-                   'uploaded (after conversion to CSV).')
+        if has_original:
+            out.append(f'- data/original_{data_name}: the dataset as first '
+                       'uploaded (after conversion to CSV).')
         if lineage and lineage['steps']:
-            if lineage['replayable']:
+            if replay:
                 out.append(f'- cleaning.py: replays the {len(lineage["steps"])} '
                            f'cleaning step(s) that turn data/original_{data_name} '
                            f'into {data_name}. Run: `python cleaning.py`')
-            else:
+            elif not lineage['replayable']:
                 out.append('- cleaning.py is not included: some cleaning steps '
                            'were made before STATlee recorded their code.')
     if has_codebook:
@@ -351,8 +389,13 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
     else:
         out.append(f'- outputs/: no runs included ({_RUNS_LABEL[runs_selection]} '
                    'was selected and there are none).')
-    out.append('- report.md: requests, terminal output and interpretation of '
-               'the latest run.')
+    which = (f'run {script_run}' if script_run else 'the latest run')
+    if include_prompts:
+        out.append(f'- report.md: your requests, the terminal output and the '
+                   f'interpretation of {which}.')
+    else:
+        out.append(f'- report.md: the terminal output and the interpretation '
+                   f'of {which}.')
     if has_report:
         out.append('- full_report.md: the written report.')
 
@@ -366,10 +409,15 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
                    'typed are included in provenance.json and report.md.')
     else:
         out.append('- Prompts: left out at export. The questions and cleaning '
-                   'instructions you typed are not in this bundle; '
-                   'interpretations and reports written by the model may '
-                   'still restate them.')
-    if editor_differs:
+                   'instructions you typed are not in this bundle; text '
+                   'written by the model (interpretations, reports, script '
+                   'comments) may still restate them.')
+    if editor_differs and script_run:
+        out += ['', '## Note', '',
+                'The code in your editor at export time differs from the '
+                f'script of run {script_run}, so it is not bundled; '
+                f'{script_name} holds that run\'s script instead.']
+    elif editor_differs:
         out += ['', '## Note', '',
                 'The code in your editor at export time was not reviewed or '
                 f'run in this session, so it is not bundled; {script_name} '

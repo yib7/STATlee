@@ -47,22 +47,23 @@ def _sha_text(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
-def _chat(client, fake_llm, code, prompt=QUESTION):
+def _chat(client, fake_llm, code, prompt=QUESTION, filename='test.csv'):
     fake_llm.set('validation', code)
     sse_events(post_json(client, '/chat',
-                         {'filename': 'test.csv', 'prompt': prompt}))
+                         {'filename': filename, 'prompt': prompt}))
 
 
-def _run(client, code):
-    resp = post_json(client, '/run', {'filename': 'test.csv', 'code': code,
+def _run(client, code, filename='test.csv'):
+    resp = post_json(client, '/run', {'filename': filename, 'code': code,
                                       'language': 'Python'})
     assert resp.status_code == 200, resp.get_json()
     return resp.get_json()
 
 
-def _generate_and_run(client, fake_llm, code, prompt=QUESTION):
-    _chat(client, fake_llm, code, prompt)
-    return _run(client, code)
+def _generate_and_run(client, fake_llm, code, prompt=QUESTION,
+                      filename='test.csv'):
+    _chat(client, fake_llm, code, prompt, filename)
+    return _run(client, code, filename)
 
 
 def _wrangle(client, fake_llm, code, instruction, summary='Dropped rows'):
@@ -184,7 +185,7 @@ def test_provenance_shape_and_hashes(app, client, full_session):
     assert kinds == ['upload', 'wrangle', 'run', 'interpret']
     allowed = {'kind', 'ts', 'prompt', 'prompt_inherited', 'model', 'role',
                'dataset_sha256_before', 'dataset_sha256_after',
-               'dataset_sha256', 'script_sha256', 'run_id'}
+               'script_sha256', 'run_id'}
     for step in prov['steps']:
         assert set(step) <= allowed, step
         assert isinstance(step['ts'], str) and step['ts'].endswith('+00:00')
@@ -206,7 +207,7 @@ def test_provenance_shape_and_hashes(app, client, full_session):
     assert run['prompt_inherited'] is False
     assert run['role'] == 'draft'
     assert run['model'] == app.config['STATLEE'].model_pro
-    assert run['dataset_sha256'] == active
+    assert run['dataset_sha256_before'] == active
     assert run['script_sha256'] == _sha_text(PLOT_SCRIPT)
     assert run['script_sha256'] == _sha_bytes(zf.read('analysis.py'))
     assert interp == {'kind': 'interpret', 'ts': interp['ts'],
@@ -460,3 +461,126 @@ def test_r_script_is_bundled_as_analysis_r(client, fake_llm):
     zf = _export(client, language='R', code=code)
     assert 'analysis.R' in zf.namelist()
     assert 'Rscript analysis.R' in zf.read('README.md').decode()
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1
+# ---------------------------------------------------------------------------
+
+def test_only_runs_on_the_exported_dataset_are_bundled(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    upload_csv(client, SAMPLE_CSV.replace('income', 'salary'), 'other.csv')
+    on_test = _generate_and_run(client, fake_llm, "print('ON_TEST')",
+                                prompt='test question')['run_id']
+    on_other = _generate_and_run(client, fake_llm, "print('ON_OTHER')",
+                                 prompt='other question',
+                                 filename='other.csv')['run_id']
+    zf = _export(client)
+    assert _prov_runs(zf) == [on_test]
+    assert _run_dirs(zf) == ['run_' + on_test[1:]]
+    assert 'other question' not in _all_text(zf)
+    assert b'ON_TEST' in zf.read('analysis.py')
+    other = _export(client, filename='other.csv')
+    assert _prov_runs(other) == [on_other]
+    assert b'ON_OTHER' in other.read('analysis.py')
+
+
+def test_analysis_script_is_the_latest_run_in_the_selected_set(
+        client, fake_llm):
+    ids = _three_runs(client, fake_llm)
+    client.patch(f'/runs/{ids[0]}', json={'starred': True},
+                 headers={'X-CSRF-Token': _token(client)})
+    starred = _export(client, runs='starred')
+    assert starred.read('analysis.py').strip() == b"print('RUN_0')"
+    run_step = [s for s in _provenance(starred)['steps']
+                if s['kind'] == 'run'][-1]
+    assert run_step['script_sha256'] == _sha_bytes(starred.read('analysis.py'))
+    readme = starred.read('README.md').decode()
+    assert ids[0] in readme and 'outputs/run_0001/' in readme
+    # report.md describes the same run.
+    report = starred.read('report.md').decode()
+    assert 'RUN_0' in report and 'RUN_2' not in report
+
+    every = _export(client)
+    assert every.read('analysis.py').strip() == b"print('RUN_2')"
+    assert ids[2] in every.read('README.md').decode()
+
+
+def test_with_no_selected_runs_the_latest_approved_script_is_bundled(
+        client, fake_llm):
+    _three_runs(client, fake_llm)
+    _chat(client, fake_llm, "print('GENERATED_NOT_RUN')")
+    zf = _export(client, runs='starred')            # nothing starred
+    assert zf.read('analysis.py') == b"print('GENERATED_NOT_RUN')"
+
+
+def test_plots_are_stored_uncompressed(client, full_session):
+    zf = _export(client)
+    info = zf.getinfo('outputs/run_0001/plot_1.png')
+    assert info.compress_type == zipfile.ZIP_STORED
+    assert zf.getinfo('analysis.py').compress_type == zipfile.ZIP_DEFLATED
+
+
+def test_zip_is_spooled_to_a_temp_file_and_closed_after_the_response(
+        client, full_session, monkeypatch):
+    import tempfile
+
+    from statlee.routes import datasets
+    made = []
+    real = tempfile.SpooledTemporaryFile
+
+    def spy(*args, **kwargs):
+        spool = real(*args, **kwargs)
+        made.append((kwargs.get('max_size'), spool))
+        return spool
+    monkeypatch.setattr(datasets.tempfile, 'SpooledTemporaryFile', spy)
+    resp = post_json(client, '/export', {'filename': 'test.csv'})
+    assert resp.status_code == 200
+    assert int(resp.headers['Content-Length']) == len(resp.data)
+    assert zipfile.ZipFile(io.BytesIO(resp.data)).testzip() is None
+    resp.close()
+    assert len(made) == 1
+    assert made[0][0] and made[0][0] > 0
+    assert made[0][1].closed
+
+
+def test_readme_does_not_list_a_dataset_file_that_was_skipped(
+        client, full_session, monkeypatch):
+    from statlee import bundle
+    real = bundle.write_file
+
+    def skip_data(zf, path, arcname, root):
+        if arcname in ('test.csv', 'data/original_test.csv'):
+            return False
+        return real(zf, path, arcname, root)
+    monkeypatch.setattr(bundle, 'write_file', skip_data)
+    zf = _export(client)
+    assert 'test.csv' not in zf.namelist()
+    readme = zf.read('README.md').decode()
+    assert '- test.csv:' not in readme
+    assert 'data/original_test.csv' not in readme
+    assert 'cleaning.py' not in zf.namelist()
+
+
+def test_readme_report_line_does_not_promise_requests_without_prompts(
+        client, full_session):
+    with_prompts = _export(client).read('README.md').decode()
+    without = _export(client, include_prompts=False).read('README.md').decode()
+    line = [x for x in with_prompts.splitlines() if x.startswith('- report.md')]
+    assert 'request' in line[0]
+    line = [x for x in without.splitlines() if x.startswith('- report.md')]
+    assert 'request' not in line[0]
+    assert '—' not in without
+
+
+def test_export_is_rate_limited(config, reset_limiter_state, fake_llm):
+    from statlee import llm
+    from statlee.app import create_app
+    config.rate_limit_enabled = True
+    config.rate_limit_run = '2 per minute'
+    application = create_app(config)
+    llm.set_service(fake_llm)
+    c = application.test_client()
+    codes = [post_json(c, '/export', {'code': "print('x')"}).status_code
+             for _ in range(3)]
+    assert codes == [200, 200, 429]

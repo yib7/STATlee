@@ -840,3 +840,10 @@ def test_export_js_sends_the_options_and_names_readme_md():
     assert "getElementById('exportDownloadBtn')" in tools
     for js in _js_sources().values():
         assert 'README.txt' not in js
+
+
+def test_export_dialog_does_not_overpromise_prompt_removal(client):
+    modal = _export_modal(_visible(_index_html(client)))
+    text = ' '.join(re.sub(r'<[^>]+>', ' ', modal).split())
+    assert 'may still restate' in text
+    assert 'Turn off to share the bundle without them.' not in text
