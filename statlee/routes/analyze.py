@@ -23,6 +23,7 @@ from . import (
     FILENAME_MAX,
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
+    DebitGuard,
     clamp,
     clamp_codebook,
     clamp_history,
@@ -122,6 +123,7 @@ def chat():
 
     # Stage 1: feature selection on wide datasets.
     cfg = _cfg()
+    debit = DebitGuard(billing_user, priority=pro_mode, config=cfg)
     filtered_headers = headers
     filtered_codebook = codebook
     selection_usage = None
@@ -210,10 +212,7 @@ def chat():
                     temperature=0.0, json_mode=True)
             except Exception:
                 logger.exception("Run-guard code-moderation failed in /chat")
-                try:
-                    billing.refund(billing_user, priority=pro_mode, config=cfg)
-                except Exception:
-                    logger.exception("Failed to refund credit after guard failure")
+                debit.refund()
                 yield sse_event({
                     'type': 'error',
                     'message': 'Could not verify the generated script. Please try again.'})
@@ -222,10 +221,7 @@ def chat():
             if blocked:
                 # No runnable script was produced, so refund like the stream
                 # failure path below rather than charge for a rejected result.
-                try:
-                    billing.refund(billing_user, priority=pro_mode, config=cfg)
-                except Exception:
-                    logger.exception("Failed to refund credit after guard block")
+                debit.refund()
                 yield sse_event({
                     'type': 'error',
                     'message': f'The generated script was rejected by the safety '
@@ -240,11 +236,7 @@ def chat():
             static_blocked, static_reason = codecheck.check_code(
                 final_code, target_language)
             if static_blocked:
-                try:
-                    billing.refund(billing_user, priority=pro_mode, config=cfg)
-                except Exception:
-                    logger.exception(
-                        "Failed to refund credit after static-check block")
+                debit.refund()
                 yield sse_event({
                     'type': 'error',
                     'message': f'The generated script was rejected by the safety '
@@ -258,6 +250,7 @@ def chat():
 
             usage = _sum_usage(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
+            debit.delivered()
             yield sse_event({'type': 'done', 'code': final_code,
                              'language': target_language, 'usage': usage})
         except Exception:
@@ -266,14 +259,18 @@ def chat():
             # produced no usable script, so refund it rather than charge for
             # nothing (P1-3). Best-effort: a refund failure must not mask the
             # original error the user needs to see.
-            try:
-                billing.refund(billing_user, priority=pro_mode, config=cfg)
-            except Exception:
-                logger.exception("Failed to refund credit after stream failure")
+            debit.refund()
             yield sse_event({'type': 'error',
                              'message': 'Code generation failed. Please try again.'})
+        finally:
+            # D1-15: a client disconnect closes this generator with
+            # GeneratorExit, which the except above never sees. Anything not
+            # delivered is refunded (at most once).
+            debit.refund()
 
-    return sse_stream(generate)
+    # attach(): a stream closed before its first step runs none of its body,
+    # so the response's close hook refunds that case.
+    return debit.attach(sse_stream(generate))
 
 
 # ---------------------------------------------------------------------------

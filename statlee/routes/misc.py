@@ -12,6 +12,7 @@ from . import (
     BACKGROUND_MAX,
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
+    DebitGuard,
     clamp,
     clamp_history,
     json_error,
@@ -226,6 +227,9 @@ def generate_report():
             return json_error(deny_msg or 'Out of credits.', 402)
         debited = True
 
+    debit = DebitGuard(billing_user, priority=True, config=cfg,
+                       debited=debited)
+
     def generate():
         try:
             if revision:
@@ -233,6 +237,7 @@ def generate_report():
                 for delta in service.stream('pro', prompt, temperature=0.4,
                                             usage_out=usage):
                     yield sse_event({'type': 'delta', 'text': delta})
+                debit.delivered()
                 yield sse_event({'type': 'done',
                                  'usage': usage_breakdown(usage, mod_usage),
                                  'revision': True})
@@ -249,23 +254,21 @@ def generate_report():
             for delta in service.stream('pro', final_prompt, temperature=0.4,
                                         usage_out=stream_usage):
                 yield sse_event({'type': 'delta', 'text': delta})
+            debit.delivered()
             yield sse_event({'type': 'done',
                              'usage': usage_breakdown(draft_result.usage,
                                                       stream_usage, mod_usage),
                              'revision': False})
         except Exception:
             logger.exception("Report generation failed")
-            if debited:
-                # The credit was taken before any model call; the request
-                # produced no report, so give it back (the same refund-on-
-                # stream-failure contract /chat honors). Best-effort: a
-                # refund failure must not mask the error the user sees.
-                try:
-                    billing.refund(billing_user, priority=True, config=cfg)
-                except Exception:
-                    logger.exception(
-                        "Failed to refund credit after report failure")
+            # The credit was taken before any model call; the request
+            # produced no report, so give it back (the same refund-on-
+            # stream-failure contract /chat honors). Best-effort: a
+            # refund failure must not mask the error the user sees.
+            debit.refund()
             yield sse_event({'type': 'error',
                              'message': 'Report generation failed.'})
+        finally:
+            debit.refund()   # D1-15: client disconnect (GeneratorExit)
 
-    return sse_stream(generate)
+    return debit.attach(sse_stream(generate))

@@ -1,5 +1,6 @@
 """Flask blueprints (roadmap 3.1) and small shared route helpers."""
 import json
+import logging
 import re
 
 from flask import Response, jsonify, stream_with_context
@@ -238,6 +239,78 @@ def clamp_plots(plots, max_count=PLOTS_MAX_COUNT, max_chars=PLOT_B64_MAX):
         if len(kept) >= max_count:
             break
     return kept
+
+
+class DebitGuard:
+    """Give a debited credit back unless the streamed request delivered its
+    result (D1-15).
+
+    Error branches inside a stream refunded through ``except Exception``, but a
+    client disconnect closes the generator with ``GeneratorExit`` (a
+    BaseException), and a generator closed before its first step runs none of
+    its body. Usage: call ``delivered()`` right before yielding the final
+    ``done`` event, call ``refund()`` in the generator's ``finally``, and wrap
+    the response with ``attach()`` so a never-started stream refunds on close.
+    Refunds happen at most once.
+    """
+
+    def __init__(self, user, *, priority, config, debited=True):
+        import threading
+
+        from flask import current_app
+        self._app = current_app._get_current_object()
+        self._user = user
+        self._user_id = getattr(user, 'id', None)
+        self._priority = priority
+        self._config = config
+        self._lock = threading.Lock()
+        self.settled = not debited
+
+    def delivered(self):
+        with self._lock:
+            self.settled = True
+
+    def _take(self):
+        with self._lock:
+            if self.settled:
+                return False
+            self.settled = True
+            return True
+
+    def refund(self):
+        """Refund now, inside the request/app context (the generator's finally)."""
+        if not self._take():
+            return
+        from .. import billing
+        try:
+            billing.refund(self._user, priority=self._priority,
+                           config=self._config)
+        except Exception:
+            logging.getLogger('statlee.billing').exception(
+                "Failed to refund credit for an undelivered stream")
+
+    def _refund_detached(self):
+        """``call_on_close`` hook: runs after the request context is gone, so
+        it opens an app context and re-loads the user."""
+        if not self._take():
+            return
+        from .. import billing
+        try:
+            with self._app.app_context():
+                user = None
+                if self._user_id is not None:
+                    from ..extensions import db
+                    from ..models import User
+                    user = db.session.get(User, self._user_id)
+                billing.refund(user, priority=self._priority,
+                               config=self._config)
+        except Exception:
+            logging.getLogger('statlee.billing').exception(
+                "Failed to refund credit after a client disconnect")
+
+    def attach(self, response):
+        response.call_on_close(self._refund_detached)
+        return response
 
 
 def sse_stream(generator):
