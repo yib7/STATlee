@@ -67,6 +67,14 @@ def test_dockerfile_pins_a_persistent_upload_root():
     assert 'UPLOAD_ROOT=/app/instance/uploads' in _read('Dockerfile')
 
 
+def test_app_image_installs_the_postgres_driver():
+    """D5-11: the documented production DATABASE_URL (postgresql+psycopg://)
+    failed at boot with ModuleNotFoundError: psycopg."""
+    assert 'psycopg' in _read('requirements-postgres.txt')
+    assert re.search(r'pip install[^\n]*-r requirements-postgres\.txt',
+                     _read('Dockerfile'))
+
+
 def test_runner_image_pins_match_the_app():
     """D5-12: docker mode and subprocess mode must run the same analysis
     library versions (the runner pinned matplotlib 3.10.8 vs the app's 3.11.0)."""

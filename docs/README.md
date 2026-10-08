@@ -153,7 +153,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 * **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
 * **AI Integration:** Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
 * **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
-* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod).
+* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements-postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
 
 ## Hosting
 

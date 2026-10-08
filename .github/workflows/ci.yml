@@ -39,6 +39,7 @@ jobs:
         # resolving them would audit whatever the index serves that day).
         run: |
           pip-audit --no-deps --disable-pip -r requirements.txt
+          pip-audit --no-deps --disable-pip -r requirements-postgres.txt
 
   test:
     name: Tests (pytest)
@@ -98,6 +99,43 @@ jobs:
         run: |
           test "$(docker run --rm statlee-web id -u)" != "0"
           docker run --rm statlee-web sh -c 'test ! -e /app/.env && test ! -e /app/.git && test ! -d /app/tests'
+
+  postgres:
+    name: Migrations on PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Throwaway credentials for an ephemeral CI-only service container.
+          POSTGRES_USER: statlee
+          POSTGRES_PASSWORD: statlee-ci
+          POSTGRES_DB: statlee
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U statlee"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-postgres.txt
+      - name: Boot migrations against PostgreSQL
+        env:
+          APP_ENV: testing
+          STATLEE_TEST_POSTGRES_URL: postgresql+psycopg://statlee:statlee-ci@localhost:5432/statlee
+        run: |
+          pytest -rs tests/test_postgres_migrations.py | tee pg.log
+          if grep -q "STATLEE_TEST_POSTGRES_URL not set" pg.log; then
+            echo "::error::the PostgreSQL migration test was skipped"
+            exit 1
+          fi
 
   migrations:
     name: Migrations match the models
