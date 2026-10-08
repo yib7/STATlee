@@ -377,9 +377,20 @@ def create_app(config=None):
     register_cli(app)
 
     # --- request lifecycle ----------------------------------------------------
+    # D5-18: /health is exempt from the default rate limit (probes must not be
+    # throttled into a false 'unhealthy'), never mints a session, and is
+    # answered by `health_probe` below with a cheap `SELECT 1`, so a dead
+    # database reports 503 instead of 'OK'. The throttled TTL cleanup still
+    # piggybacks on probes on purpose: it keeps anonymous-file cleanup running
+    # on an otherwise idle server.
+    limiter.exempt(app.view_functions['misc.health_check'])
+
     @app.before_request
     def assign_request_context():
         g.request_id = uuid.uuid4().hex[:8]
+        if request.endpoint == 'misc.health_check':
+            return
+
         if 'sid' not in session:
             session['sid'] = secrets.token_hex(16)        # 1.1 isolation key
         if 'csrf_token' not in session:
@@ -430,6 +441,22 @@ def create_app(config=None):
                 storage.cleanup_old_files(cfg.file_ttl_seconds)
             except Exception:
                 logger.exception("TTL cleanup failed")
+
+    @app.before_request
+    def health_probe():
+        # Registered after every other hook: auth (public endpoint), CSRF (GET)
+        # and TTL cleanup have run; the session hook skipped this endpoint.
+        if request.endpoint != 'misc.health_check':
+            return None
+        from sqlalchemy import text
+        try:
+            db.session.execute(text('SELECT 1'))
+        except Exception:
+            logger.exception("Health check: database unreachable")
+            return 'database unavailable', 503
+        finally:
+            db.session.remove()
+        return 'OK', 200
 
     @app.after_request
     def stamp_request_id(response):

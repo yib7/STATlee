@@ -57,6 +57,9 @@ Every request passes through ordered middleware:
    landing, health, and auth handshake). Behavior depends on the auth *mode*.
 4. The view runs; **`stamp_request_id`** adds `X-Request-ID` to the response.
 
+`/health` is exempt from the default rate limit, never mints a session, and
+runs a `SELECT 1`, so it answers `503` when the database is unreachable.
+
 `ProxyFix` is installed when `TRUST_PROXY_HOPS > 0` so the real client IP is
 read from `X-Forwarded-For` behind a proxy. It defaults to 0 everywhere, since
 trusting that header on a directly exposed app lets clients spoof it to dodge

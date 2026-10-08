@@ -364,7 +364,7 @@ def _remote_addr_seen(cfg, fake_llm):
         seen['addr'] = request.remote_addr
 
     application.test_client().get(
-        '/health', headers={'X-Forwarded-For': '203.0.113.9'},
+        '/check_auth', headers={'X-Forwarded-For': '203.0.113.9'},
         environ_base={'REMOTE_ADDR': '10.0.0.2'})
     return seen['addr']
 
