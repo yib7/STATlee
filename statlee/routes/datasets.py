@@ -650,7 +650,7 @@ def wrangle():
     # Record the moderated transform in the approved-script store so /wrangle
     # upholds the same "every executed LLM-generated script is moderated and
     # recorded" invariant as the /chat -> /run path (0.4 run-guard).
-    storage.save_approved_script(plan['code'], 'Python')
+    storage.save_approved_script(plan['code'], 'Python', source='wrangle')
 
     dataset_basename = os.path.basename(active_path)
     script = WRANGLE_HARNESS.format(src=dataset_basename,

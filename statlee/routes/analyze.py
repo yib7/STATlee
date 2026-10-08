@@ -9,6 +9,7 @@ import base64
 import json
 import logging
 import os
+import re
 
 import pandas as pd
 from flask import Blueprint, current_app, jsonify
@@ -252,7 +253,8 @@ def chat():
 
             # Only a moderated script is remembered as approved; /run then
             # executes this (or a re-moderated edit of it) without re-moderating.
-            storage.save_approved_script(final_code, target_language)
+            storage.save_approved_script(final_code, target_language,
+                                         source='chat')
 
             usage = _sum_usage(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
@@ -299,7 +301,9 @@ def run_code():
     # P2-2: membership over a hash-keyed store, not equality against one slot,
     # so a /wrangle that saved its own transform does not force a spurious
     # re-moderation of the unchanged, already-validated /chat script.
-    if not storage.is_approved_script(code):
+    # D1-7: approval is per (language, code) -- a script reviewed as Python
+    # must be re-moderated before it may run under Rscript.
+    if not storage.is_approved_script(code, language):
         # User-edited script (5.4): re-moderate before execution (0.4b).
         try:
             verdict = llm.get_service().generate(
@@ -313,7 +317,7 @@ def run_code():
         if blocked:
             return json_error(
                 f'Edited script rejected by the safety check. {reason}', 403)
-        storage.save_approved_script(code, language)
+        storage.save_approved_script(code, language, source='run')
 
     dataset_path = None
     dataset_name = None
@@ -340,7 +344,9 @@ def run_code():
         runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
 
     storage.save_last_run(result.output, result.plots,
-                          script=code, language=language)
+                          script=code, language=language,
+                          returncode=result.returncode,
+                          timed_out=result.timed_out)
 
     if result.timed_out:
         return json_error(result.output, 500)
@@ -357,6 +363,22 @@ def run_code():
 # ---------------------------------------------------------------------------
 # /interpret — single-pass streamed interpretation + auto-debugging (5.11)
 # ---------------------------------------------------------------------------
+
+_FAILURE_RE = re.compile(
+    r'Traceback \(most recent call last\)'
+    r'|^Error( in .*)?:'            # R: "Error in f(x) : ..." / "Error: ..."
+    r'|^Execution halted'           # R's closing line on a fatal error
+    r'|^Execution timed out after', # sandbox timeout message
+    re.MULTILINE)
+
+
+def _looks_failed(output):
+    """Text heuristic for a failed run, used only when no recorded outcome
+    exists (legacy run dirs, or the client-copy fallback without a success
+    flag). Matches line starts anywhere, so R errors after earlier output and
+    the timeout message are caught (D3-14)."""
+    return bool(_FAILURE_RE.search(output or ''))
+
 
 @bp.route('/interpret', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
@@ -394,11 +416,15 @@ def interpret_results():
                     plots.append(base64.b64encode(fh.read()).decode('ascii'))
             except Exception:
                 logger.warning("Skipping unreadable server plot for interpretation")
-        # Derive the pass/fail branch from the trusted server output, not the
-        # client-sent (spoofable) success flag.
-        failed = bool(
-            'Traceback (most recent call last)' in final_output
-            or final_output.strip().startswith('Error'))
+        # Derive the pass/fail branch from the trusted server record, not the
+        # client-sent (spoofable) success flag. D1-2: the sandbox's real return
+        # code / timeout flag decide; the text heuristic is only a fallback
+        # for run dirs written before the outcome was persisted.
+        status = storage.last_run_status()
+        if status is not None:
+            failed = status['returncode'] != 0 or status['timed_out']
+        else:
+            failed = _looks_failed(final_output)
     else:
         # P1-7: cap the client-supplied text and plot payloads before they reach
         # the prompt. Client `code` is allowed here only because the moderation
@@ -412,9 +438,7 @@ def interpret_results():
         if 'success' in data:
             failed = not data.get('success')
         else:
-            failed = bool(
-                'Traceback (most recent call last)' in final_output
-                or final_output.strip().startswith('Error'))
+            failed = _looks_failed(final_output)
 
     if not final_output.strip() and not plots:
         return jsonify({'interpretation':

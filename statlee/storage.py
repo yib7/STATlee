@@ -44,15 +44,59 @@ APPROVED_SCRIPT_MAX = 5
 _MANIFEST_LOCK_TIMEOUT = 10
 
 
+_WIN_RETRIES = 50
+
+
+def _retry_on_windows_lock(fn, *args):
+    """Run ``fn(*args)``, retrying briefly on PermissionError. On Windows a file
+    that another thread has open cannot be replaced or opened mid-replace; on
+    POSIX this never triggers."""
+    for attempt in range(_WIN_RETRIES):
+        try:
+            return fn(*args)
+        except PermissionError:
+            if os.name != 'nt' or attempt == _WIN_RETRIES - 1:
+                raise
+            time.sleep(0.005 * (attempt + 1))
+    return None  # pragma: no cover - loop always returns or raises
+
+
 def _write_json_atomic(path, obj):
     """Write JSON via a temp file + ``os.replace`` (atomic on POSIX and
     Windows) so a crash mid-write can never leave a truncated/partial file
     at ``path`` — the previous, complete version stays intact until the
-    new one is fully written."""
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(obj, f)
-    os.replace(tmp, path)
+    new one is fully written.
+
+    D1-4: the temp file is UNIQUE per write (``mkstemp`` in the same dir).
+    A shared ``path + '.tmp'`` let two overlapping writers replace each
+    other's half-written temp file, which put truncated JSON at ``path``."""
+    import tempfile
+    directory = os.path.dirname(path) or '.'
+    fd, tmp = tempfile.mkstemp(prefix='.' + os.path.basename(path) + '.',
+                               suffix='.tmp', dir=directory)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(obj, f)
+        _retry_on_windows_lock(os.replace, tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _read_json(path):
+    """Load JSON from ``path``; None when missing or corrupt."""
+    def _load():
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    if not os.path.exists(path):
+        return None
+    try:
+        return _retry_on_windows_lock(_load)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -403,70 +447,89 @@ def load_dataset_meta(filename, identity=None):
 # Approved-script store (0.4 run-guard) and last-run artifacts (5.3 export)
 # ---------------------------------------------------------------------------
 
-def _hash_code(code):
-    return hashlib.sha256((code or '').encode('utf-8')).hexdigest()
+def _lang_key(language):
+    return str(language or 'Python').strip().lower()
+
+
+def _hash_code(code, language='Python'):
+    """Approval key: the script AND the interpreter it was reviewed for (D1-7).
+    A Python-moderated script must not run under Rscript without review."""
+    material = f"{_lang_key(language)}\0{code or ''}"
+    return hashlib.sha256(material.encode('utf-8')).hexdigest()
+
+
+def _approved_path(identity=None):
+    return os.path.join(identity_root(identity), APPROVED_SCRIPT)
 
 
 def _load_approved_store(identity=None):
-    """Return the approved-script store as ``{sha256(code): {code, language}}``
-    in insertion order (oldest first). Tolerates a missing/corrupt file and
-    transparently upgrades an OLD single-slot file (``{code, language}``)."""
-    path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
+    """Return the approved-script store as ``{key: entry}`` in insertion order
+    (oldest first), where ``entry`` is ``{code, language, source?, ts?}`` and
+    ``key`` is recomputed from (language, code). Tolerates a missing/corrupt
+    file and transparently upgrades an OLD single-slot file
+    (``{code, language}``) and stores keyed by the old code-only hash."""
+    data = _read_json(_approved_path(identity))
     if not isinstance(data, dict):
         return {}
     # Back-compat: an old single-slot file {code, language} -> one entry.
     if isinstance(data.get('code'), str):
-        return {_hash_code(data['code']):
-                {'code': data['code'], 'language': data.get('language')}}
-    # New shape {sha: {code, language}}; drop any malformed entries.
-    return {k: v for k, v in data.items()
-            if isinstance(v, dict) and isinstance(v.get('code'), str)}
+        data = {'legacy': data}
+    store = {}
+    for v in data.values():
+        if isinstance(v, dict) and isinstance(v.get('code'), str):
+            if not isinstance(v.get('language'), str):
+                v = dict(v, language='Python')
+            store[_hash_code(v['code'], v['language'])] = v
+    return store
 
 
-def save_approved_script(code, language, identity=None):
-    """Record a validated script keyed by its content hash (P2-2).
+def save_approved_script(code, language, identity=None, source='chat'):
+    """Record a validated script keyed by (language, content hash) (P2-2,
+    D1-7).
 
     Keeps the most recent ``APPROVED_SCRIPT_MAX`` scripts; re-saving a known
     script refreshes its recency. This is what lets a /wrangle transform and the
     earlier /chat script coexist, so re-running the unchanged chat code still
-    matches by membership and skips re-moderation.
+    matches by membership and skips re-moderation. ``source`` ('chat', 'run' or
+    'wrangle') lets /export skip wrangle transforms.
+
+    The read-modify-write runs under a file lock (D1-4): two concurrent saves
+    used to drop each other's entry.
     """
-    store = _load_approved_store(identity)
-    sha = _hash_code(code)
-    store.pop(sha, None)                      # re-insert -> becomes most-recent
-    store[sha] = {'code': code, 'language': language}
-    while len(store) > APPROVED_SCRIPT_MAX:   # evict oldest by insertion order
-        del store[next(iter(store))]
-    path = os.path.join(identity_root(identity), APPROVED_SCRIPT)
-    _write_json_atomic(path, store)
+    with FileLock(_approved_path(identity) + '.lock',
+                  timeout=_MANIFEST_LOCK_TIMEOUT):
+        store = _load_approved_store(identity)
+        sha = _hash_code(code, language)
+        store.pop(sha, None)                      # re-insert -> most-recent
+        store[sha] = {'code': code, 'language': language, 'source': source,
+                      'ts': time.time()}
+        while len(store) > APPROVED_SCRIPT_MAX:   # evict oldest by insertion
+            del store[next(iter(store))]
+        _write_json_atomic(_approved_path(identity), store)
 
 
-def is_approved_script(code, identity=None):
-    """True if ``code`` exactly matches a previously approved script (P2-2)."""
-    return _hash_code(code) in _load_approved_store(identity)
+def is_approved_script(code, language='Python', identity=None):
+    """True if ``code`` exactly matches a script previously approved for
+    ``language`` (P2-2, D1-7)."""
+    return _hash_code(code, language) in _load_approved_store(identity)
 
 
-def load_approved_script(identity=None):
-    """Return the MOST-RECENTLY approved script ``{code, language}`` or None.
+def load_approved_script(identity=None, exclude_sources=()):
+    """Return the MOST-RECENTLY approved script ``{code, language, ...}`` or
+    None, skipping entries whose ``source`` is in ``exclude_sources``.
 
-    Retained for /export (bundles the latest script) and for the /run guard's
-    "has anything been generated yet?" check. Membership tests use
+    Retained for /export (bundles the latest script). Membership tests use
     ``is_approved_script`` instead of equality against this single entry.
     """
     store = _load_approved_store(identity)
-    if not store:
-        return None
-    return store[next(reversed(store))]
+    for entry in reversed(list(store.values())):
+        if entry.get('source') not in exclude_sources:
+            return entry
+    return None
 
 
-def save_last_run(output, plots_b64, script=None, language=None, identity=None):
+def save_last_run(output, plots_b64, script=None, language=None, identity=None,
+                  returncode=None, timed_out=False):
     """Keep the latest run's artifacts server-side so /export can bundle them.
 
     When ``script`` is provided, the exact script that PRODUCED this run is
@@ -477,6 +540,10 @@ def save_last_run(output, plots_b64, script=None, language=None, identity=None):
     the transform snippet for the analysis script that actually ran (P2-1/P2-7).
     ``save_last_run`` wipes and recreates the run dir on every call, so omitting
     ``script`` leaves no stale sidecar behind.
+
+    ``returncode``/``timed_out`` (D1-2) record the real sandbox outcome in a
+    ``status.json`` sidecar so /interpret can choose debug mode from it rather
+    than from the output text (R errors and timeouts used to be missed).
     """
     import base64
     run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
@@ -488,6 +555,10 @@ def save_last_run(output, plots_b64, script=None, language=None, identity=None):
         _write_json_atomic(
             os.path.join(run_dir, 'script.json'),
             {'code': script, 'language': language or 'Python'})
+    if returncode is not None:
+        _write_json_atomic(
+            os.path.join(run_dir, 'status.json'),
+            {'returncode': int(returncode), 'timed_out': bool(timed_out)})
     for i, b64 in enumerate(plots_b64 or [], start=1):
         try:
             with open(os.path.join(run_dir, f'plot_{i}.png'), 'wb') as f:
@@ -514,6 +585,26 @@ def last_run_script(identity=None):
     if not isinstance(data, dict) or not isinstance(data.get('code'), str):
         return None
     return {'code': data['code'], 'language': data.get('language') or 'Python'}
+
+
+def last_run_status(identity=None):
+    """``{'returncode': int, 'timed_out': bool}`` for the last run, or None for
+    a run dir written before the outcome was recorded (D1-2)."""
+    path = os.path.join(identity_root(identity), LAST_RUN_DIR, 'status.json')
+    data = _read_json(path)
+    if not isinstance(data, dict) or not isinstance(data.get('returncode'), int):
+        return None
+    return {'returncode': data['returncode'],
+            'timed_out': bool(data.get('timed_out'))}
+
+
+def last_run_time(identity=None):
+    """Epoch seconds of the last run, or None."""
+    path = os.path.join(identity_root(identity), LAST_RUN_DIR, 'output.txt')
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
 
 
 def last_run_artifacts(identity=None):
