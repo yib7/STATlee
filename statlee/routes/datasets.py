@@ -21,8 +21,17 @@ import pandas as pd
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
+from .. import (
+    bundle,
+    codecheck,
+    datatools,
+    environment,
+    llm,
+    prompts,
+    sandbox,
+    storage,
+)
 from .. import codebook as codebook_store
-from .. import codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..usage import usage_breakdown
 from . import (
@@ -34,6 +43,7 @@ from . import (
     MAPPING_VALUE_MAX,
     PREVIOUS_FIELD_MAX,
     PREVIOUS_MAX_COUNT,
+    FieldError,
     clamp,
     clamp_history,
     clamp_mapping,
@@ -45,6 +55,7 @@ from . import (
     language_field,
     list_field,
     llm_json_error,
+    model_for_role,
     moderation_gate,
     parse_json_reply,
     register_field_errors,
@@ -855,7 +866,8 @@ def wrangle():
         storage.add_dataset_version(
             filename, new_df, instruction, summary=plan.get('summary'),
             code=plan['code'], base_file=dataset_basename,
-            base_token=base_token)
+            base_token=base_token, role=cfg.wrangle_role,
+            model=model_for_role(cfg, cfg.wrangle_role))
         clear_caches()
         return jsonify({
             'status': 'success',
@@ -998,10 +1010,11 @@ def _comment(text):
     return ' '.join(str(text or '').split())[:300]
 
 
-def _cleaning_script(lineage, data_name):
+def _cleaning_script(lineage, data_name, include_prompts=True):
     """cleaning.py (D6): rebuild the analysed dataset from the original upload
     by replaying each recorded /wrangle transform in order, the same way the
-    in-app harness ran them."""
+    in-app harness ran them. Without ``include_prompts`` a step's comment
+    never falls back to the instruction the user typed."""
     lines = [
         '"""Rebuilds the dataset the analysis used from the original upload by',
         'replaying the data-cleaning steps recorded in STATlee, in order.',
@@ -1015,8 +1028,10 @@ def _cleaning_script(lineage, data_name):
         '',
     ]
     for n, step in enumerate(lineage['steps'], start=1):
+        label = step.get('summary') or (
+            step.get('instruction') if include_prompts else None)
         lines.append(f'# Step {n} (version {step["v"]}): '
-                     f'{_comment(step.get("summary") or step.get("instruction"))}')
+                     f'{_comment(label or "cleaning step")}')
         lines.append(step['code'].rstrip())
         lines.append("if not isinstance(df, pd.DataFrame):")
         lines.append(f"    raise TypeError('Step {n} must leave a DataFrame in df.')")
@@ -1027,64 +1042,42 @@ def _cleaning_script(lineage, data_name):
     return '\n'.join(lines) + '\n'
 
 
-def _export_readme(stem, script_name, script_source, editor_differs,
-                   data_name, lineage, has_plots, has_report):
-    out = [f'STATlee project export: {stem}',
-           f'Exported {time.strftime("%Y-%m-%d %H:%M")}', '',
-           'HOW TO RUN', '']
-    if script_name and data_name:
-        runner = ('python script.py' if script_name.endswith('.py')
-                  else 'Rscript script.R')
-        out += ['1. Unzip this archive and open a terminal inside the unzipped '
-                'folder.',
-                '2. Install the packages the script imports (for example '
-                'pandas, numpy, statsmodels, matplotlib).',
-                f'3. Run:  {runner}',
-                '',
-                f'The script reads {data_name}, which sits next to it in this '
-                'folder.']
-    elif script_name:
-        out.append(f'Run {script_name} from this folder.')
-    else:
-        out.append('No analysis script was generated or run in this session, '
-                   'so none is included.')
-    out += ['', 'FILES', '']
-    if script_name:
-        out.append(f'- {script_name}: the analysis script ({script_source}).')
-    if data_name:
-        if lineage and lineage['active_v'] != 1:
-            out.append(f'- {data_name}: the dataset version the analysis used '
-                       f'(version {lineage["active_v"]}).')
-        else:
-            out.append(f'- {data_name}: the dataset the analysis used.')
-        out.append(f'- data/original_{data_name}: the dataset as first uploaded '
-                   '(after conversion to CSV).')
-        if lineage and lineage['steps']:
-            if lineage['replayable']:
-                out.append(f'- cleaning.py: replays the {len(lineage["steps"])} '
-                           f'cleaning step(s) that turn data/original_{data_name} '
-                           f'into {data_name}. Run: python cleaning.py')
-            else:
-                out.append('- cleaning.py is not included: some cleaning steps '
-                           'were made before STATlee recorded their code.')
-    out.append('- report.md: requests, terminal output and interpretation.')
-    if has_report:
-        out.append('- full_report.md: the written report.')
-    if has_plots:
-        out.append('- plots/: figures from the last run.')
-    if editor_differs:
-        out += ['', 'NOTE', '',
-                'The code in your editor at export time was not reviewed or run '
-                f'in this session, so it is not bundled; {script_name} holds '
-                f'the {script_source} instead.']
-    return '\n'.join(out) + '\n'
+def _report_md(stem, history, last_output, interpretation, include_prompts):
+    lines = [f'# Project: {stem}', '',
+             f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']
+    if history and include_prompts:
+        lines.append('## Analysis requests')
+        lines.extend(f"- {msg['text']}" for msg in history
+                     if msg['role'] == 'user')
+        lines.append('')
+    if last_output:
+        lines += ['## Terminal output', '```', last_output, '```', '']
+    if interpretation:
+        lines += ['## AI interpretation', interpretation, '']
+    return '\n'.join(lines)
+
+
+def _export_options(data):
+    """SP4 export options: ``include_prompts`` (bool, default true) and
+    ``runs`` (all|starred|latest, default all)."""
+    include_prompts = data.get('include_prompts', True)
+    if not isinstance(include_prompts, bool):
+        raise FieldError("'include_prompts' must be true or false.")
+    runs = data.get('runs', 'all')
+    if not isinstance(runs, str) or runs not in bundle.RUN_SELECTIONS:
+        raise FieldError("'runs' must be 'all', 'starred' or 'latest'.")
+    return include_prompts, runs
 
 
 @bp.route('/export', methods=['POST'])
 def export_project():
+    """The reproducibility bundle (SP4): it runs as unzipped and documents
+    what produced it (statlee/bundle.py builds provenance.json and
+    README.md; statlee/environment.py captures environment.txt)."""
     data = request_json()
     filename = _filename(data)
     language = language_field(data)
+    include_prompts, runs_selection = _export_options(data)
     # Not a prompt (only written into report.md), so the bounds are generous;
     # clamp_history also drops non-dict turns that used to 500 here.
     history = clamp_history(data.get('history'), max_turns=1000,
@@ -1092,16 +1085,22 @@ def export_project():
     interpretation = clamp(data.get('interpretation'), 200_000)
     report_md = clamp(data.get('report'), 400_000)
     client_code = str_field(data, 'code')
+    cfg = _cfg()
 
     code, language, script_source, editor_differs = _export_script(
         client_code, language)
-    last_output, plot_paths = storage.last_run_artifacts()
+    last_output, _plots = storage.last_run_artifacts()
+    root = storage.identity_root()
+    records = bundle.load_runs(bundle.select_run_ids(
+        runs_selection, cfg.max_runs_per_identity))
+    env_text = environment.capture(cfg)
 
     buf = io.BytesIO()
     stem = os.path.splitext(secure_filename(filename or 'project'))[0] or 'project'
     script_name = None
     data_name = None
     lineage = None
+    has_codebook = False
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         if filename:
             active = storage.active_dataset_path(filename)
@@ -1112,38 +1111,38 @@ def export_project():
                 # it from its working directory -- so it goes at the zip root
                 # under that name, not as data/<name>__vN.csv.
                 data_name = os.path.basename(staged)
-                zf.write(active, arcname=data_name)
+                bundle.write_file(zf, active, data_name, root)
                 lineage = storage.dataset_lineage(filename)
                 original = (lineage or {}).get('original') or active
-                if os.path.exists(original):
-                    zf.write(original, arcname=f'data/original_{data_name}')
+                bundle.write_file(zf, original, f'data/original_{data_name}',
+                                  root)
                 if lineage and lineage['steps'] and lineage['replayable']:
-                    zf.writestr('cleaning.py',
-                                _cleaning_script(lineage, data_name))
+                    zf.writestr('cleaning.py', _cleaning_script(
+                        lineage, data_name, include_prompts))
+                codebook_json = codebook_store.export_json(filename)
+                if codebook_json:
+                    zf.writestr('codebook.json', codebook_json)
+                    has_codebook = True
         if code:
-            ext = '.py' if language.lower() == 'python' else '.R'
-            script_name = f'script{ext}'
+            script_name = ('analysis.py' if language.lower() == 'python'
+                           else 'analysis.R')
             zf.writestr(script_name, code)
-        for p in plot_paths:
-            zf.write(p, arcname=f'plots/{os.path.basename(p)}')
 
-        zf.writestr('README.txt', _export_readme(
-            stem, script_name, script_source, editor_differs, data_name,
-            lineage, bool(plot_paths), bool(report_md)))
-
-        lines = [f'# Project: {stem}', '',
-                 f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']
-        if history:
-            lines.append('## Analysis requests')
-            lines.extend(f"- {msg['text']}" for msg in history
-                         if msg['role'] == 'user')
-            lines.append('')
-        if last_output:
-            lines += ['## Terminal output', '```', last_output, '```', '']
-        if interpretation:
-            lines += ['## AI interpretation', interpretation, '']
-        zf.writestr('report.md', '\n'.join(lines))
-
+        run_dirs = bundle.write_run_outputs(zf, records, root)
+        zf.writestr('environment.txt', env_text)
+        zf.writestr('provenance.json', json.dumps(
+            bundle.provenance(cfg, lineage, records, include_prompts, root),
+            indent=2, ensure_ascii=False))
+        zf.writestr('README.md', bundle.readme(
+            stem, script_name=script_name, script_source=script_source,
+            editor_differs=editor_differs, data_name=data_name,
+            lineage=lineage, run_dirs=run_dirs,
+            runs_selection=runs_selection, include_prompts=include_prompts,
+            has_codebook=has_codebook, has_report=bool(report_md),
+            provider=cfg.llm_provider,
+            generated=time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())))
+        zf.writestr('report.md', _report_md(
+            stem, history, last_output, interpretation, include_prompts))
         if report_md:
             zf.writestr('full_report.md', report_md)
 

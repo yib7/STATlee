@@ -518,6 +518,21 @@ def run_time(run_id, identity=None):
     return ts
 
 
+def interpretation_time(run_id, identity=None):
+    """Epoch seconds the run's interpretation was last written, or None when
+    it has none (SP4 provenance)."""
+    run_dir = _run_dir(run_id, identity)
+    if not run_dir:
+        return None
+    path = os.path.join(run_dir, INTERPRETATION_FILE)
+    try:
+        if not os.path.getsize(path):
+            return None
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
 def save_interpretation(text, run_id=None, identity=None):
     """Store the interpretation of ``run_id`` (default: the latest run) next
     to its output, so /converse and /generate_report ground on the server's

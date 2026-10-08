@@ -35,6 +35,7 @@ from . import (
     language_field,
     llm_error_payload,
     llm_json_error,
+    model_for_role,
     moderation_blocked,
     moderation_gate,
     register_field_errors,
@@ -63,16 +64,8 @@ def _cfg():
     return current_app.config['STATLEE']
 
 
-# The configured model behind each LLM role (mirrors LLMService._resolve),
-# recorded with a run so provenance names the model that wrote the script.
-_ROLE_MODEL_ATTRS = {'draft': 'model_pro', 'pro': 'model_pro',
-                     'pro_max': 'model_pro_max', 'flash': 'model_flash',
-                     'lite': 'model_flash_lite'}
-
-
 def _model_for_role(role):
-    attr = _ROLE_MODEL_ATTRS.get(role)
-    return getattr(_cfg(), attr, None) if attr else None
+    return model_for_role(_cfg(), role)
 
 
 def _sum_usage(*usages):

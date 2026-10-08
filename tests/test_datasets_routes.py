@@ -503,7 +503,7 @@ def test_export_bundles_zip(client):
     assert resp.mimetype == 'application/zip'
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     names = zf.namelist()
-    assert 'script.py' in names
+    assert 'analysis.py' in names
     assert 'report.md' in names
     assert any(n.startswith('data/') for n in names)
 
@@ -549,8 +549,8 @@ def test_export_bundles_last_run_script_not_wrangle_snippet(client, fake_llm):
                      {'filename': 'test.csv', 'language': 'Python'})
     assert resp.status_code == 200
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
-    assert 'script.py' in zf.namelist()
-    script = zf.read('script.py').decode('utf-8')
+    assert 'analysis.py' in zf.namelist()
+    script = zf.read('analysis.py').decode('utf-8')
     assert 'ANALYSIS_MARKER' in script
     assert 'df = df.dropna()' not in script
 

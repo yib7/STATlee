@@ -391,6 +391,18 @@ def selected_run_id(run_id):
     return run_id
 
 
+# The configured model behind each LLM role (mirrors LLMService._resolve),
+# recorded with runs and cleaning steps so provenance names the model.
+ROLE_MODEL_ATTRS = {'draft': 'model_pro', 'pro': 'model_pro',
+                    'pro_max': 'model_pro_max', 'flash': 'model_flash',
+                    'lite': 'model_flash_lite'}
+
+
+def model_for_role(cfg, role):
+    attr = ROLE_MODEL_ATTRS.get(role)
+    return getattr(cfg, attr, None) if attr else None
+
+
 LANGUAGES = {'python': 'Python', 'r': 'R'}
 
 

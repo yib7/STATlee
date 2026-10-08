@@ -422,7 +422,7 @@ def dataset_version_path(filename, version, identity=None):
 
 def add_dataset_version(filename, new_df, instruction, summary=None,
                         identity=None, code=None, base_file=None,
-                        base_token=None):
+                        base_token=None, role=None, model=None):
     """Persist a wrangled DataFrame as the next version and activate it.
 
     ``instruction`` is the user's own words; ``summary`` is the applied,
@@ -438,6 +438,8 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
     ``base_token`` (from ``dataset_version_token``, read BEFORE the data) is
     the stronger check (S5): file names repeat after a same-name re-upload or
     an undo plus a new edit, the token does not.
+    ``role``/``model`` name the LLM role and configured model that wrote the
+    transform (SP4 provenance); recorded only when given.
     """
     # P2-9: serialize the whole read-modify-write so a concurrent wrangle/undo
     # cannot compute the same next_v and silently drop this version.
@@ -465,6 +467,10 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
             'op': 'transform',
             'ts': time.time(),
         })
+        if role:
+            manifest['versions'][-1]['role'] = str(role)[:64]
+        if model:
+            manifest['versions'][-1]['model'] = str(model)[:64]
         manifest['active'] = next_v
         _bump(manifest)
         _save_manifest(filename, manifest, identity)
@@ -536,7 +542,9 @@ def dataset_lineage(filename, identity=None):
     entries that turn the original into the active version, in order. A revert
     restarts the lineage from the original; versions past the active pointer
     (an undone redo branch) are not part of it. ``replayable`` is False when a
-    step predates code recording (D6) and so cannot be replayed."""
+    step predates code recording (D6) and so cannot be replayed.
+    ``versions`` is every manifest entry in version order (SP4 provenance
+    reads each step's base version from it)."""
     manifest = _load_manifest(filename, identity)
     if not manifest or not manifest.get('versions'):
         return None
@@ -558,6 +566,7 @@ def dataset_lineage(filename, identity=None):
         'steps': steps,
         'replayable': all(isinstance(s.get('code'), str) and s['code'].strip()
                           for s in steps),
+        'versions': versions,
     }
 
 
@@ -953,6 +962,7 @@ from .runs import (  # noqa: E402, F401 (re-exported API)
     RUN_NAME_MAX,
     RUNS_DIR,
     RUNS_MAX,
+    interpretation_time,
     latest_meta_for_script,
     latest_run_id,
     list_runs,

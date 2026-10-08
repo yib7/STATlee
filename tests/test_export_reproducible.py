@@ -1,11 +1,11 @@
 """The exported project runs as unzipped (deep audit D4-9 + D6).
 
-* script.py reads the dataset under the name the sandbox staged it as, so the
+* analysis.py reads the dataset under the name the sandbox staged it as, so the
   active version must sit next to it at the zip root (it used to be
   ``data/<name>__vN.csv``: unzip, run, FileNotFoundError).
 * The script is the last generated or run ANALYSIS script, never a /wrangle
   transform, and never unreviewed editor text when a reviewed one exists.
-* The original upload ships as ``data/original_<name>``, with README.txt.
+* The original upload ships as ``data/original_<name>``, with README.md.
 * cleaning.py replays the recorded cleaning steps from the original (D6).
 * A wrangle whose base version moved underneath it is refused (L1).
 """
@@ -75,7 +75,7 @@ def test_exported_script_runs_as_unzipped(client, fake_llm, tmp_path):
     _chat(client, fake_llm, READS_DATA)
     assert 'ROWS 4' in _run(client, READS_DATA)['output']
     folder = _unzip(_export(client), tmp_path)
-    proc = _py(folder, 'script.py')
+    proc = _py(folder, 'analysis.py')
     assert proc.returncode == 0, proc.stderr
     assert 'ROWS 4' in proc.stdout
 
@@ -91,7 +91,7 @@ def test_exported_data_is_the_active_version_under_the_staged_name(
     assert 'test.csv' in names
     assert not any('__v' in n for n in names)
     folder = _unzip(zf, tmp_path)
-    proc = _py(folder, 'script.py')
+    proc = _py(folder, 'analysis.py')
     assert proc.returncode == 0, proc.stderr
     # Same answer as the in-app run (2 complete rows), not the raw upload's 4.
     assert 'ROWS 2' in sandbox_out and 'ROWS 2' in proc.stdout
@@ -103,7 +103,7 @@ def test_export_ships_original_upload_and_readme(client, fake_llm):
     zf = _export(client)
     original = pd.read_csv(io.BytesIO(zf.read('data/original_test.csv')))
     assert len(original) == 4
-    readme = zf.read('README.txt').decode('utf-8')
+    readme = zf.read('README.md').decode('utf-8')
     assert 'test.csv' in readme
     assert 'original_test.csv' in readme
 
@@ -118,7 +118,7 @@ def test_export_bundles_newer_generated_script_over_older_run(
     _chat(client, fake_llm, "print('FIRST')")
     _run(client, "print('FIRST')")
     _chat(client, fake_llm, "print('SECOND')")       # generated, not yet run
-    script = _export(client).read('script.py').decode('utf-8')
+    script = _export(client).read('analysis.py').decode('utf-8')
     assert 'SECOND' in script
 
 
@@ -127,7 +127,7 @@ def test_export_prefers_reviewed_editor_code(client, fake_llm):
     _chat(client, fake_llm, "print('FIRST')")
     _chat(client, fake_llm, "print('SECOND')")
     # The editor shows the FIRST script (reviewed earlier in the session).
-    script = _export(client, code="print('FIRST')").read('script.py')
+    script = _export(client, code="print('FIRST')").read('analysis.py')
     assert b'FIRST' in script
 
 
@@ -136,9 +136,9 @@ def test_export_does_not_bundle_unreviewed_editor_code_over_reviewed(
     upload_csv(client, SAMPLE_CSV)
     _chat(client, fake_llm, "print('REVIEWED')")
     zf = _export(client, code="print('UNREVIEWED EDIT')")
-    assert b'REVIEWED' in zf.read('script.py')
-    assert b'UNREVIEWED' not in zf.read('script.py')
-    assert 'editor' in zf.read('README.txt').decode('utf-8').lower()
+    assert b'REVIEWED' in zf.read('analysis.py')
+    assert b'UNREVIEWED' not in zf.read('analysis.py')
+    assert 'editor' in zf.read('README.md').decode('utf-8').lower()
 
 
 def test_export_never_bundles_a_wrangle_transform_as_the_script(
@@ -147,7 +147,7 @@ def test_export_never_bundles_a_wrangle_transform_as_the_script(
     _chat(client, fake_llm, "print('ANALYSIS')")
     _wrangle(client, fake_llm, 'df = df.dropna()', 'drop missing')
     zf = _export(client, code='df = df.dropna()')
-    assert b'ANALYSIS' in zf.read('script.py')
+    assert b'ANALYSIS' in zf.read('analysis.py')
 
 
 # ---------------------------------------------------------------------------
