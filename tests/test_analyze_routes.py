@@ -191,13 +191,17 @@ def test_chat_saves_approved_script_for_run_guard(client, fake_llm):
     assert 'approved body' in body['output']
 
 
-def test_run_without_generation_is_blocked(client):
+def test_run_without_generation_is_moderated(client, fake_llm):
+    """D4-10: no generated script in this session no longer means a hard 403;
+    the submitted code goes through the edited-script guard instead."""
     upload_csv(client, SAMPLE_CSV)
+    fake_llm.block_code('network access')
     resp = post_json(client, '/run',
                      {'filename': 'test.csv', 'code': "print('x')",
                       'language': 'Python'})
     assert resp.status_code == 403
-    assert 'Generate code' in resp.get_json()['error']
+    assert 'safety check' in resp.get_json()['error']
+    assert any(c[1] == 'code_moderation' for c in fake_llm.calls)
 
 
 def test_run_guard_remoderates_edited_script(client, fake_llm):

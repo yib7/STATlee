@@ -302,18 +302,17 @@ def run_code():
     if not code:
         return json_error('No code provided.')
 
-    if storage.load_approved_script() is None:
-        return json_error(
-            'No generated script found for this session. Generate code '
-            'before running.', 403)
-
     # P2-2: membership over a hash-keyed store, not equality against one slot,
     # so a /wrangle that saved its own transform does not force a spurious
     # re-moderation of the unchanged, already-validated /chat script.
     # D1-7: approval is per (language, code) -- a script reviewed as Python
     # must be re-moderated before it may run under Rscript.
+    # D4-10: a script restored into a fresh session (empty approved store) is
+    # treated exactly like an edited one -- LLM code moderation (default-deny,
+    # failing closed) and then the static check below -- instead of a hard
+    # 403, so a reopened editor or a pasted export can run again.
     if not storage.is_approved_script(code, language):
-        # User-edited script (5.4): re-moderate before execution (0.4b).
+        # User-edited or restored script (5.4): re-moderate first (0.4b).
         try:
             verdict = llm.get_service().generate(
                 'lite', prompts.code_moderation(code, language),
