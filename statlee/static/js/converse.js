@@ -18,11 +18,29 @@
     };
     window.askSample = CC.askSample;
 
+    // D4-6: one answer streams at a time. A second send while the first is in
+    // flight would interleave two bubbles and send a history that is missing
+    // the first exchange; the unsent text stays in the composer instead.
+    let sending = false;
+
+    function setSending(on) {
+        sending = on;
+        const send = document.getElementById('chatSend');
+        const log = document.getElementById('chatLog');
+        if (send) send.disabled = on;
+        if (log) {
+            if (on) log.setAttribute('aria-busy', 'true');
+            else log.removeAttribute('aria-busy');
+        }
+    }
+
     async function sendMessage() {
+        if (sending) return;
         const chatInput = document.getElementById('chatInput');
         const chatLog = document.getElementById('chatLog');
         const text = chatInput.value.trim();
         if (!text) return;
+        setSending(true);
 
         // First message: the transcript replaces the empty state.
         document.body.classList.remove('cc-no-chat');
@@ -64,9 +82,9 @@
 
             const contentType = res.headers.get('Content-Type') || '';
             if (!contentType.includes('text/event-stream')) {
-                const data = await res.json();
+                const data = await CC.readJSON(res);
                 removeTyping();
-                errorBubble(data.error || 'Error generating response.');
+                errorBubble(CC.errorMessage(res.status, data, 'Error generating response'));
                 return;
             }
 
@@ -99,22 +117,34 @@
             if (streamError) {
                 removeTyping();
                 errorBubble(streamError);
+                CC.announce('The answer failed.');
+            } else {
+                CC.announce('Answer ready.');
             }
         } catch (e) {
             removeTyping();
-            errorBubble('Connection error.');
+            errorBubble('Network error: the message did not reach the server.');
+        } finally {
+            setSending(false);
         }
         chatLog.scrollTop = chatLog.scrollHeight;
     }
 
+    let guideNoteShown = false;
+
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('chatSend').addEventListener('click', sendMessage);
-        document.getElementById('chatInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                sendMessage();
+            }
         });
         document.getElementById('guideToggle').addEventListener('change', (e) => {
             const chatLog = document.getElementById('chatLog');
-            if (e.target.checked) {
+            // One explainer per session, not one per toggle (D4-24).
+            if (e.target.checked && !guideNoteShown) {
+                guideNoteShown = true;
                 // This note is the first thing in the log: retire the empty
                 // state so the hero does not sit on top of a live transcript.
                 document.body.classList.remove('cc-no-chat');

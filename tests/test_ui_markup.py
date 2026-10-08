@@ -355,3 +355,147 @@ def test_empty_state_styles_are_hand_written_not_purged_utilities():
     # The skeleton fill token the empty states are built on, in both themes.
     assert '--skel:' in app_css.replace(' ', '')
     assert app_css.count('--skel:') >= 2, '--skel must be defined for light AND dark'
+
+
+# =============================================================================
+# Deep audit D4 (2026-10-08): frontend hardening, a11y, honest copy
+# =============================================================================
+
+def _read(*parts):
+    with open(os.path.join(ROOT, *parts), encoding='utf-8') as f:
+        return f.read()
+
+
+def test_data_action_dispatch_uses_an_explicit_allowlist(client):
+    """D4-4: boot.js used to call window[<any data-action>]. Sanitized model
+    output must never be able to reach an arbitrary global, so dispatch goes
+    through a fixed allowlist, and every data-action the app ships is on it."""
+    boot = _read('statlee', 'static', 'js', 'boot.js')
+    m = re.search(r'ACTIONS\s*=\s*\[([^\]]*)\]', boot)
+    assert m, 'boot.js has no ACTIONS allowlist'
+    allowed = set(re.findall(r"'([A-Za-z_$][\w$]*)'", m.group(1)))
+    assert 'open' not in allowed and 'fetch' not in allowed
+    haystack = _index_html(client) + '\n' + '\n'.join(_js_sources().values())
+    used = set(re.findall(r'data-action="([A-Za-z_$][\w$]*)"', haystack))
+    missing = sorted(used - allowed)
+    assert not missing, 'data-action targets missing from the boot.js allowlist: ' + ', '.join(missing)
+    assert 'window[el.getAttribute' not in boot, 'unrestricted window[...] dispatch is back'
+
+
+def test_markdown_sanitizer_is_hardened():
+    """D4-4: DOMPurify's defaults keep data-* attributes, style and form
+    controls. The renderer must turn those off and open links in a new tab."""
+    api = _read('statlee', 'static', 'js', 'api.js')
+    assert 'ALLOW_DATA_ATTR: false' in api
+    for token in ("'style'", "'form'", "'button'", "'input'", "'iframe'", "'object'"):
+        assert token in api, f'{token} not forbidden in the sanitizer config'
+    assert 'noopener noreferrer' in api and "'_blank'" in api
+
+
+def test_buttons_do_not_suppress_the_focus_ring(client):
+    """D4-13: Tailwind's focus:outline-none (0,2,0) beat app.css's focus ring
+    (0,1,1) on every tab and sidebar toggle."""
+    html = _index_html(client)
+    for tag in re.findall(r'<button[^>]*>', html):
+        assert 'focus:outline-none' not in tag, tag[:120]
+
+
+def test_tabs_and_live_regions_are_marked_up(client):
+    """D4-14: real tab semantics and a log role on the conversation."""
+    html = _index_html(client)
+    for name in ('Generate', 'Data', 'Results', 'Converse', 'Report', 'Pdf'):
+        i = html.find(f'id="tab{name}"')
+        tag = html[i:html.find('>', i)]
+        assert 'aria-selected=' in tag and f'aria-controls="content{name}"' in tag, name
+        j = html.find(f'id="content{name}"')
+        panel = html[j:html.find('>', j)]
+        assert 'role="tabpanel"' in panel, name
+    i = html.find('id="chatLog"')
+    assert 'role="log"' in html[i:html.find('>', i)]
+    assert 'id="srAnnounce"' in html
+
+
+def _hex_lum(h):
+    h = h.lstrip('#')
+    vals = [int(h[k:k + 2], 16) / 255 for k in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in vals]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _contrast(a, b):
+    hi, lo = sorted((_hex_lum(a), _hex_lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _tokens(block):
+    return dict(re.findall(r'--([\w-]+):\s*(#[0-9a-fA-F]{6})', block))
+
+
+def test_text_tokens_meet_wcag_aa():
+    """D4-15: secondary text, status colours and the amber 'Original' button
+    must reach 4.5:1 on the surfaces they sit on, in both themes."""
+    css = _read('statlee', 'static', 'css', 'app.css')
+    light = _tokens(css[css.find(':root {'):css.find('}', css.find(':root {'))])
+    dark = _tokens(css[css.find('.dark {'):css.find('}', css.find('.dark {'))])
+    for fg in ('text-3', 'pipe-done', 'pipe-failed', 'c-nom', 'indigo'):
+        for bg in ('s0', 's1', 's2'):
+            ratio = _contrast(light[fg], light[bg])
+            assert ratio >= 4.5, f'light --{fg} on --{bg} is {ratio:.2f}:1'
+    for fg in ('text-3', 'pipe-done', 'pipe-failed', 'c-nom'):
+        ratio = _contrast(dark[fg], dark['s1'])
+        assert ratio >= 4.5, f'dark --{fg} on --s1 is {ratio:.2f}:1'
+    for bg in ('code-bg', 'code-chrome'):
+        ratio = _contrast(light['code-muted'], light[bg])
+        assert ratio >= 4.5, f'--code-muted on --{bg} is {ratio:.2f}:1'
+
+
+def test_copy_does_not_overclaim_isolation_or_storage(client):
+    """D4-16: the default subprocess sandbox does not isolate the network, the
+    script runs on the server, and anonymous uploads ARE stored for a while."""
+    visible = _visible(_index_html(client))
+    assert 'Execute Script Locally' not in visible
+    assert 'Nothing is stored without an account' not in visible
+    assert 'no network' not in visible.lower()
+    assert 'What is sent to' in visible           # the data-handling disclosure
+    js = '\n'.join(_js_sources().values())
+    assert 'no network' not in js and 'local sandbox' not in js
+    assert 'Gemini list prices' not in js
+
+
+def test_landing_network_claims_depend_on_sandbox_mode(app, client):
+    landing = _visible(client.get('/welcome').get_data(as_text=True)).lower()
+    assert 'network-less' not in landing and 'no network access' not in landing
+    app.config['STATLEE'].sandbox_mode = 'docker'
+    try:
+        docker_landing = _visible(client.get('/welcome').get_data(as_text=True)).lower()
+    finally:
+        app.config['STATLEE'].sandbox_mode = 'subprocess'
+    assert 'no network access' in docker_landing
+
+
+def test_provider_and_model_copy_come_from_config(app, client):
+    """D4-24: footer, Pro tooltip and page cap are rendered from config, not
+    hard-coded to Gemini / 50 pages."""
+    cfg = app.config['STATLEE']
+    old = (cfg.llm_provider, cfg.model_pro, cfg.model_pro_max, cfg.pdf_max_pages)
+    cfg.llm_provider, cfg.model_pro, cfg.model_pro_max, cfg.pdf_max_pages = (
+        'openai', 'gpt-test-mini', 'gpt-test-max', 12)
+    try:
+        html = _visible(_index_html(client))
+    finally:
+        cfg.llm_provider, cfg.model_pro, cfg.model_pro_max, cfg.pdf_max_pages = old
+    footer = html[html.find('<footer'):html.find('</footer>')]
+    assert 'OpenAI' in footer and 'Gemini' not in footer
+    i = html.find('for="proToggle"')
+    assert 'gpt-test-max' in html[i:i + 400] and 'gemini' not in html[i:i + 400].lower()
+    assert 'Max 12 pages' in html
+
+
+def test_account_form_has_submit_and_password_reset(client):
+    """D4-12: Enter submits (a real form) and there is a reset entry point."""
+    html = _index_html(client)
+    assert 'id="accForm"' in html
+    assert 'id="accForgotBtn"' in html
+    tools = _js_sources()['tools.js']
+    assert '/request_password_reset' in tools
+    assert "status === 'success'" in tools      # reload only on a real sign-in

@@ -3,33 +3,100 @@
 (function () {
     'use strict';
 
+    // --- guarded storage (D4-25) -----------------------------------------------
+    // Blocked storage (privacy modes, enterprise policy) throws on access. It
+    // must degrade to "no persistence", never abort start-up or the upload flow.
+    CC.store = {
+        get(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } },
+        set(key, val) { try { window.localStorage.setItem(key, val); return true; } catch (e) { return false; } },
+        remove(key) { try { window.localStorage.removeItem(key); } catch (e) { /* blocked */ } },
+    };
+
     // --- theme -------------------------------------------------------------
     CC.toggleTheme = function () {
         document.documentElement.classList.toggle('dark');
-        localStorage.setItem('theme',
+        CC.store.set('theme',
             document.documentElement.classList.contains('dark') ? 'dark' : 'light');
     };
 
-    // --- modal helpers --------------------------------------------------------
+    // --- modal helpers (D4-14) ---------------------------------------------------
+    // open() remembers the opener, moves focus into the dialog and traps Tab
+    // inside it; close() restores focus. dismiss() is the USER closing it
+    // (Escape, the X): it also runs the dialog's onDismiss hook, so a dialog
+    // whose close has a meaning (the codebook prompt: "no thanks" = skip) can
+    // never be closed into a stuck state (D4-1). Forced dialogs refuse it.
+    const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]),' +
+        ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const openers = {};
+    const dismissHooks = {};
+
+    function visibleFocusables(root) {
+        return Array.prototype.filter.call(root.querySelectorAll(FOCUSABLE),
+            el => el.offsetParent !== null || el === document.activeElement);
+    }
+    function topModal() {
+        const open = document.querySelectorAll('.cc-modal:not(.hidden)');
+        return open.length ? open[open.length - 1] : null;
+    }
+
     CC.modal = {
         open(id) {
             const el = document.getElementById(id);
-            if (el) { el.classList.remove('hidden'); }
+            if (!el) return;
+            if (el.classList.contains('hidden')) {
+                const active = document.activeElement;
+                openers[id] = (active && active !== document.body) ? active : null;
+            }
+            el.classList.remove('hidden');
+            setTimeout(() => {
+                if (el.classList.contains('hidden') || el.contains(document.activeElement)) return;
+                const items = visibleFocusables(el);
+                const first = items.find(n => !n.hasAttribute('data-close-modal')) || items[0];
+                if (first) first.focus();
+            }, 30);
         },
         close(id) {
             const el = document.getElementById(id);
-            if (el) { el.classList.add('hidden'); }
+            if (!el || el.classList.contains('hidden')) { if (el) el.classList.add('hidden'); return; }
+            el.classList.add('hidden');
+            const opener = openers[id];
+            delete openers[id];
+            if (opener && document.contains(opener) && !topModal()) {
+                try { opener.focus(); } catch (e) { /* detached */ }
+            }
         },
+        dismiss(id) {
+            const el = document.getElementById(id);
+            if (!el || el.classList.contains('hidden') || el.dataset.forced) return;
+            CC.modal.close(id);
+            if (dismissHooks[id]) dismissHooks[id]();
+        },
+        onDismiss(id, fn) { dismissHooks[id] = fn; },
     };
     document.addEventListener('click', (e) => {
         const closer = e.target.closest('[data-close-modal]');
-        if (closer) CC.modal.close(closer.getAttribute('data-close-modal'));
+        if (closer) CC.modal.dismiss(closer.getAttribute('data-close-modal'));
     });
     document.addEventListener('keydown', (e) => {
+        const modal = topModal();
+        if (!modal) return;
         if (e.key === 'Escape') {
-            document.querySelectorAll('.cc-modal:not(.hidden)').forEach(m => {
-                if (!m.dataset.forced) m.classList.add('hidden');
-            });
+            CC.modal.dismiss(modal.id);
+            return;
+        }
+        if (e.key !== 'Tab') return;
+        const items = visibleFocusables(modal);
+        if (!items.length) { e.preventDefault(); return; }
+        const first = items[0];
+        const last = items[items.length - 1];
+        const active = document.activeElement;
+        if (!modal.contains(active)) {
+            e.preventDefault();
+            (e.shiftKey ? last : first).focus();
+        } else if (e.shiftKey && active === first) {
+            e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && active === last) {
+            e.preventDefault(); first.focus();
         }
     });
 
@@ -49,9 +116,10 @@
     // handlers through boot.js's delegated data-action listener (CSP forbids
     // inline onclick), which resolves window.retryRun / window.fixWithAI at
     // click time; analyze.js defines both.
-    const RETRY_ACTIONS =
+    const RETRY_BTN =
         '<button type="button" class="step-retry" data-action="retryRun" ' +
-        'title="Run the same script again">Retry</button>' +
+        'title="Run the same script again">Retry</button>';
+    const FIX_BTN =
         '<button type="button" class="step-fix" data-action="fixWithAI" ' +
         'title="Send the error back to STATlee and regenerate">Fix with AI</button>';
 
@@ -72,7 +140,10 @@
                 `<span class="step-actions"></span></div>`
             ).join('');
         },
-        set(stepId, state, note) {
+        /** `opts.noFix`: the failure never reached the sandbox (run-guard
+         *  refusal, timeout, 5xx), so there is no traceback for "Fix with AI"
+         *  to send; offer Retry only (D4-8). */
+        set(stepId, state, note, opts) {
             const el = document.querySelector(`#pipelineChecklist [data-step="${stepId}"]`);
             if (!el) return;
             el.dataset.state = state;
@@ -86,8 +157,8 @@
             const actions = el.querySelector('.step-actions');
             if (actions) {
                 const step = PIPELINE_STEPS.find(s => s.id === stepId);
-                actions.innerHTML =
-                    (state === 'failed' && step && step.retry) ? RETRY_ACTIONS : '';
+                actions.innerHTML = (state === 'failed' && step && step.retry)
+                    ? RETRY_BTN + ((opts && opts.noFix) ? '' : FIX_BTN) : '';
             }
         },
     };
@@ -109,6 +180,8 @@
             if (tab) {
                 tab.classList.remove('font-semibold', 'border-indigo-700', 'text-indigo-900', 'dark:border-indigo-400', 'dark:text-indigo-300');
                 tab.classList.add('font-medium', 'border-transparent', 'text-slate-600', 'dark:text-slate-400');
+                tab.setAttribute('aria-selected', 'false');
+                tab.setAttribute('tabindex', '-1');
             }
             const content = contentEl(n.toLowerCase());
             if (content && content.parentElement.id === 'paneA') content.classList.add('hidden');
@@ -122,6 +195,13 @@
             if (tabName === 'pdf') tab.style.display = 'flex';
             activeA = tabName;
         }
+        // Roving tabindex (D4-14): exactly one tab is in the Tab order, the
+        // selected one; arrow keys move between the rest (initTabKeys).
+        const selected = document.getElementById('tab' + cap(activeA));
+        if (selected) {
+            selected.setAttribute('aria-selected', 'true');
+            selected.setAttribute('tabindex', '0');
+        }
         const copyBtn = document.getElementById('copyBtn');
         if (copyBtn) {
             copyBtn.style.display =
@@ -130,6 +210,29 @@
         if (CC.editor && tabName === 'generate') setTimeout(() => CC.editor.refresh(), 30);
     };
     window.switchTab = CC.switchTab; // keep inline onclick handlers working
+
+    /** WAI-ARIA tabs keyboard model: Left/Right (and Home/End) move focus and
+     *  select; a tab whose view sits in the split pane is skipped. */
+    function initTabKeys() {
+        const list = document.querySelector('[role="tablist"]');
+        if (!list) return;
+        list.addEventListener('keydown', (e) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+            const tabs = Array.from(list.querySelectorAll('[role="tab"]'))
+                .filter(t => t.getAttribute('aria-disabled') !== 'true' && t.offsetParent !== null);
+            if (!tabs.length) return;
+            const i = Math.max(0, tabs.indexOf(document.activeElement));
+            let next = i;
+            if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+            if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+            if (e.key === 'Home') next = 0;
+            if (e.key === 'End') next = tabs.length - 1;
+            e.preventDefault();
+            const target = tabs[next];
+            CC.switchTab(target.getAttribute('data-arg'));
+            target.focus();
+        });
+    }
 
     // Grey out the header tab whose view currently lives in the split pane, so
     // it's obvious it's already shown elsewhere (reduces friction).
@@ -365,28 +468,44 @@
         list.style.display = '';
 
         document.getElementById('codebookDockBtn').addEventListener('click', CC.dockCodebook);
+        makeDraggable(float, document.getElementById('codebookFloatHandle'));
+        document.getElementById('codebookContainer').classList.add('hidden');
+    };
 
-        // drag behavior
-        const handle = document.getElementById('codebookFloatHandle');
+    /** Drag a floating panel by its handle. The two document listeners are
+     *  removed when the panel docks (D4-26): before, every pop-out/dock cycle
+     *  left another pair behind. */
+    function makeDraggable(float, handle) {
         let drag = null;
+        const onMove = (e) => {
+            if (!drag) return;
+            float.style.left = `${Math.max(0, e.clientX - drag.dx)}px`;
+            float.style.top = `${Math.max(0, e.clientY - drag.dy)}px`;
+            float.style.right = 'auto';
+        };
+        const onUp = () => {
+            if (!drag) return;
+            drag = null;
+            document.body.classList.remove('select-none');
+        };
         handle.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button')) return;      // the Dock button is not a drag
             const rect = float.getBoundingClientRect();
             drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
             document.body.classList.add('select-none');
             e.preventDefault();
         });
-        document.addEventListener('mousemove', (e) => {
-            if (!drag) return;
-            float.style.left = `${Math.max(0, e.clientX - drag.dx)}px`;
-            float.style.top = `${Math.max(0, e.clientY - drag.dy)}px`;
-            float.style.right = 'auto';
-        });
-        document.addEventListener('mouseup', () => {
-            drag = null;
-            document.body.classList.remove('select-none');
-        });
-        document.getElementById('codebookContainer').classList.add('hidden');
-    };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        float._undrag = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+    }
+    function removeFloat(float) {
+        if (float._undrag) float._undrag();
+        float.remove();
+    }
 
     CC.dockCodebook = function () {
         const float = document.getElementById('codebookFloat');
@@ -394,7 +513,7 @@
         const list = float.querySelector('#codebookList');
         const container = document.getElementById('codebookContainer');
         container.appendChild(list);
-        float.remove();
+        removeFloat(float);
         if (Object.keys(CC.state.codebook).length > 0) container.classList.remove('hidden');
     };
 
@@ -434,26 +553,7 @@
         if (chev) chev.style.transform = 'rotate(0deg)';
 
         document.getElementById('wrangleDockBtn').addEventListener('click', CC.dockWrangle);
-
-        // drag behavior (identical to the codebook float)
-        const handle = document.getElementById('wrangleFloatHandle');
-        let drag = null;
-        handle.addEventListener('mousedown', (e) => {
-            const rect = float.getBoundingClientRect();
-            drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-            document.body.classList.add('select-none');
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (!drag) return;
-            float.style.left = `${Math.max(0, e.clientX - drag.dx)}px`;
-            float.style.top = `${Math.max(0, e.clientY - drag.dy)}px`;
-            float.style.right = 'auto';
-        });
-        document.addEventListener('mouseup', () => {
-            drag = null;
-            document.body.classList.remove('select-none');
-        });
+        makeDraggable(float, document.getElementById('wrangleFloatHandle'));
         document.getElementById('changelogPanel').classList.add('hidden');
     };
 
@@ -463,17 +563,17 @@
         const body = float.querySelector('#wrangleBody');
         const panel = document.getElementById('changelogPanel');
         panel.appendChild(body);
-        float.remove();
+        removeFloat(float);
         panel.classList.remove('hidden');
     };
 
     // --- workspace preferences (persisted) + sidebar collapse ----------------------
     CC.prefs = {
         get(key, dflt) {
-            const v = localStorage.getItem('cc_pref_' + key);
+            const v = CC.store.get('cc_pref_' + key);
             return v === null ? dflt : v === 'true';
         },
-        set(key, val) { localStorage.setItem('cc_pref_' + key, val ? 'true' : 'false'); },
+        set(key, val) { CC.store.set('cc_pref_' + key, val ? 'true' : 'false'); },
     };
 
     // Split view (6.1) can be hidden entirely as a focus preference.
@@ -493,7 +593,7 @@
         sidebar.classList.toggle('hidden', collapsed);
         if (resizer) resizer.classList.toggle('hidden', collapsed);
         if (expandBtn) expandBtn.classList.toggle('hidden', !collapsed);
-        localStorage.setItem('cc_sidebar_collapsed', collapsed ? 'true' : 'false');
+        CC.store.set('cc_sidebar_collapsed', collapsed ? 'true' : 'false');
         if (CC.editor) setTimeout(() => CC.editor.refresh(), 30);
     };
     CC.toggleSidebar = function () {
@@ -516,7 +616,7 @@
         if (autosuggest) autosuggest.addEventListener('change', (e) => CC.prefs.set('autosuggest', e.target.checked));
         if (split) split.addEventListener('change', (e) => { CC.prefs.set('split', e.target.checked); applySplitPref(); });
         applySplitPref();
-        if (localStorage.getItem('cc_sidebar_collapsed') === 'true') CC.setSidebarCollapsed(true);
+        if (CC.store.get('cc_sidebar_collapsed') === 'true') CC.setSidebarCollapsed(true);
     }
 
     // The empty workspace shows the spine up front rather than materialising it
@@ -529,6 +629,8 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         bootPipeline();
+        CC.switchTab('generate');   // seeds aria-selected + the roving tabindex
+        initTabKeys();
         initSplitControls();
         initSidebarResizer();
         initWorkspacePrefs();
