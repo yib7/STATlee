@@ -56,14 +56,19 @@ class Config:
 
     # --- Server -------------------------------------------------------------
     port: int = 5000
+    # Interface the `python wsgi.py` dev server binds (D5-8). Loopback by
+    # default: the local run is open-auth and executes generated code, so LAN
+    # exposure is an explicit BIND_HOST=0.0.0.0 opt-in. gunicorn (the container)
+    # binds via its own --bind flag and ignores this.
+    bind_host: str = '127.0.0.1'
     max_upload_mb: int = 16
 
     # --- Storage / database --------------------------------------------------
-    upload_root: str = ''           # empty -> a fresh temp dir is created
+    upload_root: str = ''           # empty -> <instance>/uploads (temp dir in testing)
     database_url: str = ''          # empty -> sqlite file under instance dir
-    storage_backend: str = 'local'  # 'local' | 's3' (7.3)
-    s3_bucket: str = ''
-    s3_prefix: str = 'statlee'
+    # Only 'local' is implemented. 's3' (roadmap 7.3) is rejected by validate()
+    # until a real backend exists, rather than silently writing to local disk.
+    storage_backend: str = 'local'
     file_ttl_seconds: int = 7200    # anonymous-file cleanup window (2h)
     # Per-identity storage quota (P2-4). The 2h TTL is the only other reclaim,
     # so without these one IP could park many uploads (20/min x 16MB) on disk
@@ -153,6 +158,10 @@ class Config:
     pdf_max_pages: int = 50
 
     # --- Auth (7.1) -------------------------------------------------------------
+    # Public origin (scheme://host[:port]) that emailed links point at (D5-7).
+    # Password-reset links are built from it, never from the request's Host
+    # header (which a caller controls). Required in production for resets.
+    public_base_url: str = ''
     accounts_enabled: bool = True
     require_login: bool = False         # False keeps the anonymous sandbox mode
     require_email_verification: bool = False  # gate accounts until email confirmed
@@ -160,8 +169,10 @@ class Config:
     # --- Billing / cost guardrails (workstream E) -------------------------------
     billing_enabled: bool = False       # turn on credit debit in check_and_debit
     # Hard ceiling on priority (high-tier) requests per calendar month, enforced
-    # on the server's own key so nobody can run up an unbounded bill. 0 disables.
-    # NOTE: per-process — across multiple workers each enforces its own count.
+    # on the server's own key so nobody can run up an unbounded bill. Applies
+    # whether or not billing is enabled (D5-3). 0 disables.
+    # NOTE: per-process and in-memory — across multiple workers each enforces
+    # its own count, and the count resets on every restart or redeploy.
     monthly_priority_call_ceiling: int = 0
     # Free credits granted to a logged-in free-plan user at the start of each
     # calendar month, applied lazily on their first billed request that month
@@ -195,9 +206,10 @@ class Config:
     rate_limit_storage_uri: str = 'memory://'
     # Number of trusted reverse-proxy hops in front of the app. >0 enables
     # ProxyFix so rate limiting and logging see the real client IP from
-    # X-Forwarded-For. Render fronts the app with exactly one proxy, so this
-    # defaults to 1 in production. Keep it 0 anywhere the app is exposed
-    # directly, or clients could spoof X-Forwarded-For to dodge IP limits.
+    # X-Forwarded-For. Defaults to 0 everywhere (D5-13): trusting the header on
+    # a directly exposed app lets a client spoof X-Forwarded-For and get a fresh
+    # rate-limit bucket per request. Behind exactly one proxy (Render), set
+    # TRUST_PROXY_HOPS=1; validate() warns in production while it is 0.
     trust_proxy_hops: int = 0
 
     # --- CSRF (1.5) -----------------------------------------------------------------
@@ -251,12 +263,11 @@ class Config:
             openai_api_key=os.environ.get('OPENAI_API_KEY', '').strip(),
             openai_max_tokens=_env_int('OPENAI_MAX_TOKENS', 8192),
             port=_env_int('PORT', 5000),
+            bind_host=os.environ.get('BIND_HOST', '127.0.0.1').strip() or '127.0.0.1',
             max_upload_mb=_env_int('MAX_UPLOAD_MB', 16),
             upload_root=os.environ.get('UPLOAD_ROOT', '').strip(),
             database_url=os.environ.get('DATABASE_URL', '').strip(),
             storage_backend=os.environ.get('STORAGE_BACKEND', 'local').strip().lower(),
-            s3_bucket=os.environ.get('S3_BUCKET', '').strip(),
-            s3_prefix=os.environ.get('S3_PREFIX', 'statlee').strip(),
             file_ttl_seconds=_env_int('FILE_TTL_SECONDS', 7200),
             max_datasets_per_identity=_env_int('MAX_DATASETS_PER_IDENTITY', 10),
             max_bytes_per_identity=_env_int(
@@ -279,6 +290,7 @@ class Config:
             feature_selection_threshold=_env_int('FEATURE_SELECTION_THRESHOLD', 15),
             data_page_row_cap=_env_int('DATA_PAGE_ROW_CAP', 500_000),
             pdf_max_pages=_env_int('PDF_MAX_PAGES', 50),
+            public_base_url=os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/'),
             accounts_enabled=_env_bool('ACCOUNTS_ENABLED', True),
             require_login=_env_bool('REQUIRE_LOGIN', False),
             require_email_verification=_env_bool('REQUIRE_EMAIL_VERIFICATION', False),
@@ -296,10 +308,7 @@ class Config:
             rate_limit_storage_uri=(
                 os.environ.get('RATELIMIT_STORAGE_URI')
                 or os.environ.get('REDIS_URL') or 'memory://').strip(),
-            trust_proxy_hops=_env_int(
-                'TRUST_PROXY_HOPS',
-                1 if os.environ.get('APP_ENV', '').strip().lower() == 'production'
-                else 0),
+            trust_proxy_hops=_env_int('TRUST_PROXY_HOPS', 0),
             smtp_host=os.environ.get('SMTP_HOST', '').strip(),
             smtp_port=_env_int('SMTP_PORT', 587),
             smtp_user=os.environ.get('SMTP_USER', '').strip(),
@@ -374,10 +383,15 @@ class Config:
                 "pre-check and LLM moderation are the only barriers. Use "
                 "SANDBOX_MODE=docker for kernel-enforced isolation where the "
                 "host holds secrets or network access that matters.")
-        if self.storage_backend not in ('local', 's3'):
-            raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
-        if self.storage_backend == 's3' and not self.s3_bucket:
-            raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET")
+        if self.storage_backend == 's3':
+            # D5-10: there is no S3 backend; accepting the setting meant every
+            # read and write silently stayed on local disk.
+            raise ValueError(
+                "STORAGE_BACKEND=s3 is not implemented yet: uploads would still "
+                "be written to local disk. Use STORAGE_BACKEND=local with "
+                "UPLOAD_ROOT on a persistent volume.")
+        if self.storage_backend != 'local':
+            raise ValueError("STORAGE_BACKEND must be 'local'")
 
         if (self.is_production and self.rate_limit_enabled
                 and self.rate_limit_storage_uri.startswith('memory://')):
@@ -389,17 +403,48 @@ class Config:
                 "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
                 "WEB_CONCURRENCY=1.")
 
-        if (self.is_production and self.billing_enabled
-                and self.monthly_priority_call_ceiling <= 0):
+        if self.public_base_url and not self.public_base_url.startswith(
+                ('http://', 'https://')):
+            raise ValueError(
+                "PUBLIC_BASE_URL must start with http:// or https:// "
+                f"(got {self.public_base_url!r})")
+        self.public_base_url = self.public_base_url.rstrip('/')
+
+        if self.is_production and self.accounts_enabled:
+            if not self.smtp_host:
+                self._warn(
+                    "ACCOUNTS_ENABLED with no SMTP_HOST in production: password "
+                    "reset and email verification links cannot be delivered "
+                    "(and are not logged outside development). Configure SMTP_*.")
+            if not self.public_base_url:
+                self._warn(
+                    "ACCOUNTS_ENABLED with no PUBLIC_BASE_URL in production: "
+                    "password reset links are not sent, because the only other "
+                    "source for their host is the request's Host header, which "
+                    "the requester controls. Set PUBLIC_BASE_URL=https://<your "
+                    "domain>.")
+
+        if self.is_production and not self.upload_root:
             self._warn(
-                "BILLING_ENABLED is on but MONTHLY_PRIORITY_CALL_CEILING is unset "
-                "(<=0): there is NO monthly cap on priority requests billed to the "
-                "operator's API key, so one abusive session could run up an "
-                "unbounded bill. Set MONTHLY_PRIORITY_CALL_CEILING to a low number.")
+                "UPLOAD_ROOT is unset in production; uploads go to "
+                "<instance>/uploads next to the app. Set UPLOAD_ROOT to a path on "
+                "a persistent volume, or logged-in users' files are lost when "
+                "the container or host is replaced.")
+
+        if self.is_production and self.monthly_priority_call_ceiling <= 0:
+            # The ceiling applies with billing on AND off (D5-3); during a
+            # billing-off free trial it is the only cap on priority spend.
+            self._warn(
+                "MONTHLY_PRIORITY_CALL_CEILING is unset (<=0): there is NO monthly "
+                "cap on priority (Pro-mode / report) requests billed to the "
+                "operator's API key, with BILLING_ENABLED on or off, so one "
+                "abusive session could run up an unbounded bill. Set "
+                "MONTHLY_PRIORITY_CALL_CEILING to a low number.")
 
         if self.is_production and self.trust_proxy_hops <= 0:
             self._warn(
-                "TRUST_PROXY_HOPS is 0 in production. If the app sits behind a "
+                "TRUST_PROXY_HOPS is 0 in production (the default). If the app "
+                "is exposed directly, that is correct. If it sits behind a "
                 "reverse proxy, ProxyFix is off, so get_remote_address() returns "
                 "the proxy's IP for every anonymous caller: they all share ONE "
                 "rate-limit bucket and a single attacker can exhaust it. Set "
@@ -428,12 +473,27 @@ class Config:
     def is_testing(self):
         return self.env == 'testing'
 
-    def resolved_upload_root(self):
-        """Return the storage root, creating a temp dir when unset."""
-        if self.upload_root:
-            os.makedirs(self.upload_root, exist_ok=True)
-            return self.upload_root
-        self.upload_root = tempfile.mkdtemp(prefix='statlee_')
+    def external_url(self, path):
+        """Absolute URL for the app-relative ``path`` (e.g. a ``url_for``
+        result) on ``PUBLIC_BASE_URL``, or ``None`` when that is unset."""
+        if not self.public_base_url:
+            return None
+        return self.public_base_url.rstrip('/') + '/' + path.lstrip('/')
+
+    def resolved_upload_root(self, instance_dir=None):
+        """Return the storage root, creating it if needed.
+
+        Unset, it is a stable ``<instance_dir>/uploads`` (D5-9): a fresh temp
+        dir per process used to move storage on every restart, so logged-in
+        users' durable files vanished and the old root was never reclaimed.
+        Testing (or a caller with no instance dir) keeps a throwaway temp dir.
+        """
+        if not self.upload_root:
+            if self.is_testing or not instance_dir:
+                self.upload_root = tempfile.mkdtemp(prefix='statlee_')
+                return self.upload_root
+            self.upload_root = os.path.join(instance_dir, 'uploads')
+        os.makedirs(self.upload_root, exist_ok=True)
         return self.upload_root
 
     def resolved_database_url(self, instance_dir):

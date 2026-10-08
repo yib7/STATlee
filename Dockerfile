@@ -1,6 +1,14 @@
 # Web application image. Untrusted analysis code should run in the separate
 # runner image (runner.Dockerfile) via SANDBOX_MODE=docker; the R/Python
 # stack here covers SANDBOX_MODE=subprocess deployments.
+#
+# NOTE: this image ships no `docker` CLI, so SANDBOX_MODE=docker does not work
+# from inside it as-is (every run would fail with "Interpreter not available").
+# Docker mode needs the app on a host (or a derived image) that has the docker
+# CLI and access to the daemon; see docs/ARCHITECTURE.md "Sandbox".
+#
+# .dockerignore keeps .env, instance/ (local DBs) and .git out of the build
+# context, so no secret or local data is baked into a layer.
 FROM python:3.12-slim
 
 # R toolchain for R-language analyses (subprocess sandbox mode)
@@ -13,13 +21,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements-postgres.txt adds the psycopg driver for the documented
+# production DATABASE_URL=postgresql+psycopg://... (D5-11).
+COPY requirements.txt requirements-postgres.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-postgres.txt
 
 COPY . .
 
-ENV APP_ENV=production
+# Run as an unprivileged user (D5-17). In the default subprocess sandbox mode
+# generated code runs as this user, so it cannot modify the app code (owned by
+# root) and can only write its run dir, /tmp and the instance volume.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /app/instance/uploads \
+    && chown -R app:app /app/instance
+
+# UPLOAD_ROOT sits under /app/instance; mount a persistent volume there (the
+# compose file does) so logged-in users' files and the SQLite DB survive a
+# container replacement (D5-9).
+ENV APP_ENV=production \
+    UPLOAD_ROOT=/app/instance/uploads
 EXPOSE 5000
+
+USER app
 
 # Hit /health on whatever port the host injected (1.2)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
@@ -27,13 +50,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 
 # Production WSGI server honoring $PORT, threaded workers for SSE (1.2).
 # WEB_CONCURRENCY controls the worker count and defaults to 1 so the in-memory
-# rate-limit buckets and the in-process monthly billing ceiling hold at their
+# rate-limit buckets and the in-process monthly priority ceiling hold at their
 # configured numbers out of the box (a single process owns both counters). An
 # operator raising WEB_CONCURRENCY above 1 MUST set a shared RATELIMIT_STORAGE_URI
-# (e.g. redis://) — otherwise each worker keeps its own copy of the rate-limit
-# buckets and the configured limits no longer hold across the fleet. And if
-# billing is enabled, note the monthly priority ceiling is ALSO per-process, so
-# it multiplies by the worker count without a shared backing store.
+# (e.g. redis://); otherwise each worker keeps its own copy of the rate-limit
+# buckets and the configured limits no longer hold across the fleet. The monthly
+# priority ceiling is ALSO per-process (and resets on restart), so it multiplies
+# by the worker count without a shared backing store.
 # --preload imports wsgi:app (and runs the boot schema upgrade in _init_schema)
 # ONCE in the arbiter before forking workers, so multiple workers never run
 # Alembic concurrently against the same DB (which would race on DDL and crash a

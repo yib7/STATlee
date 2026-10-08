@@ -34,6 +34,9 @@ malware/illegal requests.
 | [matplotlib](https://matplotlib.org/) | Plotting | matplotlib (BSD-style) |
 | [seaborn](https://seaborn.pydata.org/) | Statistical visualization | BSD-3-Clause |
 | [openpyxl](https://openpyxl.readthedocs.io/) | Excel (`.xlsx`) ingestion | MIT |
+| [xlrd](https://github.com/python-excel/xlrd) | Legacy Excel (`.xls`) ingestion | BSD-style |
+| [redis-py](https://github.com/redis/redis-py) | Shared rate-limit store (`RATELIMIT_STORAGE_URI=redis://`) | MIT |
+| [psycopg 3](https://www.psycopg.org/psycopg3/) | PostgreSQL driver (`requirements-postgres.txt`, production DB) | LGPL-3.0 |
 | [pyreadstat](https://github.com/Roche/pyreadstat) | Stata (`.dta`) / SPSS (`.sav`) ingestion | Apache-2.0 |
 | [pypdf](https://pypdf.readthedocs.io/) | PDF codebook reading | BSD-3-Clause |
 | [fpdf2](https://py-pdf.github.io/fpdf2/) | TXT→PDF codebook conversion | LGPL-3.0 |
@@ -57,6 +60,7 @@ malware/illegal requests.
 | [Docker](https://www.docker.com/) / Docker Compose | Containerized app + sandbox runner |
 | [Render](https://render.com/) | Reference host in the deployment playbook (not currently deployed) |
 | [pytest](https://pytest.org/) + [ruff](https://docs.astral.sh/ruff/) | Test runner + linter (dev) |
+| [pip-audit](https://github.com/pypa/pip-audit) | Dependency vulnerability audit (dev/CI) |
 
 ---
 

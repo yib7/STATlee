@@ -14,9 +14,9 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^static/vendor/
+        exclude: ^statlee/static/vendor/
       - id: end-of-file-fixer
-        exclude: ^static/vendor/
+        exclude: ^statlee/static/vendor/
       - id: check-yaml
       - id: check-added-large-files
         args: [--maxkb=2048]

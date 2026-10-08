@@ -10,12 +10,33 @@ import os
 
 import pytest
 
-# Force a clean, key-less testing environment before anything imports config.
+# Force a clean, key-less testing environment before anything imports config
+# (D5-14). Importing the package no longer loads .env, and
+# PYTHON_DOTENV_DISABLED makes any later load_dotenv() call (wsgi, the flask
+# CLI) a no-op too, so a developer's real .env can never reach the suite.
+# Provider keys and provider/model selection are scrubbed so a value exported
+# in the shell cannot steer results either.
 os.environ['APP_ENV'] = 'testing'
-os.environ.pop('GEMINI_API_KEY', None)
+os.environ['PYTHON_DOTENV_DISABLED'] = '1'
+SCRUBBED_ENV = (
+    'GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'LLM_PROVIDER',
+    'MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE',
+)
+for _var in SCRUBBED_ENV:
+    os.environ.pop(_var, None)
 
 from statlee import llm  # noqa: E402
 from statlee.config import Config  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_env(monkeypatch):
+    """Re-scrub per test, in case a test (or something it imports) put a
+    provider key or model selection back into the environment."""
+    monkeypatch.setenv('APP_ENV', 'testing')
+    monkeypatch.setenv('PYTHON_DOTENV_DISABLED', '1')
+    for var in SCRUBBED_ENV:
+        monkeypatch.delenv(var, raising=False)
 
 # ---------------------------------------------------------------------------
 # Fake LLM service
@@ -174,6 +195,10 @@ def app(config, fake_llm):
     llm.set_service(fake_llm)        # override the real service init_service made
     application.config['_FAKE_LLM'] = fake_llm
     yield application
+    # Close the per-test SQLite connections (avoids ResourceWarning noise).
+    from statlee.extensions import db
+    with application.app_context():
+        db.engine.dispose()
 
 
 @pytest.fixture

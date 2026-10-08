@@ -24,6 +24,23 @@ jobs:
       - name: Ruff lint
         run: ruff check --output-format=github .
 
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: pip install pip-audit==2.10.1
+      - name: Audit the pinned requirements
+        # --no-deps: audit exactly the pins (transitive deps are unpinned, so
+        # resolving them would audit whatever the index serves that day).
+        run: |
+          pip-audit --no-deps --disable-pip -r requirements.txt
+          pip-audit --no-deps --disable-pip -r requirements-postgres.txt
+
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
@@ -47,3 +64,96 @@ jobs:
         env:
           APP_ENV: testing
         run: pytest -q
+
+  sandbox-docker:
+    name: Sandbox (real Docker runner image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Build the runner image
+        run: docker build -f runner.Dockerfile -t statlee-runner .
+      - name: Run the sandbox tests, real-Docker ones included
+        env:
+          APP_ENV: testing
+        run: |
+          pytest -rs tests/test_sandbox.py | tee sandbox.log
+          if grep -q "Docker daemon unreachable" sandbox.log; then
+            echo "::error::the real-Docker sandbox tests were skipped"
+            exit 1
+          fi
+
+  docker-image:
+    name: App image builds, runs non-root, carries no secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the app image
+        run: docker build -t statlee-web .
+      - name: Check the runtime user and the build context
+        run: |
+          test "$(docker run --rm statlee-web id -u)" != "0"
+          docker run --rm statlee-web sh -c 'test ! -e /app/.env && test ! -e /app/.git && test ! -d /app/tests'
+
+  postgres:
+    name: Migrations on PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Throwaway credentials for an ephemeral CI-only service container.
+          POSTGRES_USER: statlee
+          POSTGRES_PASSWORD: statlee-ci
+          POSTGRES_DB: statlee
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U statlee"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-postgres.txt
+      - name: Boot migrations against PostgreSQL
+        env:
+          APP_ENV: testing
+          STATLEE_TEST_POSTGRES_URL: postgresql+psycopg://statlee:statlee-ci@localhost:5432/statlee
+        run: |
+          pytest -rs tests/test_postgres_migrations.py | tee pg.log
+          if grep -q "STATLEE_TEST_POSTGRES_URL not set" pg.log; then
+            echo "::error::the PostgreSQL migration test was skipped"
+            exit 1
+          fi
+
+  migrations:
+    name: Migrations match the models
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Upgrade a scratch DB to head and diff it against the models
+        env:
+          APP_ENV: development
+          DATABASE_URL: sqlite:///${{ runner.temp }}/check.db
+          UPLOAD_ROOT: ${{ runner.temp }}/uploads
+        run: |
+          flask --app wsgi db upgrade
+          flask --app wsgi db check
+          flask --app wsgi statlee-doctor

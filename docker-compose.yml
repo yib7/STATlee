@@ -3,23 +3,21 @@ services:
   statlee-web:
     build: .
     ports:
-      - "5000:5000"
-    # Values are interpolated from your shell or the project's .env file.
+      # Published on localhost only. The app trusts no proxy by default
+      # (TRUST_PROXY_HOPS=0); if you put a reverse proxy in front, publish
+      # through it and set TRUST_PROXY_HOPS to the number of proxy hops.
+      - "127.0.0.1:5000:5000"
+    # Every setting in your .env reaches the container (D5-4). Compose reads
+    # the file on the HOST and passes its values as environment variables; the
+    # file itself is still masked inside the container (see volumes). Optional,
+    # so `docker compose up` also works before you have created a .env.
+    env_file:
+      - path: .env
+        required: false
+    # Compose-specific defaults only; values from .env (or your shell) win.
     environment:
       - APP_ENV=${APP_ENV:-development}
-      # LLM provider: gemini (default) | anthropic | openai. Set the matching key.
-      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
-      - PASSWORD=${PASSWORD:-}
-      - DATABASE_URL=${DATABASE_URL:-}
       - SANDBOX_MODE=${SANDBOX_MODE:-subprocess}
-      # For SANDBOX_MODE=docker, the shared work root (see volumes below).
-      - SANDBOX_WORK_ROOT=${SANDBOX_WORK_ROOT:-}
-      - REQUIRE_LOGIN=${REQUIRE_LOGIN:-false}
-      - ACCOUNTS_ENABLED=${ACCOUNTS_ENABLED:-true}
     volumes:
       # DEV ONLY: live-syncs your local code into the container so you don't
       # have to rebuild on every edit. Remove this for a production-like run.
@@ -27,15 +25,24 @@ services:
       # Mask the host .env (P1-1b): the default SANDBOX_MODE=subprocess has NO
       # filesystem isolation, so without this, generated/edited code could read
       # the operator's secrets straight off disk at /app/.env. The container
-      # gets its configuration from the `environment:` block above, not from
-      # this file, so masking it changes nothing at runtime. /dev/null is an
-      # empty file on the Docker host, so the app's load_dotenv() reads it
+      # gets its configuration from env_file/environment above, not from this
+      # file, so masking it changes nothing at runtime. /dev/null is an empty
+      # file on the Docker host, so wsgi.py's load_dotenv() reads it
       # harmlessly. (Also blocked in-process by the AST pre-check, which rejects
-      # reads outside the run directory — this is defense in depth.)
+      # reads outside the run directory; this is defense in depth.)
       - /dev/null:/app/.env:ro
-      # For SANDBOX_MODE=docker (sibling containers), also mount the socket:
+      # Persistent app data: the SQLite DB and UPLOAD_ROOT (/app/instance/uploads)
+      # live here, so they survive container rebuilds. This also keeps the
+      # container off your host's local instance/ folder.
+      - statlee-instance:/app/instance
+      # SANDBOX_MODE=docker is NOT supported from this image as shipped: it has
+      # no docker CLI. To use it you would need a derived image with the CLI,
+      # the socket mounted, the container user added to the socket's group
+      # (group_add), and a shared run dir at the SAME absolute path both sides
+      # with SANDBOX_WORK_ROOT pointing at it (`docker run -v` is resolved by the
+      # HOST daemon against the HOST filesystem):
       # - /var/run/docker.sock:/var/run/docker.sock
-      # ...and a shared run dir at the SAME absolute path both sides, then set
-      # SANDBOX_WORK_ROOT to it. `docker run -v` is resolved by the HOST daemon
-      # against the HOST filesystem, so the app's run dir must exist host-side:
       # - /srv/statlee-runs:/srv/statlee-runs   # SANDBOX_WORK_ROOT=/srv/statlee-runs
+
+volumes:
+  statlee-instance:

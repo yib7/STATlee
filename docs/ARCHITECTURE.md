@@ -57,8 +57,14 @@ Every request passes through ordered middleware:
    landing, health, and auth handshake). Behavior depends on the auth *mode*.
 4. The view runs; **`stamp_request_id`** adds `X-Request-ID` to the response.
 
-`ProxyFix` is installed when `TRUST_PROXY_HOPS > 0` (default 1 in production) so
-the real client IP is read from `X-Forwarded-For` behind Render's proxy.
+`/health` is exempt from the default rate limit, never mints a session, and
+runs a `SELECT 1`, so it answers `503` when the database is unreachable.
+
+`ProxyFix` is installed when `TRUST_PROXY_HOPS > 0` so the real client IP is
+read from `X-Forwarded-For` behind a proxy. It defaults to 0 everywhere, since
+trusting that header on a directly exposed app lets clients spoof it to dodge
+per-IP rate limits; a deploy behind Render's single proxy sets
+`TRUST_PROXY_HOPS=1`. The effective value is logged at startup.
 
 ## Auth modes (`routes/auth.py`)
 
@@ -75,8 +81,13 @@ Three coexisting modes preserve the anonymous-sandbox promise:
 
 Each principal gets an isolated directory:
 
-- logged-in users → `user_<id>/` (durable),
+- logged-in users → `user_<id>/` (durable, as long as the storage root is),
 - anonymous sessions → `anon_<sid>/` (TTL-cleaned).
+
+The storage root is `UPLOAD_ROOT`, or `instance/uploads` when unset (testing
+uses a throwaway temp dir). In a container, keep it on a persistent volume (the
+Dockerfile sets `UPLOAD_ROOT=/app/instance/uploads` and compose mounts a named
+volume at `/app/instance`), or logged-in users' files go with the container.
 
 `resolve_path()` is the safety chokepoint: it runs `secure_filename`, joins
 against the caller's own root, then does a `realpath` containment check, so no
@@ -94,7 +105,13 @@ backs the run-guard.
 2. **Feature selection** (`flash`): on wide datasets, pick the minimal columns.
 3. **Draft** (`draft`→pro): stream the first script, deltas shown live.
 4. **Validation** (`lite`): a second pass that replaces the draft client-side.
-5. **Save approved script**: the run-guard remembers exactly what was produced.
+5. **Code moderation** (`lite`, temp 0): the run-guard re-moderates the final
+   script itself; a `BLOCK` (or a moderation failure) ends the stream with an
+   error and nothing is approved.
+6. **Static check** (`codecheck.check_code`): the deterministic AST/regex
+   denylist runs as the last gate; a hit also ends the stream unapproved.
+7. **Save approved script**: only a script that passed both gates is remembered,
+   so `/run` executes exactly what was produced and checked.
 
 `POST /run` enforces the **run-guard** (roadmap 0.4): it only executes the
 server-approved script. If the submitted code differs (the editor allows
@@ -150,7 +167,14 @@ host network and filesystem, so run it only where the host holds nothing
 sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
 
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
-  read-only, resource-capped sibling container built from `runner.Dockerfile`.
+  read-only, resource-capped sibling container built from `runner.Dockerfile`
+  (whose analysis-library pins come from `requirements-runner.txt` and must
+  match `requirements.txt`; a test enforces it). The shipped app image has **no
+  `docker` CLI**, so docker mode needs the app on a host (or a derived image)
+  with the CLI and daemon access; from the stock image every run fails with
+  "Interpreter not available". The two real-Docker integration tests in
+  `tests/test_sandbox.py` skip unless the runner image is built; the CI
+  `sandbox-docker` job builds it and runs them.
   When the app itself is containerized with the host docker socket mounted,
   `docker run -v` is resolved by the host daemon against the host filesystem, so
   set `SANDBOX_WORK_ROOT` to a directory bind-mounted at the SAME absolute path
@@ -168,11 +192,12 @@ All `plot*.png` files the run produces are collected and returned as base64.
 Billing is **off by default and real when enabled**. `User` carries `plan`
 (`'free'`) and `credits` columns, and `billing.check_and_debit(user, priority=,
 cost=)` is the single chokepoint every priced request passes through. With
-`BILLING_ENABLED=false` (the default) it always returns `(True, None)`. With it
-on, it does an atomic conditional credit debit (no double-spend or negative
-balance under concurrency), refunds the credit if the request then fails, tops a
-free user up to `MONTHLY_FREE_CREDITS` once per calendar month, and enforces a
-global monthly ceiling on priority calls against the operator's key. A
+`BILLING_ENABLED=false` (the default) it never touches credits; it only enforces
+the global monthly ceiling on priority calls against the operator's key
+(`MONTHLY_PRIORITY_CALL_CEILING`, which applies with billing on or off). With
+billing on, it also does an atomic conditional credit debit (no double-spend or
+negative balance under concurrency), refunds the credit if the request then
+fails, and tops a free user up to `MONTHLY_FREE_CREDITS` once per calendar month. A
 `flask grant-credits <email> <n>` CLI grants credits manually. What is *not*
 built is a payment processor: wiring Stripe Checkout + a webhook to sell credits
 is the remaining step, and it is deliberately left as a human action because it
@@ -181,20 +206,33 @@ is the point where real money and secrets enter.
 ## Database schema & migrations (`migrations/`, `app.py`)
 
 The schema is versioned with Alembic (Flask-Migrate). At boot `create_app`
-brings the database up to date: a fresh DB is migrated to head, a legacy
-`create_all()` DB (tables but no `alembic_version`) is stamped at the baseline
-revision `171777e71dff` and then upgraded, and an already-migrated DB just
-upgrades to head. Each DB URI is upgraded once per process. The testing env
-keeps plain `create_all()` for fast throwaway DBs. Add a schema change with
-`flask db migrate -m "..."`, review the generated file under
-`migrations/versions/`, and the boot upgrade applies it on the next deploy.
+brings the database up to date:
 
-Caveat: stamping assumes a v1.2.0-era schema and does NOT verify columns. The
-stamp only writes the revision into `alembic_version`; it never inspects or
-alters the existing tables. So a legacy database whose columns predate the
-baseline (e.g. one missing `email_verified`) boots as "migrated" yet still
-crashes on the first query that touches the missing column. Such a DB needs a
-manual column backfill before boot; the auto-stamp cannot heal it.
+- a fresh DB is migrated to head;
+- an unstamped DB (tables but no `alembic_version`) whose schema already
+  matches the models is stamped at head (nothing to replay);
+- an unstamped DB that is behind the models is treated as a legacy
+  `create_all()` DB: stamped at the baseline revision `171777e71dff`, then
+  upgraded. If that upgrade fails, the stamp is removed again, so the DB is
+  never left claiming a revision it did not reach;
+- an already-migrated DB just upgrades to head.
+
+After upgrading, the boot compares the live schema with the models
+(`alembic.autogenerate.compare_metadata`). A missing table or column (a DB
+stamped at head but lacking, say, `users.email_verified`) is logged as an
+actionable error, and in production the boot refuses to start rather than
+serving 500s. `flask --app wsgi statlee-doctor` prints the same report.
+
+Each DB URI is handled once per process. The boot upgrade is skipped for
+`flask ... db <cmd>` and `flask ... statlee-doctor` (and whenever
+`STATLEE_SKIP_BOOT_MIGRATE=1`), so the Alembic CLI stays usable as a repair
+tool: `db current` reports the real revision and `db stamp head` runs even on a
+DB the boot upgrade cannot handle. The testing env keeps plain `create_all()`
+for fast throwaway DBs; `test_models_match_migration_head` and the CI
+`flask db check` step fail when the models and the migration head drift. Add a
+schema change with `flask --app wsgi db migrate -m "..."`, review the generated
+file under `migrations/versions/`, and the boot upgrade applies it on the next
+deploy.
 
 ## Frontend (`static/js/`, `templates/index.html`)
 
@@ -218,7 +256,10 @@ the XSS defense (roadmap 0.5).
 `conftest.py` injects a `FakeLLMService` that maps each prompt to a canned
 response by a marker phrase, and gives every test its own temp upload root and
 SQLite file. The whole HTTP surface is exercised **offline**: no API key, no
-network. Coverage spans uploads, codebook, wrangling/versioning, the run-guard,
+network. The suite is hermetic: importing the `statlee` package never loads
+`.env` (only `wsgi.py` does, and never under `APP_ENV=testing`), and `conftest`
+sets `PYTHON_DOTENV_DISABLED=1` and scrubs provider keys plus `LLM_PROVIDER` /
+`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage spans uploads, codebook, wrangling/versioning, the run-guard,
 converse, export, auth, CSRF, the rate-limit key function, the billing seam, and
 Pro-mode routing. `ruff` lints; CI runs ruff + byte-compile + pytest on push.
 

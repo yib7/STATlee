@@ -114,6 +114,47 @@ def test_monthly_priority_ceiling_blocks_when_exceeded():
     assert 'ceiling' in message.lower()
 
 
+def test_monthly_priority_ceiling_applies_with_billing_disabled():
+    """D5-3: .env.example's money-safety rule #1 is 'keep BILLING_ENABLED=false
+    (free trial) but ALWAYS set a low MONTHLY_PRIORITY_CALL_CEILING'. The
+    ceiling protects the operator's key, not the credit ledger, so it must
+    hold with billing off too."""
+    from statlee.config import Config
+    cfg = Config(env='testing', billing_enabled=False,
+                 monthly_priority_call_ceiling=2)
+    billing.reset_spend()
+    try:
+        results = [billing.check_and_debit(None, priority=True, config=cfg)[0]
+                   for _ in range(5)]
+        _, message = billing.check_and_debit(None, priority=True, config=cfg)
+    finally:
+        billing.reset_spend()
+    assert results == [True, True, False, False, False]
+    assert 'ceiling' in message.lower()
+
+
+def test_billing_disabled_ceiling_does_not_touch_credits(app):
+    """With billing off the ceiling still applies, but no credit is debited."""
+    from statlee.config import Config
+    from statlee.extensions import db
+    from statlee.models import User
+    cfg = Config(env='testing', billing_enabled=False,
+                 monthly_priority_call_ceiling=5)
+    billing.reset_spend()
+    try:
+        with app.app_context():
+            user = User(email='trial@example.com')
+            user.set_password('password123')
+            db.session.add(user)
+            db.session.commit()
+            allowed, message = billing.check_and_debit(user, priority=True, config=cfg)
+            assert allowed is True and message is None
+            assert user.credits == 0
+        assert billing._spend['priority_calls'] == 1
+    finally:
+        billing.reset_spend()
+
+
 def test_monthly_ceiling_ignores_non_priority():
     from statlee.config import Config
     cfg = Config(env='testing', billing_enabled=True,

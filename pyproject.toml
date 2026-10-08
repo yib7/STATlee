@@ -1,6 +1,6 @@
 [project]
 name = "statlee"
-version = "1.0.0"
+version = "1.4.1"
 description = "AI-assisted social-science data analysis sandbox"
 requires-python = ">=3.11"
 

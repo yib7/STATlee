@@ -10,21 +10,23 @@ owns the cross-cutting middleware:
 - rate limiting (1.4)
 - generic client errors / full server-side logs (1.6)
 - request-id correlated logging (3.3)
+
+Importing this module has no side effects (D5-14): it neither loads ``.env``
+nor builds an app. The entry point ``wsgi.py`` does both, so a test process
+that imports the package never picks up a developer's real ``.env``.
 """
 import hmac
 import logging
 import os
 import secrets
+import sys
 import uuid
 
-from dotenv import load_dotenv
 from flask import Flask, g, has_request_context, jsonify, request, session
 
 from . import llm
 from .config import Config
 from .extensions import db, limiter, login_manager
-
-load_dotenv()
 
 
 class RequestIdFilter(logging.Filter):
@@ -93,6 +95,122 @@ _MIGRATIONS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', 'migrations'))
 
 
+# CLI sub-commands that inspect or repair the schema themselves. Importing
+# wsgi for one of these must not run the boot upgrade first: if the DB is in a
+# state the upgrade cannot handle, the repair tool would crash before its own
+# command ran (D5-1), and `db current` / `db downgrade` would silently upgrade.
+_SCHEMA_REPAIR_COMMANDS = {'db', 'statlee-doctor'}
+# flask CLI options that consume the following argv token.
+_FLASK_OPTS_WITH_VALUE = {'--app', '-A', '--env-file', '-e'}
+
+
+def _is_schema_repair_command(argv=None):
+    """True when this process is ``flask [opts] db ...`` or
+    ``flask [opts] statlee-doctor``."""
+    argv = sys.argv if argv is None else argv
+    if not argv:
+        return False
+    prog = argv[0].replace('\\', '/')
+    base = prog.rsplit('/', 1)[-1].lower()
+    parent = prog.rsplit('/', 2)[-2].lower() if prog.count('/') >= 1 else ''
+    if not (base.startswith('flask')
+            or (base == '__main__.py' and parent == 'flask')):
+        return False
+    skip_next = False
+    for token in argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in _FLASK_OPTS_WITH_VALUE:
+            skip_next = True
+            continue
+        if token.startswith('-'):
+            continue
+        return token in _SCHEMA_REPAIR_COMMANDS
+    return False
+
+
+def _skip_boot_migrate():
+    raw = os.environ.get('STATLEE_SKIP_BOOT_MIGRATE', '').strip().lower()
+    return raw in ('1', 'true', 'yes', 'on') or _is_schema_repair_command()
+
+
+def schema_missing(connection):
+    """Tables and columns the models need that the live database lacks,
+    as sorted ``table`` / ``table.column`` names (D5-2).
+
+    Extra tables/columns in the DB and type/index differences are ignored:
+    only a missing table or column makes queries fail."""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    # Autogenerate logs every plugin and detected difference at INFO; that is
+    # noise on every boot (the actionable summary is logged by the caller).
+    alembic_logger = logging.getLogger('alembic')
+    previous_level = alembic_logger.level
+    alembic_logger.setLevel(logging.WARNING)
+    try:
+        diff = compare_metadata(MigrationContext.configure(connection),
+                                db.metadata)
+    finally:
+        alembic_logger.setLevel(previous_level)
+
+    missing = []
+    for entry in diff:
+        if not isinstance(entry, tuple):
+            continue                      # modify_* groups come as lists
+        if entry[0] == 'add_table':
+            missing.append(entry[1].name)
+        elif entry[0] == 'add_column':
+            missing.append(f'{entry[2]}.{entry[3].name}')
+    return sorted(missing)
+
+
+def schema_report():
+    """``(current_revision, head_revision, missing)`` for the bound DB.
+    Needs an app context. Used by the boot check and ``flask statlee-doctor``."""
+    from alembic.config import Config as AlembicConfig
+    from alembic.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    acfg = AlembicConfig()
+    acfg.set_main_option('script_location', _MIGRATIONS_DIR)
+    head = ScriptDirectory.from_config(acfg).get_current_head()
+    with db.engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+        missing = schema_missing(conn)
+    return current, head, missing
+
+
+def _remove_stamp():
+    """Drop the alembic_version table this boot created, restoring the DB to
+    the unstamped state it was found in."""
+    from sqlalchemy import text
+    db.session.remove()
+    db.engine.dispose()
+    with db.engine.begin() as conn:
+        conn.execute(text('DROP TABLE IF EXISTS alembic_version'))
+
+
+def _verify_schema(cfg):
+    """Fail loudly when the stamped revision's columns are not actually there
+    (D5-2). Stamping never inspects tables, so a DB can claim head while a
+    column is missing and then 500 on every query that touches it."""
+    current, _head, missing = schema_report()
+    if not missing:
+        return
+    message = (
+        f"DB schema drift: the database is stamped at revision {current} but "
+        f"is missing {', '.join(missing)}. Every query that touches these "
+        "fails with a 500. Back up the database, then either rebuild it (move "
+        "the file aside and restart; a fresh database is migrated to head) or "
+        "add the missing columns by hand. Re-check with "
+        "`flask --app wsgi statlee-doctor`.")
+    logger.error(message)
+    if cfg.is_production:
+        raise RuntimeError(message)
+
+
 def _init_schema(app, cfg):
     """Bring the database schema up to date at boot.
 
@@ -102,9 +220,18 @@ def _init_schema(app, cfg):
     ``_upgraded_uris`` so a given DB URI is only handled once per process:
 
     - no tables at all           -> fresh install, migrate to head;
-    - tables but no alembic_version -> legacy create_all() DB, stamp the
-      baseline then upgrade (existing rows are preserved);
+    - tables but no alembic_version, schema already matches the models
+                                  -> stamp head (nothing to replay; D5-1);
+    - tables but no alembic_version, schema behind the models
+                                  -> legacy create_all() DB, stamp the
+      baseline then upgrade (existing rows are preserved). If that upgrade
+      fails the stamp is removed again, so the DB is never left claiming a
+      revision it did not reach;
     - alembic_version present     -> plain upgrade to head.
+
+    After upgrading, the live schema is checked against the models (D5-2).
+    Skipped entirely for ``flask db ...`` / ``flask statlee-doctor`` and when
+    ``STATLEE_SKIP_BOOT_MIGRATE=1``, so those stay usable as repair tools.
     """
     if cfg.is_testing:
         db.create_all()
@@ -112,6 +239,10 @@ def _init_schema(app, cfg):
 
     uri = app.config['SQLALCHEMY_DATABASE_URI']
     if uri in _upgraded_uris:
+        return
+    if _skip_boot_migrate():
+        logger.info("DB schema: boot migration skipped (schema CLI command or "
+                    "STATLEE_SKIP_BOOT_MIGRATE)")
         return
 
     from flask_migrate import stamp, upgrade
@@ -127,16 +258,35 @@ def _init_schema(app, cfg):
             logger.info("DB schema: fresh database, migrating to head")
             upgrade()
         elif 'alembic_version' not in tables:
-            logger.info("DB schema: legacy create_all() database, stamping "
-                        "baseline %s then upgrading to head", BASELINE_REVISION)
-            stamp(revision=BASELINE_REVISION)
-            upgrade()
+            with db.engine.connect() as conn:
+                missing = schema_missing(conn)
+            if not missing:
+                logger.info("DB schema: unstamped database already matches the "
+                            "models, stamping head")
+                stamp(revision='head')
+            else:
+                logger.info("DB schema: legacy create_all() database, stamping "
+                            "baseline %s then upgrading to head",
+                            BASELINE_REVISION)
+                stamp(revision=BASELINE_REVISION)
+                try:
+                    upgrade()
+                except Exception:
+                    _remove_stamp()
+                    logger.error(
+                        "DB schema: upgrading the legacy database failed, so the "
+                        "baseline stamp was removed again (the DB is unstamped, "
+                        "as found). It lacked: %s. Back it up and add or drop "
+                        "the partial columns by hand, or rebuild it.",
+                        ', '.join(missing))
+                    raise
         else:
             logger.info("DB schema: already migrated, upgrading to head")
             upgrade()
     finally:
         os.environ.pop('STATLEE_INPROCESS_MIGRATION', None)
 
+    _verify_schema(cfg)
     _upgraded_uris.add(uri)
     # Drop every pooled connection opened during inspection/upgrade. With
     # gunicorn --preload, create_app runs once in the arbiter before fork; a
@@ -170,7 +320,7 @@ def create_app(config=None):
 
     app.config['STATLEE'] = cfg
     app.config['MAX_CONTENT_LENGTH'] = cfg.max_upload_mb * 1024 * 1024
-    app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root()
+    app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root(app.instance_path)
     app.config['SQLALCHEMY_DATABASE_URI'] = cfg.resolved_database_url(app.instance_path)
     app.config['RATELIMIT_ENABLED'] = cfg.rate_limit_enabled
     # Authoritative limiter store (memory:// by default; a shared store such as
@@ -227,9 +377,20 @@ def create_app(config=None):
     register_cli(app)
 
     # --- request lifecycle ----------------------------------------------------
+    # D5-18: /health is exempt from the default rate limit (probes must not be
+    # throttled into a false 'unhealthy'), never mints a session, and is
+    # answered by `health_probe` below with a cheap `SELECT 1`, so a dead
+    # database reports 503 instead of 'OK'. The throttled TTL cleanup still
+    # piggybacks on probes on purpose: it keeps anonymous-file cleanup running
+    # on an otherwise idle server.
+    limiter.exempt(app.view_functions['misc.health_check'])
+
     @app.before_request
     def assign_request_context():
         g.request_id = uuid.uuid4().hex[:8]
+        if request.endpoint == 'misc.health_check':
+            return
+
         if 'sid' not in session:
             session['sid'] = secrets.token_hex(16)        # 1.1 isolation key
         if 'csrf_token' not in session:
@@ -281,6 +442,22 @@ def create_app(config=None):
             except Exception:
                 logger.exception("TTL cleanup failed")
 
+    @app.before_request
+    def health_probe():
+        # Registered after every other hook: auth (public endpoint), CSRF (GET)
+        # and TTL cleanup have run; the session hook skipped this endpoint.
+        if request.endpoint != 'misc.health_check':
+            return None
+        from sqlalchemy import text
+        try:
+            db.session.execute(text('SELECT 1'))
+        except Exception:
+            logger.exception("Health check: database unreachable")
+            return 'database unavailable', 503
+        finally:
+            db.session.remove()
+        return 'OK', 200
+
     @app.after_request
     def stamp_request_id(response):
         response.headers['X-Request-ID'] = g.get('request_id', '-')
@@ -316,9 +493,7 @@ def create_app(config=None):
 
     for warning in cfg.warnings:
         logger.warning("config: %s", warning)
-    logger.info("STATlee ready (env=%s, sandbox=%s, storage=%s)",
-                cfg.env, cfg.sandbox_mode, cfg.storage_backend)
+    logger.info("STATlee ready (env=%s, sandbox=%s, storage=%s, "
+                "trust_proxy_hops=%s)", cfg.env, cfg.sandbox_mode,
+                cfg.storage_backend, cfg.trust_proxy_hops)
     return app
-
-
-app = create_app()

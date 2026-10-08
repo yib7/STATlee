@@ -13,12 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-mass \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
-    pandas==3.0.1 \
-    statsmodels==0.14.6 \
-    matplotlib==3.10.8 \
-    seaborn==0.13.2 \
-    openpyxl==3.1.5
+# Same analysis-library pins as the app (requirements.txt), so docker mode and
+# subprocess mode run identical stacks.
+COPY requirements-runner.txt /tmp/requirements-runner.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-runner.txt \
+    && rm /tmp/requirements-runner.txt
 
 # Non-root by default; matches the --user 1000:1000 launch flag.
 RUN useradd --uid 1000 --create-home runner

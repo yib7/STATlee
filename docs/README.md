@@ -22,7 +22,8 @@ It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic
 ## Architecture
 
 The application lives in the `statlee/` package and uses the Flask app-factory
-pattern with focused modules (entry point: `wsgi.py` → `statlee.app:app`):
+pattern with focused modules (entry point: `wsgi:app`, which loads `.env` and calls
+`statlee.app.create_app()`; importing the package itself has no side effects):
 
 | Module | Responsibility |
 |---|---|
@@ -54,8 +55,8 @@ Because STATlee executes dynamically generated code, running it via Docker is re
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/statlee.git
-cd statlee
+git clone https://github.com/yib7/STATlee.git
+cd STATlee
 ```
 
 ### 2. Configure environment variables
@@ -69,8 +70,10 @@ cp .env.example .env
 ```env
 # Required
 GEMINI_API_KEY=your_api_key_here
-# development | production | testing  (production enforces secrets + secure cookies)
-APP_ENV=production
+# development | production | testing. Keep development for a local compose run:
+# production enforces secrets and sets Secure cookies, which browsers drop over
+# plain http://localhost.
+APP_ENV=development
 # Required in production, generate with:
 #   python -c "import secrets; print(secrets.token_hex(32))"
 FLASK_SECRET_KEY=
@@ -81,16 +84,20 @@ PASSWORD=
 ### 3. Build and run with Docker
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-Then open **http://localhost:5000**.
+Then open **http://localhost:5000** (compose publishes on `127.0.0.1` only).
+Every variable in `.env` is passed to the container through `env_file`, while
+the file itself stays masked inside it. The SQLite DB and uploads persist in the
+`statlee-instance` named volume. The container runs as an unprivileged user.
 
-To enable true container isolation for code execution, build the runner image and set `SANDBOX_MODE=docker`:
-
-```bash
-docker build -f runner.Dockerfile -t statlee-runner .
-```
+**Docker sandbox mode.** `SANDBOX_MODE=docker` runs each analysis in a
+throwaway container built from `runner.Dockerfile`
+(`docker build -f runner.Dockerfile -t statlee-runner .`). The app image does
+**not** include the `docker` CLI, so docker mode only works when the app itself
+runs on a host (or a derived image) with the docker CLI and daemon access; from
+the shipped compose setup every run would fail with "Interpreter not available".
 
 ---
 
@@ -119,6 +126,9 @@ Running generated code directly on your host is *not recommended for untrusted i
    APP_ENV=development python wsgi.py
    ```
 
+   The dev server listens on `127.0.0.1:5000` only. `BIND_HOST=0.0.0.0` exposes
+   it to your network, where anyone could run generated code billed to your key.
+
 **LLM.** Pick a provider with `LLM_PROVIDER` (gemini default, anthropic, or
 openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY`), required in production. Model ids per role can be pinned with
@@ -146,7 +156,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 * **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
 * **AI Integration:** Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
 * **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
-* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod).
+* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements-postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
 
 ## Hosting
 

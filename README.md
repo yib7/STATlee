@@ -105,8 +105,12 @@ token usage is surfaced live in the UI.
 
 ```bash
 cp .env.example .env          # add your GEMINI_API_KEY
-docker-compose up --build     # then open http://localhost:5000
+docker compose up --build     # then open http://localhost:5000
 ```
+
+Every setting in `.env` reaches the container (`env_file`); the file itself is
+masked inside it. The SQLite DB and uploads live in the `statlee-instance`
+volume.
 
 Or run locally without Docker (dev only, generated code runs on your host):
 
@@ -152,8 +156,8 @@ ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
 
-The application lives in the `statlee/` package (entry point: `wsgi.py` →
-`statlee.app:app`).
+The application lives in the `statlee/` package (entry point: `wsgi:app`, which
+loads `.env` and calls `statlee.app.create_app()`).
 
 | Module | Responsibility |
 |---|---|
@@ -176,9 +180,9 @@ A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
 STATlee runs locally for free and is **not currently deployed** to a public
 website, a deliberate, zero-cost choice. Self-hosted, its only real cost is the
 LLM provider's API (Gemini by default), and it ships with the controls to cap
-that spend at a number you choose: a global monthly ceiling on premium calls,
-per-identity rate limits, cheapest-tier defaults, and a startup warning if
-billing is on without a cap. The (illustrative) monetization model and how the
+that spend at a number you choose: a global monthly ceiling on premium calls
+(enforced with billing on or off), per-identity rate limits, cheapest-tier
+defaults, and a production startup warning when no ceiling is set. The (illustrative) monetization model and how the
 billing seam backs it are in [Pricing](docs/PRICING.md).
 
 ## Security

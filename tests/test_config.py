@@ -1,5 +1,7 @@
 """Config validation (1.3): fail-fast on hard requirements, soft warnings
 elsewhere, and provider/sandbox/storage sanity checks."""
+import os
+
 import pytest
 
 from statlee.config import Config
@@ -30,6 +32,59 @@ def test_explicit_database_url_is_honored_in_testing(tmp_path):
     assert cfg.resolved_database_url(str(tmp_path / 'instance')) == target
 
 
+def test_unset_upload_root_defaults_to_stable_instance_dir(tmp_path):
+    """D5-9: an unset UPLOAD_ROOT used to mkdtemp a fresh root per process, so
+    every restart 'lost' logged-in users' durable files and leaked a temp dir.
+    Outside testing it is now a stable <instance>/uploads."""
+    inst = tmp_path / 'instance'
+    first = Config(env='development').resolved_upload_root(str(inst))
+    second = Config(env='production').resolved_upload_root(str(inst))
+    assert first == second == str(inst / 'uploads')
+    assert (inst / 'uploads').is_dir()
+
+
+def test_explicit_upload_root_wins(tmp_path):
+    target = tmp_path / 'elsewhere'
+    cfg = Config(env='development', upload_root=str(target))
+    assert cfg.resolved_upload_root(str(tmp_path / 'instance')) == str(target)
+
+
+def test_testing_upload_root_stays_throwaway(tmp_path):
+    root = Config(env='testing').resolved_upload_root(str(tmp_path / 'instance'))
+    assert not root.startswith(str(tmp_path / 'instance'))
+
+
+def test_create_app_resolves_upload_root_against_instance_dir(tmp_path, fake_llm,
+                                                              monkeypatch):
+    """create_app hands its instance path to resolved_upload_root. The spy
+    redirects the actual directory into tmp_path so the test never creates
+    anything in the real instance/ folder."""
+    from statlee import llm
+    from statlee.app import create_app
+    seen = {}
+    real = Config.resolved_upload_root
+
+    def spy(self, instance_dir=None):
+        seen['instance_dir'] = instance_dir
+        return real(self, str(tmp_path / 'inst'))
+
+    monkeypatch.setattr(Config, 'resolved_upload_root', spy)
+    cfg = Config(env='development', flask_secret_key='s',
+                 database_url='sqlite:///' + str(tmp_path / 'u.db').replace('\\', '/'))
+    cfg.validate()
+    application = create_app(cfg)
+    llm.set_service(fake_llm)
+    assert seen['instance_dir'] == application.instance_path
+    assert application.config['UPLOAD_FOLDER'] == os.path.join(
+        str(tmp_path / 'inst'), 'uploads')
+
+
+def test_production_unset_upload_root_warns():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s')
+    cfg.validate()
+    assert any('UPLOAD_ROOT' in w for w in cfg.warnings)
+
+
 def test_production_requires_secrets():
     cfg = Config(env='production', gemini_api_key='', flask_secret_key='')
     with pytest.raises(ValueError) as exc:
@@ -55,9 +110,23 @@ def test_invalid_sandbox_mode_raises():
         Config(env='development', sandbox_mode='vm').validate()
 
 
-def test_s3_backend_requires_bucket():
-    with pytest.raises(ValueError):
-        Config(env='development', storage_backend='s3', s3_bucket='').validate()
+def test_s3_backend_is_rejected_as_not_implemented():
+    """D5-10: STORAGE_BACKEND=s3 S3_BUCKET=x used to validate cleanly and log
+    storage=s3 while every read and write still hit local disk."""
+    with pytest.raises(ValueError, match='not implemented'):
+        Config(env='development', storage_backend='s3').validate()
+
+
+def test_s3_backend_from_env_is_rejected(monkeypatch):
+    monkeypatch.setenv('STORAGE_BACKEND', 's3')
+    monkeypatch.setenv('S3_BUCKET', 'some-bucket')
+    with pytest.raises(ValueError, match='not implemented'):
+        Config.from_env()
+
+
+def test_unknown_storage_backend_raises():
+    with pytest.raises(ValueError, match='STORAGE_BACKEND'):
+        Config(env='development', storage_backend='gcs').validate()
 
 
 def test_unknown_converse_role_defaults_to_flash():
@@ -226,9 +295,18 @@ def test_billing_with_ceiling_is_quiet():
     assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
 
 
-def test_billing_off_does_not_warn_about_ceiling():
+def test_billing_off_without_ceiling_still_warns_in_production():
+    """D5-3: the ceiling is the only cap on priority spend during a billing-off
+    free trial, so an unset ceiling in production is uncapped spend too."""
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  billing_enabled=False, monthly_priority_call_ceiling=0)
+    cfg.validate()
+    assert any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
+
+
+def test_billing_off_with_ceiling_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 billing_enabled=False, monthly_priority_call_ceiling=200)
     cfg.validate()
     assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
 
@@ -251,17 +329,58 @@ def test_production_shared_limiter_is_quiet():
 # Reverse-proxy trust (P1-4): rate-limit keying degrades to one shared bucket
 # behind a proxy when TRUST_PROXY_HOPS=0.
 # ---------------------------------------------------------------------------
-def test_from_env_defaults_proxy_hops_to_one_in_production(monkeypatch):
-    """A production deploy is assumed to sit behind exactly one reverse proxy
-    (e.g. Render), so ProxyFix is on by default and per-IP rate limiting sees
-    the real client IP rather than collapsing everyone into the proxy's IP."""
+def test_from_env_defaults_proxy_hops_to_zero_in_production(monkeypatch):
+    """D5-13: defaulting to 1 in production let a directly exposed deploy (the
+    compose recipe publishes port 5000) trust a client-supplied
+    X-Forwarded-For, so rotating it gave each request a fresh anonymous
+    rate-limit bucket. Trust is now opt-in: a deploy behind a proxy (Render)
+    sets TRUST_PROXY_HOPS=1 explicitly, and validate() warns while it is 0."""
     for var in ('TRUST_PROXY_HOPS', 'GEMINI_API_KEY', 'FLASK_SECRET_KEY'):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv('APP_ENV', 'production')
     monkeypatch.setenv('GEMINI_API_KEY', 'k')
     monkeypatch.setenv('FLASK_SECRET_KEY', 's')
     cfg = Config.from_env()
-    assert cfg.trust_proxy_hops == 1
+    assert cfg.trust_proxy_hops == 0
+    assert any('TRUST_PROXY_HOPS' in w for w in cfg.warnings)
+
+
+def test_explicit_proxy_hops_from_env(monkeypatch):
+    monkeypatch.setenv('TRUST_PROXY_HOPS', '1')
+    assert Config.from_env().trust_proxy_hops == 1
+
+
+def _remote_addr_seen(cfg, fake_llm):
+    from flask import request
+
+    from statlee import llm
+    from statlee.app import create_app
+    application = create_app(cfg)
+    llm.set_service(fake_llm)
+    seen = {}
+
+    @application.before_request
+    def _capture():
+        seen['addr'] = request.remote_addr
+
+    application.test_client().get(
+        '/check_auth', headers={'X-Forwarded-For': '203.0.113.9'},
+        environ_base={'REMOTE_ADDR': '10.0.0.2'})
+    return seen['addr']
+
+
+def test_proxy_fix_honours_x_forwarded_for_only_when_trusted(tmp_path, fake_llm):
+    """Coverage gap 4: the factory must install ProxyFix exactly when
+    TRUST_PROXY_HOPS > 0, so a spoofed X-Forwarded-For moves the rate-limit key
+    only behind a trusted proxy."""
+    def cfg(hops):
+        c = Config(env='testing', trust_proxy_hops=hops, rate_limit_enabled=False,
+                   upload_root=str(tmp_path / 'u'), flask_secret_key='s',
+                   database_url='sqlite:///' + str(tmp_path / f'p{hops}.db').replace('\\', '/'))
+        c.validate()
+        return c
+    assert _remote_addr_seen(cfg(0), fake_llm) == '10.0.0.2'
+    assert _remote_addr_seen(cfg(1), fake_llm) == '203.0.113.9'
 
 
 def test_production_zero_proxy_hops_warns():

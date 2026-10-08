@@ -1,13 +1,16 @@
 """Monetization seam (roadmap workstream E).
 
 A single chokepoint for the question: *"is this request allowed, and what does
-it cost?"* It stays a **no-op that always authorizes** until ``billing_enabled``
-is turned on, so wiring (Pro mode) can depend on one stable call.
+it cost?"* so wiring (Pro mode) can depend on one stable call. It does two
+things:
+- ALWAYS (billing on or off) enforces the **global monthly ceiling** on
+  priority (high-tier) requests when ``MONTHLY_PRIORITY_CALL_CEILING > 0``, so
+  the operator's own API key can't be run up without bound during a billing-off
+  free trial (D5-3). The ceiling protects the operator, not the ledger.
+- only when ``billing_enabled`` is on, debits ``User.credits`` for a logged-in
+  free-plan user's priority requests (and tops up monthly free credits).
 
-When enabled it does two things:
-- enforces a **global monthly ceiling** on priority (high-tier) requests, so the
-  operator's own API key can't be run up without bound, and
-- debits ``User.credits`` for a logged-in free-plan user's priority requests.
+With billing off and no ceiling it is a no-op that always authorizes.
 
 ``User.plan`` / ``User.credits`` (see models.py) are the storage side of this
 seam. Nothing outside this module should read or write ``credits``.
@@ -23,7 +26,8 @@ PRIORITY_COST = 1
 
 # Global, per-process monthly counter for the spend ceiling. Across multiple
 # workers each enforces its own copy (a shared store would be needed for an
-# exact global cap); it is a coarse guardrail, not an accounting ledger.
+# exact global cap), and it lives in memory, so it also resets on every restart
+# or redeploy; it is a coarse guardrail, not an accounting ledger.
 _lock = threading.Lock()
 _spend = {'month': None, 'priority_calls': 0}
 
@@ -129,14 +133,28 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
         priority: whether the request asked for the faster/higher model tier.
         cost: explicit credit cost; defaults to ``PRIORITY_COST`` for priority
             requests and ``0`` otherwise.
-        config: the active ``Config``. When omitted or ``billing_enabled`` is
-            False, this is a no-op that always authorizes (the default).
+        config: the active ``Config``. When omitted this always authorizes.
+            With ``billing_enabled`` False only the monthly priority ceiling
+            applies (no credit is ever debited).
 
     Returns:
         ``(allowed: bool, message: str | None)`` — ``message`` is a user-facing
         reason when ``allowed`` is ``False``.
     """
-    if config is None or not getattr(config, 'billing_enabled', False):
+    if config is None:
+        return True, None
+
+    # Operator-protecting global ceiling (applies to everyone, incl. anonymous,
+    # and regardless of BILLING_ENABLED: D5-3). Checked before the credit top-up
+    # so a capped request never writes to the DB.
+    ceiling = getattr(config, 'monthly_priority_call_ceiling', 0)
+    if priority and not _within_monthly_ceiling(ceiling):
+        logger.warning("Monthly priority ceiling reached; denying priority request.")
+        return False, ('The service has hit its monthly priority-usage ceiling. '
+                       'Try again later, or run without priority.')
+    ceiling_unit_taken = bool(priority and ceiling and ceiling > 0)
+
+    if not getattr(config, 'billing_enabled', False):
         return True, None
 
     # P2-10: refresh this user's monthly free credits before deciding, so the
@@ -144,14 +162,6 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     _apply_monthly_free_credits(user, config)
 
     need = cost if cost is not None else (PRIORITY_COST if priority else 0)
-
-    # Operator-protecting global ceiling (applies to everyone, incl. anonymous).
-    ceiling = getattr(config, 'monthly_priority_call_ceiling', 0)
-    if priority and not _within_monthly_ceiling(ceiling):
-        logger.warning("Monthly priority ceiling reached; denying priority request.")
-        return False, ('The service has hit its monthly priority-usage ceiling. '
-                       'Try again later, or run without priority.')
-    ceiling_unit_taken = bool(priority and ceiling and ceiling > 0)
 
     # Per-account credit debit for logged-in free-plan users. This is a single
     # atomic conditional UPDATE (check-and-debit in one statement) rather than
