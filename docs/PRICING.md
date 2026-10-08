@@ -36,10 +36,15 @@ actual provider token costs before charging anyone.)*
 The monetization chokepoint is **one function**, `billing.check_and_debit`
 (`statlee/billing.py`), called on the request path:
 
-- **No-op until enabled.** With `BILLING_ENABLED=false` it always authorizes,
-  so the trial is free and the wiring is dormant, not absent.
+- **No credit debits until enabled.** With `BILLING_ENABLED=false` it never
+  touches `User.credits`, so the trial is free and the wiring is dormant, not
+  absent.
 - **Operator protection.** A global `MONTHLY_PRIORITY_CALL_CEILING` caps premium-tier
-  spend on the server's own key regardless of who calls.
+  spend on the server's own key regardless of who calls, with billing on **or
+  off** (so it is the cap for a billing-off free trial). The counter is
+  per-process and in memory: it multiplies by the worker count and resets on
+  every restart or redeploy, so pair it with a hard spend limit on the provider
+  key.
 - **Per-account credits.** When enabled, a logged-in free-plan user's priority
   request debits `User.credits`; out of credits → a clear "upgrade or wait"
   message. Nothing outside `billing.py` reads or writes `credits`.

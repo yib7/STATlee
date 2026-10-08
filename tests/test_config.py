@@ -226,9 +226,18 @@ def test_billing_with_ceiling_is_quiet():
     assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
 
 
-def test_billing_off_does_not_warn_about_ceiling():
+def test_billing_off_without_ceiling_still_warns_in_production():
+    """D5-3: the ceiling is the only cap on priority spend during a billing-off
+    free trial, so an unset ceiling in production is uncapped spend too."""
     cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
                  billing_enabled=False, monthly_priority_call_ceiling=0)
+    cfg.validate()
+    assert any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
+
+
+def test_billing_off_with_ceiling_is_quiet():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s',
+                 billing_enabled=False, monthly_priority_call_ceiling=200)
     cfg.validate()
     assert not any('MONTHLY_PRIORITY_CALL_CEILING' in w for w in cfg.warnings)
 

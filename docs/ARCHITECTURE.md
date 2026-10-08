@@ -168,11 +168,12 @@ All `plot*.png` files the run produces are collected and returned as base64.
 Billing is **off by default and real when enabled**. `User` carries `plan`
 (`'free'`) and `credits` columns, and `billing.check_and_debit(user, priority=,
 cost=)` is the single chokepoint every priced request passes through. With
-`BILLING_ENABLED=false` (the default) it always returns `(True, None)`. With it
-on, it does an atomic conditional credit debit (no double-spend or negative
-balance under concurrency), refunds the credit if the request then fails, tops a
-free user up to `MONTHLY_FREE_CREDITS` once per calendar month, and enforces a
-global monthly ceiling on priority calls against the operator's key. A
+`BILLING_ENABLED=false` (the default) it never touches credits; it only enforces
+the global monthly ceiling on priority calls against the operator's key
+(`MONTHLY_PRIORITY_CALL_CEILING`, which applies with billing on or off). With
+billing on, it also does an atomic conditional credit debit (no double-spend or
+negative balance under concurrency), refunds the credit if the request then
+fails, and tops a free user up to `MONTHLY_FREE_CREDITS` once per calendar month. A
 `flask grant-credits <email> <n>` CLI grants credits manually. What is *not*
 built is a payment processor: wiring Stripe Checkout + a webhook to sell credits
 is the remaining step, and it is deliberately left as a human action because it

@@ -176,9 +176,9 @@ A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
 STATlee runs locally for free and is **not currently deployed** to a public
 website, a deliberate, zero-cost choice. Self-hosted, its only real cost is the
 LLM provider's API (Gemini by default), and it ships with the controls to cap
-that spend at a number you choose: a global monthly ceiling on premium calls,
-per-identity rate limits, cheapest-tier defaults, and a startup warning if
-billing is on without a cap. The (illustrative) monetization model and how the
+that spend at a number you choose: a global monthly ceiling on premium calls
+(enforced with billing on or off), per-identity rate limits, cheapest-tier
+defaults, and a production startup warning when no ceiling is set. The (illustrative) monetization model and how the
 billing seam backs it are in [Pricing](docs/PRICING.md).
 
 ## Security

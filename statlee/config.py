@@ -160,8 +160,10 @@ class Config:
     # --- Billing / cost guardrails (workstream E) -------------------------------
     billing_enabled: bool = False       # turn on credit debit in check_and_debit
     # Hard ceiling on priority (high-tier) requests per calendar month, enforced
-    # on the server's own key so nobody can run up an unbounded bill. 0 disables.
-    # NOTE: per-process — across multiple workers each enforces its own count.
+    # on the server's own key so nobody can run up an unbounded bill. Applies
+    # whether or not billing is enabled (D5-3). 0 disables.
+    # NOTE: per-process and in-memory — across multiple workers each enforces
+    # its own count, and the count resets on every restart or redeploy.
     monthly_priority_call_ceiling: int = 0
     # Free credits granted to a logged-in free-plan user at the start of each
     # calendar month, applied lazily on their first billed request that month
@@ -389,13 +391,15 @@ class Config:
                 "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
                 "WEB_CONCURRENCY=1.")
 
-        if (self.is_production and self.billing_enabled
-                and self.monthly_priority_call_ceiling <= 0):
+        if self.is_production and self.monthly_priority_call_ceiling <= 0:
+            # The ceiling applies with billing on AND off (D5-3); during a
+            # billing-off free trial it is the only cap on priority spend.
             self._warn(
-                "BILLING_ENABLED is on but MONTHLY_PRIORITY_CALL_CEILING is unset "
-                "(<=0): there is NO monthly cap on priority requests billed to the "
-                "operator's API key, so one abusive session could run up an "
-                "unbounded bill. Set MONTHLY_PRIORITY_CALL_CEILING to a low number.")
+                "MONTHLY_PRIORITY_CALL_CEILING is unset (<=0): there is NO monthly "
+                "cap on priority (Pro-mode / report) requests billed to the "
+                "operator's API key, with BILLING_ENABLED on or off, so one "
+                "abusive session could run up an unbounded bill. Set "
+                "MONTHLY_PRIORITY_CALL_CEILING to a low number.")
 
         if self.is_production and self.trust_proxy_hops <= 0:
             self._warn(
