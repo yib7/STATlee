@@ -444,6 +444,21 @@ class DebitGuard:
         response.call_on_close(self._refund_detached)
         return response
 
+    def with_balance(self, payload):
+        """Add ``credits_remaining`` (D4-19) to a final ``done``/``error``
+        payload when billing meters this user, so the UI can show the balance
+        after the debit or the refund. Never fails the response."""
+        from .. import billing
+        try:
+            balance = billing.credits_remaining(self._user_id, self._config)
+        except Exception:
+            logging.getLogger('statlee.billing').warning(
+                "Could not read the credit balance", exc_info=True)
+            balance = None
+        if balance is not None:
+            payload['credits_remaining'] = balance
+        return payload
+
 
 def sse_stream(generator):
     """Wrap a generator function in a standard Server-Sent Events response."""

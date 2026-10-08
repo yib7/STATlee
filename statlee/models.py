@@ -17,6 +17,18 @@ def _utcnow():
     return datetime.now(UTC)
 
 
+def _iso_utc(value):
+    """ISO-8601 with an explicit ``+00:00`` (D4-28). SQLite hands back naive
+    datetimes even for ``DateTime(timezone=True)`` columns; the values are
+    stored as UTC, and an offset-less string is parsed as LOCAL time by
+    browsers, shifting every server history entry by the viewer's offset."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
+
+
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
@@ -84,7 +96,7 @@ class AnalysisRun(db.Model):
             'code': self.code,
             'output': self.output,
             'interpretation': self.interpretation,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': _iso_utc(self.created_at),
         }
 
 

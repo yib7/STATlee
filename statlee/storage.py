@@ -614,6 +614,20 @@ def approved_entry(code, language='Python', identity=None):
     return _load_approved_store(identity).get(_hash_code(code, language))
 
 
+def approved_language(code, language='Python', identity=None):
+    """The language to run ``code`` under (D4-29): ``language`` when the
+    script is approved for it, otherwise the language it WAS approved for
+    (the user switched the dropdown after generating), otherwise ``language``
+    (unknown code, which the run-guard then reviews for that language)."""
+    store = _load_approved_store(identity)
+    if _hash_code(code, language) in store:
+        return language
+    for other in ('Python', 'R'):
+        if _hash_code(code, other) in store:
+            return other
+    return language
+
+
 def load_approved_script(identity=None, exclude_sources=()):
     """Return the MOST-RECENTLY approved script ``{code, language, ...}`` or
     None, skipping entries whose ``source`` is in ``exclude_sources``.

@@ -270,9 +270,10 @@ def generate_report():
                                             usage_out=usage):
                     yield sse_event({'type': 'delta', 'text': delta})
                 debit.delivered()
-                yield sse_event({'type': 'done',
-                                 'usage': usage_breakdown(usage, mod_usage),
-                                 'revision': True})
+                yield sse_event(debit.with_balance({
+                    'type': 'done',
+                    'usage': usage_breakdown(usage, mod_usage),
+                    'revision': True}))
                 return
             # Two-pass authoring: 3.1-pro compiles all the material (results,
             # interpretation, and the converse discussion of the findings) into a
@@ -287,10 +288,11 @@ def generate_report():
                                         usage_out=stream_usage):
                 yield sse_event({'type': 'delta', 'text': delta})
             debit.delivered()
-            yield sse_event({'type': 'done',
-                             'usage': usage_breakdown(draft_result.usage,
-                                                      stream_usage, mod_usage),
-                             'revision': False})
+            yield sse_event(debit.with_balance({
+                'type': 'done',
+                'usage': usage_breakdown(draft_result.usage,
+                                         stream_usage, mod_usage),
+                'revision': False}))
         except Exception as exc:
             logger.exception("Report generation failed")
             # The credit was taken before any model call; the request
@@ -298,7 +300,8 @@ def generate_report():
             # stream-failure contract /chat honors). Best-effort: a
             # refund failure must not mask the error the user sees.
             debit.refund()
-            yield sse_event(llm_error_payload(exc, 'Report generation failed.'))
+            yield sse_event(debit.with_balance(
+                llm_error_payload(exc, 'Report generation failed.')))
         finally:
             debit.refund()   # D1-15: client disconnect (GeneratorExit)
 

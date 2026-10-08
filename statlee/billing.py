@@ -122,7 +122,29 @@ def refund(user, *, priority=False, cost=None, config=None):
             .where(User.id == user.id)
             .values(credits=User.credits + need))
         db.session.commit()
-        db.session.refresh(user)
+        # A streamed request refunds from its generator, where the User loaded
+        # at request start may no longer belong to the session; refreshing it
+        # there raised AFTER the refund had committed and logged a false
+        # "Failed to refund". Refresh only an instance the session still owns.
+        if user in db.session:
+            db.session.refresh(user)
+
+
+def credits_remaining(user_id, config=None):
+    """The caller's current credit balance for a response payload (D4-19), or
+    None when there is nothing metered to show: billing off, anonymous, or a
+    plan that is not debited. Read straight from the row, so it reflects the
+    debit (or refund) this request just committed."""
+    if (config is None or not getattr(config, 'billing_enabled', False)
+            or user_id is None):
+        return None
+    from .extensions import db
+    from .models import User
+    row = db.session.execute(
+        db.select(User.credits, User.plan).where(User.id == user_id)).first()
+    if row is None or (row.plan or 'free') != 'free':
+        return None
+    return int(row.credits or 0)
 
 
 def check_and_debit(user, *, priority=False, cost=None, config=None):

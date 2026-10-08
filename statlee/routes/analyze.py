@@ -245,19 +245,19 @@ def chat():
             except Exception:
                 logger.exception("Run-guard code-moderation failed in /chat")
                 debit.refund()
-                yield sse_event({
+                yield sse_event(debit.with_balance({
                     'type': 'error',
-                    'message': 'Could not verify the generated script. Please try again.'})
+                    'message': 'Could not verify the generated script. Please try again.'}))
                 return
             blocked, reason = moderation_blocked(guard_text)
             if blocked:
                 # No runnable script was produced, so refund like the stream
                 # failure path below rather than charge for a rejected result.
                 debit.refund()
-                yield sse_event({
+                yield sse_event(debit.with_balance({
                     'type': 'error',
                     'message': f'The generated script was rejected by the safety '
-                               f'check. {reason}'})
+                               f'check. {reason}'}))
                 return
 
             # Static pre-check (P1-1a): a non-LLM AST gate encoding the same
@@ -269,10 +269,10 @@ def chat():
                 final_code, target_language)
             if static_blocked:
                 debit.refund()
-                yield sse_event({
+                yield sse_event(debit.with_balance({
                     'type': 'error',
                     'message': f'The generated script was rejected by the safety '
-                               f'check (static analysis). {static_reason}'})
+                               f'check (static analysis). {static_reason}'}))
                 return
 
             # Only a moderated script is remembered as approved; /run then
@@ -291,8 +291,9 @@ def chat():
             usage = _sum_usage(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
             debit.delivered()
-            yield sse_event({'type': 'done', 'code': final_code,
-                             'language': target_language, 'usage': usage})
+            yield sse_event(debit.with_balance({
+                'type': 'done', 'code': final_code,
+                'language': target_language, 'usage': usage}))
         except Exception as exc:
             logger.exception("Code generation stream failed")
             # The credit (if any) was debited before streaming began; the stream
@@ -302,8 +303,8 @@ def chat():
             # refusal, empty or truncated reply says so instead of the generic
             # message.
             debit.refund()
-            yield sse_event(llm_error_payload(
-                exc, 'Code generation failed. Please try again.'))
+            yield sse_event(debit.with_balance(llm_error_payload(
+                exc, 'Code generation failed. Please try again.')))
         finally:
             # D1-15: a client disconnect closes this generator with
             # GeneratorExit, which the except above never sees. Anything not
@@ -331,6 +332,11 @@ def run_code():
 
     if not code:
         return json_error('No code provided.')
+    # D4-29: an unchanged script runs under the language it was generated and
+    # approved for, even if the dropdown was switched afterwards (Python code
+    # under Rscript only produced a confusing error). Code approved for
+    # neither language keeps the requested one and is reviewed for it below.
+    language = storage.approved_language(code, language)
 
     # P2-2: membership over a hash-keyed store, not equality against one slot,
     # so a /wrangle that saved its own transform does not force a spurious
@@ -390,6 +396,7 @@ def run_code():
         'plot': result.plots[0] if result.plots else None,  # back-compat
         'success': result.success,
         'returncode': result.returncode,
+        'language': language,
     })
 
 

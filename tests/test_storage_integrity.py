@@ -120,20 +120,27 @@ def test_approval_does_not_transfer_across_languages(app):
         ctx.pop()
 
 
-def test_run_as_other_language_is_remoderated(client, fake_llm):
+def test_run_as_other_language_never_runs_unreviewed(client, fake_llm):
+    """D1-7: a script reviewed as Python must never run under Rscript without
+    an R review. Since D4-29 the unchanged script runs under the language it
+    WAS approved for (the dropdown switch is stale UI state), so it runs as
+    Python, and never as unreviewed R."""
     from conftest import SAMPLE_CSV, post_json, sse_events, upload_csv
     fake_llm.set('validation', 'x <- 1')
     upload_csv(client, SAMPLE_CSV)
     sse_events(post_json(client, '/chat', {'filename': 'test.csv',
                                            'prompt': 'go',
                                            'language': 'Python'}))
-    before = sum(1 for c in fake_llm.calls if c[1] == 'code_moderation')
     fake_llm.block_code('not reviewed for R')
     resp = post_json(client, '/run', {'filename': 'test.csv',
                                       'code': 'x <- 1', 'language': 'R'})
-    after = sum(1 for c in fake_llm.calls if c[1] == 'code_moderation')
-    assert after == before + 1
-    assert resp.status_code == 403
+    assert resp.get_json()['language'] == 'Python'
+    from statlee import storage
+    with client.session_transaction() as sess:
+        ident = f"anon_{sess['sid']}"
+    with client.application.app_context():
+        record = storage.last_run_script(identity=ident)
+    assert record['language'] == 'Python'
 
 
 # ---------------------------------------------------------------------------
