@@ -272,8 +272,16 @@ def chat():
 
             # Only a moderated script is remembered as approved; /run then
             # executes this (or a re-moderated edit of it) without re-moderating.
-            storage.save_approved_script(final_code, target_language,
-                                         source='chat')
+            # D6: remember what it was generated for, so /interpret can ground
+            # on the user's question and the analysed columns server-side.
+            storage.save_approved_script(
+                final_code, target_language, source='chat',
+                context={'prompt': user_prompt[:CONTEXT_PROMPT_MAX],
+                         'filename': filename,
+                         'columns': [str(c) for c in filtered_headers]
+                         [:CONTEXT_COLUMNS_MAX],
+                         'codebook': clamp_codebook(filtered_codebook,
+                                                    CONTEXT_CODEBOOK_MAX)})
 
             usage = _sum_usage(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
@@ -392,6 +400,69 @@ _FAILURE_RE = re.compile(
     re.MULTILINE)
 
 
+CONTEXT_PROMPT_MAX = 4000       # the user's question kept with an approval
+CONTEXT_COLUMNS_MAX = 300
+CONTEXT_CODEBOOK_MAX = 20000
+INTERPRET_COLUMNS_MAX = 40      # columns described to the interpreter
+INTERPRET_CONTEXT_MAX = 12000   # chars of column context in that prompt
+
+
+def _codebook_parts(codebook):
+    """Split a /chat codebook (``{col: 'Nominal'}`` or the client's merged
+    ``{col: {type, description}}``) into levels and descriptions."""
+    levels, descriptions = {}, {}
+    for col, value in (codebook or {}).items():
+        if isinstance(value, dict):
+            if isinstance(value.get('type'), str):
+                levels[col] = value['type']
+            if isinstance(value.get('description'), str):
+                descriptions[col] = value['description']
+        elif isinstance(value, str):
+            levels[col] = value
+    return levels, descriptions
+
+
+def _analysis_context(record):
+    """``(question, column_context, n_rows)`` for the script that produced the
+    last run, from the server's own records (D6 quick win 5): the context
+    /chat stored with the approval, the active dataset's true row count, and
+    the analysed columns with their native value labels. An edited script has
+    no context of its own, so it inherits the latest /chat generation's."""
+    entry = None
+    if record:
+        entry = storage.approved_entry(record.get('code'),
+                                       record.get('language') or 'Python')
+    ctx = (entry or {}).get('context')
+    if not isinstance(ctx, dict):
+        latest = storage.load_approved_script(exclude_sources=('wrangle', 'run'))
+        ctx = (latest or {}).get('context')
+    if not isinstance(ctx, dict):
+        return None, None, None
+    question = clamp(ctx.get('prompt'), CONTEXT_PROMPT_MAX).strip() or None
+    filename = ctx.get('filename')
+    if not isinstance(filename, str) or not filename:
+        return question, None, None
+    try:
+        df, _ = read_active_frame(filename)
+    except Exception:
+        logger.warning("Could not read the dataset for interpretation context")
+        df = None
+    if df is None:
+        return question, None, None
+    columns = [c for c in (ctx.get('columns') or []) if c in df.columns]
+    column_context = None
+    if columns:
+        levels, descriptions = _codebook_parts(ctx.get('codebook'))
+        meta = storage.load_dataset_meta(filename) or {}
+        labels = meta.get('labels') if isinstance(meta.get('labels'), dict) else {}
+        merged = {**{str(k): str(v) for k, v in labels.items() if v},
+                  **descriptions}
+        column_context = clamp(datatools.build_column_context(
+            df[columns[:INTERPRET_COLUMNS_MAX]], levels, merged),
+            INTERPRET_CONTEXT_MAX)
+    return question, column_context, len(df)
+
+
 def _looks_failed(output):
     """Text heuristic for a failed run, used only when no recorded outcome
     exists (legacy run dirs, or the client-copy fallback without a success
@@ -445,6 +516,7 @@ def interpret_results():
             failed = status['returncode'] != 0 or status['timed_out']
         else:
             failed = _looks_failed(final_output)
+        question, column_context, n_rows = _analysis_context(record)
     else:
         # P1-7: cap the client-supplied text and plot payloads before they reach
         # the prompt. Client `code` is allowed here only because the moderation
@@ -459,6 +531,7 @@ def interpret_results():
             failed = not data.get('success')
         else:
             failed = _looks_failed(final_output)
+        question = column_context = n_rows = None
 
     if not final_output.strip() and not plots:
         return jsonify({'interpretation':
@@ -475,7 +548,9 @@ def interpret_results():
             return denied
 
     prompt = prompts.interpret(final_output, bool(plots), failed=failed,
-                               code=code if failed else None)
+                               code=code if failed else None,
+                               question=question,
+                               column_context=column_context, n_rows=n_rows)
 
     contents = [prompt]
     if plots and not failed:
@@ -489,9 +564,19 @@ def interpret_results():
     def generate():
         usage = {}
         try:
+            text = ''
             for delta in service.stream('flash', contents, temperature=0.3,
                                         usage_out=usage):
+                text += delta
                 yield sse_event({'type': 'delta', 'text': delta})
+            if grounded:
+                # D3-2: /converse and /generate_report ground on this copy
+                # instead of the client's.
+                try:
+                    storage.save_last_interpretation(text)
+                except Exception:
+                    logger.warning("Could not store the interpretation",
+                                   exc_info=True)
             yield sse_event({'type': 'done', 'debug': failed,
                              'usage': _sum_usage(usage)})
         except Exception as exc:

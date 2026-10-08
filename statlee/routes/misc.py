@@ -4,7 +4,7 @@ import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
-from .. import billing, llm, prompts
+from .. import billing, llm, prompts, storage
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
@@ -139,12 +139,18 @@ def _email_report(cfg, report):
 # AI report builder (5.17): generation and targeted revision, streamed
 # ---------------------------------------------------------------------------
 
-def _moderate_free_text(service, text):
+def _join_material(*sections):
+    """Label and join the non-empty (title, text) client sections."""
+    return '\n\n'.join(f'{title}:\n{text}' for title, text in sections
+                        if text and text.strip()) or None
+
+
+def _moderate_free_text(service, text, material=None):
     """P1-2: the same fail-closed moderation gate /converse applies, run on
     the report builder's client free-text. Returns ``(error_response, usage)``
     where ``error_response`` is the response to send when the text is blocked
     (or the service failed), else ``None``."""
-    denied, mod = moderation_gate(service, prompts.moderation(text),
+    denied, mod = moderation_gate(service, prompts.moderation(text, material),
                                   log_message="Report moderation failed")
     if denied is not None:
         return denied, None
@@ -171,7 +177,13 @@ def generate_report():
         if not selection or not instruction:
             return json_error('Revision needs a selected passage and an instruction.')
         # The instruction is free-form user text; moderate it like /converse.
-        blocked_resp, mod_usage = _moderate_free_text(service, instruction)
+        # D3-2: the report and the selection are client text too and reach
+        # the model, so they are reviewed with it.
+        blocked_resp, mod_usage = _moderate_free_text(
+            service, instruction,
+            material=_join_material(
+                ('SELECTED PASSAGE', selection),
+                ('REPORT', clamp(revision.get('report'), FREE_TEXT_MAX))))
         if blocked_resp is not None:
             return blocked_resp
         prompt = prompts.report_revision(
@@ -180,8 +192,24 @@ def generate_report():
     else:
         # P1-7/P1-2: cap every client-supplied field before it can reach the
         # two paid model calls below.
-        output = clamp(data.get('output'), FREE_TEXT_MAX).strip()
-        interpretation = clamp(data.get('interpretation'), FREE_TEXT_MAX).strip()
+        # D3-2: ground on the server's record of the last run (its output and
+        # the interpretation /interpret stored) and fall back to the client's
+        # copy only where no server record exists. Client copies are then
+        # moderated below with the rest of the client text.
+        server_output, _plots = storage.last_run_artifacts()
+        server_interp = storage.last_interpretation()
+        if server_output.strip():
+            output, output_trusted = clamp(server_output, FREE_TEXT_MAX).strip(), True
+        else:
+            output = clamp(data.get('output'), FREE_TEXT_MAX).strip()
+            output_trusted = False
+        if server_interp.strip():
+            interpretation = clamp(server_interp, FREE_TEXT_MAX).strip()
+            interp_trusted = True
+        else:
+            interpretation = clamp(data.get('interpretation'),
+                                   FREE_TEXT_MAX).strip()
+            interp_trusted = False
         if not output and not interpretation:
             return json_error(
                 'Run an analysis first: the report must be grounded in '
@@ -197,10 +225,18 @@ def generate_report():
         history = clamp_history(data.get('history'))
         converse = clamp_history(data.get('converse'))
 
-        # Background is the free-form user text on this path; moderate it
-        # (fail-closed) before any billable work, mirroring /converse.
-        if background.strip():
-            blocked_resp, mod_usage = _moderate_free_text(service, background)
+        # Every piece of client text that reaches the two paid calls (the
+        # background, unverified results, the chat and converse history) is
+        # moderated together (fail-closed) before any billable work (D3-2).
+        material = _join_material(
+            ('TERMINAL OUTPUT', '' if output_trusted else output),
+            ('INTERPRETATION', '' if interp_trusted else interpretation),
+            ('ANALYSIS HISTORY', prompts._format_turns(history)),
+            ('DISCUSSION', prompts._format_turns(converse)))
+        if background.strip() or material:
+            blocked_resp, mod_usage = _moderate_free_text(
+                service, background.strip() or '(write a report on my analysis)',
+                material=material)
             if blocked_resp is not None:
                 return blocked_resp
 

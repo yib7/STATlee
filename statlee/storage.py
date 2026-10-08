@@ -565,7 +565,8 @@ def _load_approved_store(identity=None):
     return store
 
 
-def save_approved_script(code, language, identity=None, source='chat'):
+def save_approved_script(code, language, identity=None, source='chat',
+                         context=None):
     """Record a validated script keyed by (language, content hash) (P2-2,
     D1-7).
 
@@ -577,14 +578,25 @@ def save_approved_script(code, language, identity=None, source='chat'):
 
     The read-modify-write runs under a file lock (D1-4): two concurrent saves
     used to drop each other's entry.
+
+    ``context`` (D6): what the script was generated for, as a small JSON-able
+    dict (``prompt``, ``filename``, ``columns``, ``codebook``). /interpret
+    reads it back from this server-side record, so its grounding cannot be
+    spoofed by the client. Re-saving a known script without a context keeps
+    the one already stored.
     """
     with FileLock(_approved_path(identity) + '.lock',
                   timeout=_MANIFEST_LOCK_TIMEOUT):
         store = _load_approved_store(identity)
         sha = _hash_code(code, language)
-        store.pop(sha, None)                      # re-insert -> most-recent
-        store[sha] = {'code': code, 'language': language, 'source': source,
-                      'ts': time.time()}
+        previous = store.pop(sha, None)           # re-insert -> most-recent
+        entry = {'code': code, 'language': language, 'source': source,
+                 'ts': time.time()}
+        if context is None and isinstance(previous, dict):
+            context = previous.get('context')
+        if context:
+            entry['context'] = context
+        store[sha] = entry
         while len(store) > APPROVED_SCRIPT_MAX:   # evict oldest by insertion
             del store[next(iter(store))]
         _write_json_atomic(_approved_path(identity), store)
@@ -653,6 +665,35 @@ def save_last_run(output, plots_b64, script=None, language=None, identity=None,
                 f.write(base64.b64decode(b64))
         except Exception:
             logger.warning("Could not persist plot %d for export", i)
+
+
+INTERPRETATION_FILE = 'interpretation.md'
+
+
+def save_last_interpretation(text, identity=None):
+    """Keep the interpretation of the last run next to its output (D3-2), so
+    /converse and /generate_report can ground on the server's copy instead of
+    a client-supplied one. A new run wipes the run dir, so a stale
+    interpretation never outlives the run it describes. No-op without a run."""
+    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
+    if not os.path.isdir(run_dir):
+        return
+    path = os.path.join(run_dir, INTERPRETATION_FILE)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(text or '')
+    _retry_on_windows_lock(os.replace, tmp, path)
+
+
+def last_interpretation(identity=None):
+    """The stored interpretation of the last run, or ''."""
+    path = os.path.join(identity_root(identity), LAST_RUN_DIR,
+                        INTERPRETATION_FILE)
+    try:
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+    except OSError:
+        return ''
 
 
 def last_run_script(identity=None):

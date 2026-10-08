@@ -8,7 +8,7 @@ import logging
 
 from flask import Blueprint, current_app
 
-from .. import llm, prompts
+from .. import llm, prompts, storage
 from ..extensions import limiter
 from ..usage import usage_breakdown
 from . import (
@@ -32,6 +32,15 @@ def _cfg():
     return current_app.config['STATLEE']
 
 
+def _known_script(code):
+    """True when ``code`` is a script the server already reviewed: approved
+    for either language, or the script that produced the last run."""
+    if any(storage.is_approved_script(code, lang) for lang in ('Python', 'R')):
+        return True
+    record = storage.last_run_script()
+    return bool(record and record.get('code') == code)
+
+
 @bp.route('/converse', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def converse():
@@ -52,8 +61,27 @@ def converse():
     cfg = current_app.config['STATLEE']
 
     # 0.6: the same baseline moderation gate /chat uses (structured + default-deny).
-    denied, mod = moderation_gate(service, prompts.moderation(message),
-                                  log_message="Converse moderation failed")
+    # D3-2: ground on the server's records where they exist -- the stored
+    # interpretation of the last run replaces the client's `context`, and a
+    # script the run-guard already approved (or that produced the last run)
+    # needs no second review. Whatever client text remains (an unverified
+    # context, an edited or pasted script, the chat history) is moderated
+    # together with the message, failing closed.
+    server_context = storage.last_interpretation().strip()
+    if server_context:
+        context = clamp(server_context, FREE_TEXT_MAX)
+    unverified = []
+    if not server_context and context.strip():
+        unverified.append('RESULTS CONTEXT:\n' + context)
+    if code.strip() and not _known_script(code):
+        unverified.append('SCRIPT:\n' + code)
+    history_text = '\n'.join(t['text'] for t in history if t.get('text'))
+    if history_text.strip():
+        unverified.append('CONVERSATION HISTORY:\n' + history_text)
+
+    denied, mod = moderation_gate(
+        service, prompts.moderation(message, '\n\n'.join(unverified) or None),
+        log_message="Converse moderation failed")
     if denied is not None:
         return denied
 

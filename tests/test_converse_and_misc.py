@@ -111,9 +111,20 @@ def test_generate_report_malformed_moderation_is_blocked(client, fake_llm):
     assert resp.status_code == 403
 
 
-def test_generate_report_no_background_skips_moderation(client, fake_llm):
+def test_generate_report_no_background_skips_moderation(app, client, fake_llm):
     """Without client free-text there is nothing to moderate: no extra paid
-    moderation call is spent on grounded output/interpretation."""
+    moderation call is spent on output/interpretation the server recorded
+    itself. (D3-2: an unverified client copy IS moderated; see
+    test_grounded_context.py.)"""
+    from conftest import csrf_token
+
+    from statlee import storage
+    csrf_token(client)
+    with client.session_transaction() as sess:
+        ident = f"anon_{sess['sid']}"
+    with app.app_context():
+        storage.save_last_run('coef=1.2', [], identity=ident, returncode=0)
+        storage.save_last_interpretation('ok', identity=ident)
     resp = post_json(client, '/generate_report',
                      {'output': 'coef=1.2', 'interpretation': 'ok'})
     assert resp.status_code == 200
