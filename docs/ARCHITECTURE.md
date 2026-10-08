@@ -57,8 +57,11 @@ Every request passes through ordered middleware:
    landing, health, and auth handshake). Behavior depends on the auth *mode*.
 4. The view runs; **`stamp_request_id`** adds `X-Request-ID` to the response.
 
-`ProxyFix` is installed when `TRUST_PROXY_HOPS > 0` (default 1 in production) so
-the real client IP is read from `X-Forwarded-For` behind Render's proxy.
+`ProxyFix` is installed when `TRUST_PROXY_HOPS > 0` so the real client IP is
+read from `X-Forwarded-For` behind a proxy. It defaults to 0 everywhere, since
+trusting that header on a directly exposed app lets clients spoof it to dodge
+per-IP rate limits; a deploy behind Render's single proxy sets
+`TRUST_PROXY_HOPS=1`. The effective value is logged at startup.
 
 ## Auth modes (`routes/auth.py`)
 

@@ -61,9 +61,9 @@ class Config:
     # --- Storage / database --------------------------------------------------
     upload_root: str = ''           # empty -> <instance>/uploads (temp dir in testing)
     database_url: str = ''          # empty -> sqlite file under instance dir
-    storage_backend: str = 'local'  # 'local' | 's3' (7.3)
-    s3_bucket: str = ''
-    s3_prefix: str = 'statlee'
+    # Only 'local' is implemented. 's3' (roadmap 7.3) is rejected by validate()
+    # until a real backend exists, rather than silently writing to local disk.
+    storage_backend: str = 'local'
     file_ttl_seconds: int = 7200    # anonymous-file cleanup window (2h)
     # Per-identity storage quota (P2-4). The 2h TTL is the only other reclaim,
     # so without these one IP could park many uploads (20/min x 16MB) on disk
@@ -197,9 +197,10 @@ class Config:
     rate_limit_storage_uri: str = 'memory://'
     # Number of trusted reverse-proxy hops in front of the app. >0 enables
     # ProxyFix so rate limiting and logging see the real client IP from
-    # X-Forwarded-For. Render fronts the app with exactly one proxy, so this
-    # defaults to 1 in production. Keep it 0 anywhere the app is exposed
-    # directly, or clients could spoof X-Forwarded-For to dodge IP limits.
+    # X-Forwarded-For. Defaults to 0 everywhere (D5-13): trusting the header on
+    # a directly exposed app lets a client spoof X-Forwarded-For and get a fresh
+    # rate-limit bucket per request. Behind exactly one proxy (Render), set
+    # TRUST_PROXY_HOPS=1; validate() warns in production while it is 0.
     trust_proxy_hops: int = 0
 
     # --- CSRF (1.5) -----------------------------------------------------------------
@@ -257,8 +258,6 @@ class Config:
             upload_root=os.environ.get('UPLOAD_ROOT', '').strip(),
             database_url=os.environ.get('DATABASE_URL', '').strip(),
             storage_backend=os.environ.get('STORAGE_BACKEND', 'local').strip().lower(),
-            s3_bucket=os.environ.get('S3_BUCKET', '').strip(),
-            s3_prefix=os.environ.get('S3_PREFIX', 'statlee').strip(),
             file_ttl_seconds=_env_int('FILE_TTL_SECONDS', 7200),
             max_datasets_per_identity=_env_int('MAX_DATASETS_PER_IDENTITY', 10),
             max_bytes_per_identity=_env_int(
@@ -298,10 +297,7 @@ class Config:
             rate_limit_storage_uri=(
                 os.environ.get('RATELIMIT_STORAGE_URI')
                 or os.environ.get('REDIS_URL') or 'memory://').strip(),
-            trust_proxy_hops=_env_int(
-                'TRUST_PROXY_HOPS',
-                1 if os.environ.get('APP_ENV', '').strip().lower() == 'production'
-                else 0),
+            trust_proxy_hops=_env_int('TRUST_PROXY_HOPS', 0),
             smtp_host=os.environ.get('SMTP_HOST', '').strip(),
             smtp_port=_env_int('SMTP_PORT', 587),
             smtp_user=os.environ.get('SMTP_USER', '').strip(),
@@ -376,10 +372,15 @@ class Config:
                 "pre-check and LLM moderation are the only barriers. Use "
                 "SANDBOX_MODE=docker for kernel-enforced isolation where the "
                 "host holds secrets or network access that matters.")
-        if self.storage_backend not in ('local', 's3'):
-            raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
-        if self.storage_backend == 's3' and not self.s3_bucket:
-            raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET")
+        if self.storage_backend == 's3':
+            # D5-10: there is no S3 backend; accepting the setting meant every
+            # read and write silently stayed on local disk.
+            raise ValueError(
+                "STORAGE_BACKEND=s3 is not implemented yet: uploads would still "
+                "be written to local disk. Use STORAGE_BACKEND=local with "
+                "UPLOAD_ROOT on a persistent volume.")
+        if self.storage_backend != 'local':
+            raise ValueError("STORAGE_BACKEND must be 'local'")
 
         if (self.is_production and self.rate_limit_enabled
                 and self.rate_limit_storage_uri.startswith('memory://')):
@@ -410,7 +411,8 @@ class Config:
 
         if self.is_production and self.trust_proxy_hops <= 0:
             self._warn(
-                "TRUST_PROXY_HOPS is 0 in production. If the app sits behind a "
+                "TRUST_PROXY_HOPS is 0 in production (the default). If the app "
+                "is exposed directly, that is correct. If it sits behind a "
                 "reverse proxy, ProxyFix is off, so get_remote_address() returns "
                 "the proxy's IP for every anonymous caller: they all share ONE "
                 "rate-limit bucket and a single attacker can exhaust it. Set "

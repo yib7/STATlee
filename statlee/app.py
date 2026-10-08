@@ -466,6 +466,7 @@ def create_app(config=None):
 
     for warning in cfg.warnings:
         logger.warning("config: %s", warning)
-    logger.info("STATlee ready (env=%s, sandbox=%s, storage=%s)",
-                cfg.env, cfg.sandbox_mode, cfg.storage_backend)
+    logger.info("STATlee ready (env=%s, sandbox=%s, storage=%s, "
+                "trust_proxy_hops=%s)", cfg.env, cfg.sandbox_mode,
+                cfg.storage_backend, cfg.trust_proxy_hops)
     return app

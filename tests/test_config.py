@@ -110,9 +110,23 @@ def test_invalid_sandbox_mode_raises():
         Config(env='development', sandbox_mode='vm').validate()
 
 
-def test_s3_backend_requires_bucket():
-    with pytest.raises(ValueError):
-        Config(env='development', storage_backend='s3', s3_bucket='').validate()
+def test_s3_backend_is_rejected_as_not_implemented():
+    """D5-10: STORAGE_BACKEND=s3 S3_BUCKET=x used to validate cleanly and log
+    storage=s3 while every read and write still hit local disk."""
+    with pytest.raises(ValueError, match='not implemented'):
+        Config(env='development', storage_backend='s3').validate()
+
+
+def test_s3_backend_from_env_is_rejected(monkeypatch):
+    monkeypatch.setenv('STORAGE_BACKEND', 's3')
+    monkeypatch.setenv('S3_BUCKET', 'some-bucket')
+    with pytest.raises(ValueError, match='not implemented'):
+        Config.from_env()
+
+
+def test_unknown_storage_backend_raises():
+    with pytest.raises(ValueError, match='STORAGE_BACKEND'):
+        Config(env='development', storage_backend='gcs').validate()
 
 
 def test_unknown_converse_role_defaults_to_flash():
@@ -315,17 +329,58 @@ def test_production_shared_limiter_is_quiet():
 # Reverse-proxy trust (P1-4): rate-limit keying degrades to one shared bucket
 # behind a proxy when TRUST_PROXY_HOPS=0.
 # ---------------------------------------------------------------------------
-def test_from_env_defaults_proxy_hops_to_one_in_production(monkeypatch):
-    """A production deploy is assumed to sit behind exactly one reverse proxy
-    (e.g. Render), so ProxyFix is on by default and per-IP rate limiting sees
-    the real client IP rather than collapsing everyone into the proxy's IP."""
+def test_from_env_defaults_proxy_hops_to_zero_in_production(monkeypatch):
+    """D5-13: defaulting to 1 in production let a directly exposed deploy (the
+    compose recipe publishes port 5000) trust a client-supplied
+    X-Forwarded-For, so rotating it gave each request a fresh anonymous
+    rate-limit bucket. Trust is now opt-in: a deploy behind a proxy (Render)
+    sets TRUST_PROXY_HOPS=1 explicitly, and validate() warns while it is 0."""
     for var in ('TRUST_PROXY_HOPS', 'GEMINI_API_KEY', 'FLASK_SECRET_KEY'):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv('APP_ENV', 'production')
     monkeypatch.setenv('GEMINI_API_KEY', 'k')
     monkeypatch.setenv('FLASK_SECRET_KEY', 's')
     cfg = Config.from_env()
-    assert cfg.trust_proxy_hops == 1
+    assert cfg.trust_proxy_hops == 0
+    assert any('TRUST_PROXY_HOPS' in w for w in cfg.warnings)
+
+
+def test_explicit_proxy_hops_from_env(monkeypatch):
+    monkeypatch.setenv('TRUST_PROXY_HOPS', '1')
+    assert Config.from_env().trust_proxy_hops == 1
+
+
+def _remote_addr_seen(cfg, fake_llm):
+    from flask import request
+
+    from statlee import llm
+    from statlee.app import create_app
+    application = create_app(cfg)
+    llm.set_service(fake_llm)
+    seen = {}
+
+    @application.before_request
+    def _capture():
+        seen['addr'] = request.remote_addr
+
+    application.test_client().get(
+        '/health', headers={'X-Forwarded-For': '203.0.113.9'},
+        environ_base={'REMOTE_ADDR': '10.0.0.2'})
+    return seen['addr']
+
+
+def test_proxy_fix_honours_x_forwarded_for_only_when_trusted(tmp_path, fake_llm):
+    """Coverage gap 4: the factory must install ProxyFix exactly when
+    TRUST_PROXY_HOPS > 0, so a spoofed X-Forwarded-For moves the rate-limit key
+    only behind a trusted proxy."""
+    def cfg(hops):
+        c = Config(env='testing', trust_proxy_hops=hops, rate_limit_enabled=False,
+                   upload_root=str(tmp_path / 'u'), flask_secret_key='s',
+                   database_url='sqlite:///' + str(tmp_path / f'p{hops}.db').replace('\\', '/'))
+        c.validate()
+        return c
+    assert _remote_addr_seen(cfg(0), fake_llm) == '10.0.0.2'
+    assert _remote_addr_seen(cfg(1), fake_llm) == '203.0.113.9'
 
 
 def test_production_zero_proxy_hops_warns():
