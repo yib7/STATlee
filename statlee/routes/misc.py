@@ -16,7 +16,8 @@ from . import (
     clamp,
     clamp_history,
     json_error,
-    moderation_blocked,
+    llm_error_payload,
+    moderation_gate,
     register_field_errors,
     request_json,
     sse_event,
@@ -143,15 +144,10 @@ def _moderate_free_text(service, text):
     the report builder's client free-text. Returns ``(error_response, usage)``
     where ``error_response`` is the response to send when the text is blocked
     (or the service failed), else ``None``."""
-    try:
-        mod = service.generate('lite', prompts.moderation(text),
-                               temperature=0.0, json_mode=True)
-    except Exception:
-        logger.exception("Report moderation failed")
-        return json_error('Moderation service failed.', 503), None
-    blocked, reason = moderation_blocked(mod.text)
-    if blocked:
-        return json_error(f'Request denied. {reason}', 403), None
+    denied, mod = moderation_gate(service, prompts.moderation(text),
+                                  log_message="Report moderation failed")
+    if denied is not None:
+        return denied, None
     return None, mod.usage
 
 
@@ -259,15 +255,14 @@ def generate_report():
                              'usage': usage_breakdown(draft_result.usage,
                                                       stream_usage, mod_usage),
                              'revision': False})
-        except Exception:
+        except Exception as exc:
             logger.exception("Report generation failed")
             # The credit was taken before any model call; the request
             # produced no report, so give it back (the same refund-on-
             # stream-failure contract /chat honors). Best-effort: a
             # refund failure must not mask the error the user sees.
             debit.refund()
-            yield sse_event({'type': 'error',
-                             'message': 'Report generation failed.'})
+            yield sse_event(llm_error_payload(exc, 'Report generation failed.'))
         finally:
             debit.refund()   # D1-15: client disconnect (GeneratorExit)
 

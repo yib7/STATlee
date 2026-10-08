@@ -40,7 +40,8 @@ from . import (
     json_error,
     language_field,
     list_field,
-    moderation_blocked,
+    llm_json_error,
+    moderation_gate,
     register_field_errors,
     request_json,
     str_field,
@@ -424,9 +425,10 @@ def extract_pdf_codebook():
             raise ValueError('mapping is not an object')
         return jsonify({'status': 'success', 'mapping': mapping,
                         'usage': usage_breakdown(result.usage)})
-    except Exception:
+    except Exception as exc:
         logger.exception("PDF extraction error")
-        return json_error('Failed to extract definitions from the document.', 500)
+        return llm_json_error(
+            exc, 'Failed to extract definitions from the document.')
 
 
 # ---------------------------------------------------------------------------
@@ -549,9 +551,9 @@ def classify_variables():
         _cache_put(_analysis_cache, (sha, 'classify'), codebook, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'codebook': codebook,
                         'usage': usage_breakdown(*usages)})
-    except Exception:
+    except Exception as exc:
         logger.exception("Classification error")
-        return json_error('Variable classification failed.', 500)
+        return llm_json_error(exc, 'Variable classification failed.')
 
 
 @bp.route('/suggest', methods=['POST'])
@@ -599,9 +601,9 @@ def suggest_analysis():
             _cache_put(_analysis_cache, cache_key, suggestions, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'suggestions': suggestions,
                         'usage': usage_breakdown(result.usage)})
-    except Exception:
+    except Exception as exc:
         logger.exception("Suggestion error")
-        return json_error('Could not generate suggestions.', 500)
+        return llm_json_error(exc, 'Could not generate suggestions.')
 
 
 # ---------------------------------------------------------------------------
@@ -635,15 +637,10 @@ def wrangle():
 
     service = llm.get_service()
     cfg = _cfg()
-    try:
-        mod = service.generate('lite', prompts.moderation(instruction),
-                               temperature=0.0, json_mode=True)
-    except Exception:
-        logger.exception("Wrangle moderation failed")
-        return json_error('Moderation service failed.', 503)
-    blocked, reason = moderation_blocked(mod.text)
-    if blocked:
-        return json_error(f'Request denied. {reason}', 403)
+    denied, mod = moderation_gate(service, prompts.moderation(instruction),
+                                  log_message="Wrangle moderation failed")
+    if denied is not None:
+        return denied
 
     try:
         df, active_path = _read_active(filename)
@@ -659,9 +656,9 @@ def wrangle():
             prompts.wrangle(datatools.metadata_json(df), instruction),
             temperature=0.1, json_mode=True)
         plan = json.loads(result.text)
-    except Exception:
+    except Exception as exc:
         logger.exception("Wrangle plan generation failed")
-        return json_error('Could not generate the transformation.', 500)
+        return llm_json_error(exc, 'Could not generate the transformation.')
 
     if not isinstance(plan, dict) or not isinstance(plan.get('code') or '', str):
         logger.warning("Wrangle plan had an unexpected shape: %r", type(plan))
@@ -676,18 +673,13 @@ def wrangle():
     # misbehaving model can emit code doing network access, env exfiltration, or
     # shell execution regardless of a benign-looking instruction. Default-deny:
     # a malformed/ambiguous verdict blocks (see moderation_blocked()).
-    try:
-        code_verdict = service.generate(
-            'lite', prompts.code_moderation(plan['code'], 'Python'),
-            temperature=0.0, json_mode=True)
-    except Exception:
-        logger.exception("Wrangle code-moderation failed")
-        return json_error('Could not verify the generated transform.', 503)
-    blocked, reason = moderation_blocked(code_verdict.text)
-    if blocked:
-        return json_error(
-            f'The generated transform was rejected by the safety check. {reason}',
-            403)
+    denied, code_verdict = moderation_gate(
+        service, prompts.code_moderation(plan['code'], 'Python'),
+        denied='The generated transform was rejected by the safety check.',
+        unavailable='Could not verify the generated transform.',
+        log_message="Wrangle code-moderation failed")
+    if denied is not None:
+        return denied
 
     # Static pre-check (P1-1a): a non-LLM AST gate on the generated transform,
     # run AFTER the (bypassable) LLM code_moderation as defense-in-depth, before

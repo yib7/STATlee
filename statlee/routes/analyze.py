@@ -31,7 +31,10 @@ from . import (
     dict_field,
     json_error,
     language_field,
+    llm_error_payload,
+    llm_json_error,
     moderation_blocked,
+    moderation_gate,
     register_field_errors,
     request_json,
     sse_event,
@@ -85,15 +88,10 @@ def chat():
 
     # Gate 1: moderation (synchronous — must 403 before any stream starts).
     # Structured verdict + default-deny: a malformed/ambiguous reply blocks.
-    try:
-        mod = service.generate('lite', prompts.moderation(user_prompt),
-                               temperature=0.0, json_mode=True)
-    except Exception:
-        logger.exception("Moderation service failed")
-        return json_error('Moderation service failed.', 503)
-    blocked, reason = moderation_blocked(mod.text)
-    if blocked:
-        return json_error(f'Request denied. {reason}', 403)
+    denied, mod = moderation_gate(service, prompts.moderation(user_prompt),
+                                  log_message="Moderation service failed")
+    if denied is not None:
+        return denied
 
     # Gate 2: the dataset must resolve and read BEFORE any money moves. An
     # invalid/expired filename (anonymous TTL cleanup makes stale tabs common)
@@ -196,6 +194,10 @@ def chat():
                 draft_accumulated += delta
                 yield sse_event({'type': 'delta', 'text': delta})
             draft_code = strip_code_fences(draft_accumulated)
+            if not draft_code.strip():
+                # D3-4: nothing usable to validate (e.g. a reply that was
+                # only a code fence).
+                raise llm.EmptyGenerationError()
 
             # Phase B: stream the validation pass (replaces the draft client-side).
             yield sse_event({'type': 'phase', 'phase': 'validating'})
@@ -209,6 +211,11 @@ def chat():
                 yield sse_event({'type': 'delta', 'text': delta})
 
             final_code = strip_code_fences(validated)
+            if not final_code.strip():
+                # D3-4: an empty validation result must never be moderated,
+                # approved and delivered as the script; the except below
+                # refunds and explains.
+                raise llm.EmptyGenerationError()
 
             # Run-guard (0.4): re-moderate the model's OWN generated script, not
             # just the user's instruction (Gate 1). A jailbroken or misbehaving
@@ -222,6 +229,12 @@ def chat():
                 guard = service.generate(
                     'lite', prompts.code_moderation(final_code, target_language),
                     temperature=0.0, json_mode=True)
+                guard_text = guard.text
+            except llm.LLMOutputError as exc:
+                # A provider block / empty verdict on the review call fails
+                # closed exactly like an unparsable verdict.
+                logger.warning("Run-guard code-moderation unusable: %s", exc)
+                guard, guard_text = None, ''
             except Exception:
                 logger.exception("Run-guard code-moderation failed in /chat")
                 debit.refund()
@@ -229,7 +242,7 @@ def chat():
                     'type': 'error',
                     'message': 'Could not verify the generated script. Please try again.'})
                 return
-            blocked, reason = moderation_blocked(guard.text)
+            blocked, reason = moderation_blocked(guard_text)
             if blocked:
                 # No runnable script was produced, so refund like the stream
                 # failure path below rather than charge for a rejected result.
@@ -265,15 +278,17 @@ def chat():
             debit.delivered()
             yield sse_event({'type': 'done', 'code': final_code,
                              'language': target_language, 'usage': usage})
-        except Exception:
+        except Exception as exc:
             logger.exception("Code generation stream failed")
             # The credit (if any) was debited before streaming began; the stream
             # produced no usable script, so refund it rather than charge for
             # nothing (P1-3). Best-effort: a refund failure must not mask the
-            # original error the user needs to see.
+            # original error the user needs to see. D3-4: a provider block,
+            # refusal, empty or truncated reply says so instead of the generic
+            # message.
             debit.refund()
-            yield sse_event({'type': 'error',
-                             'message': 'Code generation failed. Please try again.'})
+            yield sse_event(llm_error_payload(
+                exc, 'Code generation failed. Please try again.'))
         finally:
             # D1-15: a client disconnect closes this generator with
             # GeneratorExit, which the except above never sees. Anything not
@@ -313,18 +328,13 @@ def run_code():
     # 403, so a reopened editor or a pasted export can run again.
     if not storage.is_approved_script(code, language):
         # User-edited or restored script (5.4): re-moderate first (0.4b).
-        try:
-            verdict = llm.get_service().generate(
-                'lite', prompts.code_moderation(code, language),
-                temperature=0.0, json_mode=True)
-        except Exception:
-            logger.exception("Run-guard moderation failed")
-            return json_error(
-                'Could not verify the edited script. Please try again.', 503)
-        blocked, reason = moderation_blocked(verdict.text)
-        if blocked:
-            return json_error(
-                f'Edited script rejected by the safety check. {reason}', 403)
+        denied, _verdict = moderation_gate(
+            llm.get_service(), prompts.code_moderation(code, language),
+            denied='Edited script rejected by the safety check.',
+            unavailable='Could not verify the edited script. Please try again.',
+            log_message="Run-guard moderation failed")
+        if denied is not None:
+            return denied
         storage.save_approved_script(code, language, source='run')
 
     dataset_path = None
@@ -456,15 +466,11 @@ def interpret_results():
     # the model, failing closed exactly like /converse (P2-7).
     if not grounded:
         moderated = (final_output + '\n' + code).strip()
-        try:
-            mod = service.generate('lite', prompts.moderation(moderated),
-                                   temperature=0.0, json_mode=True)
-        except Exception:
-            logger.exception("Interpret moderation failed")
-            return json_error('Moderation service failed.', 503)
-        blocked, reason = moderation_blocked(mod.text)
-        if blocked:
-            return json_error(f'Request denied. {reason}', 403)
+        denied, _mod = moderation_gate(
+            service, prompts.moderation(moderated),
+            log_message="Interpret moderation failed")
+        if denied is not None:
+            return denied
 
     prompt = prompts.interpret(final_output, bool(plots), failed=failed,
                                code=code if failed else None)
@@ -486,10 +492,10 @@ def interpret_results():
                 yield sse_event({'type': 'delta', 'text': delta})
             yield sse_event({'type': 'done', 'debug': failed,
                              'usage': _sum_usage(usage)})
-        except Exception:
+        except Exception as exc:
             logger.exception("Interpretation stream failed")
-            yield sse_event({'type': 'error',
-                             'message': 'Failed to generate AI interpretation.'})
+            yield sse_event(llm_error_payload(
+                exc, 'Failed to generate AI interpretation.'))
 
     return sse_stream(generate)
 
@@ -532,6 +538,6 @@ def method_prompt():
                         'prompt': payload.get('prompt', ''),
                         'rationale': payload.get('rationale', ''),
                         'usage': usage_breakdown(result.usage)})
-    except Exception:
+    except Exception as exc:
         logger.exception("method_prompt failed")
-        return json_error('Could not draft a prompt for that method.', 500)
+        return llm_json_error(exc, 'Could not draft a prompt for that method.')

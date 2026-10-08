@@ -16,7 +16,8 @@ from . import (
     clamp,
     clamp_history,
     json_error,
-    moderation_blocked,
+    llm_error_payload,
+    moderation_gate,
     request_json,
     sse_event,
     sse_stream,
@@ -51,15 +52,10 @@ def converse():
     cfg = current_app.config['STATLEE']
 
     # 0.6: the same baseline moderation gate /chat uses (structured + default-deny).
-    try:
-        mod = service.generate('lite', prompts.moderation(message),
-                               temperature=0.0, json_mode=True)
-    except Exception:
-        logger.exception("Converse moderation failed")
-        return json_error('Moderation service failed.', 503)
-    blocked, reason = moderation_blocked(mod.text)
-    if blocked:
-        return json_error(f'Request denied. {reason}', 403)
+    denied, mod = moderation_gate(service, prompts.moderation(message),
+                                  log_message="Converse moderation failed")
+    if denied is not None:
+        return denied
 
     prompt = prompts.converse(message, history, context, code,
                               guide_mode=guide_mode)
@@ -72,9 +68,9 @@ def converse():
                 yield sse_event({'type': 'delta', 'text': delta})
             done_usage = usage_breakdown(usage, mod.usage)
             yield sse_event({'type': 'done', 'usage': done_usage})
-        except Exception:
+        except Exception as exc:
             logger.exception("Converse stream failed")
-            yield sse_event({'type': 'error',
-                             'message': 'Failed to generate a response.'})
+            yield sse_event(llm_error_payload(
+                exc, 'Failed to generate a response.'))
 
     return sse_stream(generate)

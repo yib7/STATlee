@@ -76,6 +76,7 @@ class FakeLLMService:
         self.calls = []                 # (role, kind, text) per call
         self.usage_totals = {}
         self._overrides = {}
+        self._failures = {}             # kind -> exception to raise
         self._defaults = {
             'moderation': json.dumps({'decision': 'pass', 'reason': ''}),
             'code_moderation': json.dumps({'decision': 'pass', 'reason': ''}),
@@ -112,6 +113,11 @@ class FakeLLMService:
         self._overrides['code_moderation'] = json.dumps(
             {'decision': 'block', 'reason': reason})
 
+    def fail(self, kind, exc):
+        """Make every call of ``kind`` raise ``exc`` (a stream raises after
+        its first chunk, as a mid-stream provider stop would)."""
+        self._failures[kind] = exc
+
     # -- internals ---------------------------------------------------------
     @staticmethod
     def _flatten(contents):
@@ -141,6 +147,8 @@ class FakeLLMService:
         kind = self._kind(text)
         self.calls.append((role, kind, text))
         self._track(role, kind)
+        if kind in self._failures:
+            raise self._failures[kind]
         return llm.LLMResult(text=self._payload(kind),
                              usage={'model': role, 'input': 10, 'output': 5})
 
@@ -152,9 +160,13 @@ class FakeLLMService:
         payload = self._payload(kind)
         # Emit in two chunks to exercise delta accumulation.
         mid = max(1, len(payload) // 2)
-        for chunk in (payload[:mid], payload[mid:]):
+        for i, chunk in enumerate((payload[:mid], payload[mid:])):
+            if i == 1 and kind in self._failures:
+                raise self._failures[kind]
             if chunk:
                 yield chunk
+        if kind in self._failures:
+            raise self._failures[kind]
         if usage_out is not None:
             usage_out.update({'model': role, 'input': 10, 'output': 5})
 

@@ -55,6 +55,68 @@ def moderation_blocked(result_text):
 
 
 # ---------------------------------------------------------------------------
+# D3-4: provider safety blocks, refusals and empty/truncated output
+# ---------------------------------------------------------------------------
+
+def _output_error(exc):
+    from .. import llm
+    return exc if isinstance(exc, llm.LLMOutputError) else None
+
+
+def llm_error_payload(exc, default_message):
+    """SSE ``error`` event for a failed model call. A typed output error
+    (blocked / empty / truncated) carries its own user-facing message and a
+    ``reason`` code; anything else gets ``default_message``."""
+    err = _output_error(exc)
+    if err is None:
+        return {'type': 'error', 'message': default_message}
+    return {'type': 'error', 'message': err.user_message,
+            'reason': err.reason}
+
+
+def llm_json_error(exc, default_message, default_status=500):
+    """JSON error response for a failed model call: a provider safety block is
+    a 422 (the request itself was declined, retrying will not help), an empty
+    or truncated reply a 502 (the upstream answer was unusable); anything else
+    is ``default_message``/``default_status``."""
+    err = _output_error(exc)
+    if err is None:
+        return json_error(default_message, default_status)
+    from .. import llm
+    status = 422 if isinstance(err, llm.BlockedGenerationError) else 502
+    return json_error(err.user_message, status)
+
+
+def moderation_gate(service, prompt, *, denied='Request denied.',
+                    unavailable='Moderation service failed.',
+                    log_message='Moderation call failed'):
+    """Run one fail-closed moderation call (instruction or code review).
+
+    Returns ``(error_response, result)``: ``error_response`` is None when the
+    verdict is an explicit pass. A provider safety block on the moderation
+    call itself is a denial (403) with the provider's reason; an empty or
+    truncated verdict is a denial too (fail closed, as an unparsable verdict
+    always was); any other failure is ``unavailable`` (503)."""
+    try:
+        result = service.generate('lite', prompt, temperature=0.0,
+                                  json_mode=True)
+    except Exception as exc:
+        err = _output_error(exc)
+        if err is not None:
+            from .. import llm
+            reason = (err.user_message
+                      if isinstance(err, llm.BlockedGenerationError)
+                      else _MODERATION_FALLBACK)
+            return json_error(f'{denied} {reason}', 403), None
+        logging.getLogger('statlee.routes').exception(log_message)
+        return json_error(unavailable, 503), None
+    blocked, reason = moderation_blocked(result.text)
+    if blocked:
+        return json_error(f'{denied} {reason}', 403), None
+    return None, result
+
+
+# ---------------------------------------------------------------------------
 # P1-7: server-side caps on client-supplied prompt material
 # ---------------------------------------------------------------------------
 # Every free-text field a client POSTs flows into an LLM prompt billed to the
