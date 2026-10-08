@@ -160,6 +160,18 @@ def identity_root(identity=None):
 
 
 _VERSION_ARTIFACT_RE = re.compile(r'__v\d+\.')
+_RESERVED_STEM_RE = re.compile(r'__v\d+$')
+
+
+def is_reserved_name(filename):
+    """True when ``filename``'s stem ends in a version suffix such as
+    ``__v2``. Those names belong to dataset history files (``stem__vN.csv``),
+    so neither an upload nor a request naming a dataset may use one (P2-3,
+    L8): a client passing ``data__v2.csv`` would otherwise address a version
+    file as if it were its own dataset and grow a second history on top of
+    it."""
+    stem = os.path.splitext(os.path.basename(str(filename or '')))[0]
+    return bool(_RESERVED_STEM_RE.search(stem))
 
 
 def identity_usage(identity=None):

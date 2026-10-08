@@ -10,7 +10,6 @@ import io
 import json
 import logging
 import os
-import re
 import textwrap
 import threading
 import time
@@ -38,6 +37,7 @@ from . import (
     clamp_history,
     clamp_mapping,
     clamp_str_list,
+    dataset_filename_field,
     dict_field,
     json_error,
     json_object_reply,
@@ -59,7 +59,8 @@ register_field_errors(bp)
 
 
 def _filename(data):
-    return str_field(data, 'filename', FILENAME_MAX)
+    """The dataset a request names (L8: never a reserved version-file name)."""
+    return dataset_filename_field(data)
 
 
 def _cfg():
@@ -246,7 +247,7 @@ def upload_file():
     # identity dir, so a file whose stem already ends in a __vN suffix could
     # later be overwritten by a wrangle of another dataset. Reserve that suffix
     # at upload time rather than silently corrupting the second file.
-    if re.search(r'__v\d+$', os.path.splitext(filename)[0]):
+    if storage.is_reserved_name(filename):
         return json_error(
             'Filenames ending in a version suffix like "__v2" are reserved for '
             'dataset history. Please rename the file and upload again.')
@@ -416,7 +417,8 @@ def extract_pdf_codebook():
     mode='survey' (5.13): infer a codebook from the questionnaire itself.
     """
     data = request_json()
-    filename = _filename(data)
+    # A codebook document, not a dataset: no version files exist for it.
+    filename = str_field(data, 'filename', FILENAME_MAX)
     mode = str_field(data, 'mode', 32, default='codebook')
     # D1-6: the survey header list is client text going into a paid prompt.
     headers = clamp_str_list(list_field(data, 'headers'),

@@ -18,7 +18,6 @@ from ..identity import current_user_or_none
 from ..usage import usage_breakdown
 from . import (
     BACKGROUND_MAX,
-    FILENAME_MAX,
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
     DebitGuard,
@@ -27,6 +26,7 @@ from . import (
     clamp_history,
     clamp_mapping,
     clamp_plots,
+    dataset_filename_field,
     dict_field,
     json_error,
     json_object_reply,
@@ -72,7 +72,7 @@ def chat():
     # unbounded client text here is unmetered input-token spend on the
     # operator's key.
     user_prompt = clamp(data.get('prompt'), FREE_TEXT_MAX)
-    filename = str_field(data, 'filename', FILENAME_MAX)
+    filename = dataset_filename_field(data)
     # 'language' selects the interpreter, the static check and the approval
     # key, so it is validated as an enum (D1-12), not free text.
     target_language = language_field(data)
@@ -328,7 +328,7 @@ def run_code():
     # language can no longer be saved into the approved store and break /export.
     code = str_field(data, 'code')
     language = language_field(data)
-    filename = str_field(data, 'filename', FILENAME_MAX)
+    filename = dataset_filename_field(data)
 
     if not code:
         return json_error('No code provided.')
@@ -607,7 +607,7 @@ def interpret_results():
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def method_prompt():
     data = request_json()
-    filename = str_field(data, 'filename', FILENAME_MAX)
+    filename = dataset_filename_field(data)
     method = dict_field(data, 'method')
     # D1-6: every field below reaches the paid method_prompt call.
     method_name = clamp(method.get('name'), STYLE_FIELD_MAX).strip()

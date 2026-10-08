@@ -319,6 +319,23 @@ def str_field(data, key, limit=None, default=''):
     return value[:limit] if limit else value
 
 
+RESERVED_NAME_MESSAGE = (
+    'Filenames ending in a version suffix like "__v2" are reserved for '
+    'dataset history. Name the dataset as it was uploaded.')
+
+
+def dataset_filename_field(data, key='filename'):
+    """The dataset a request names, as ``str_field`` (clamped to
+    ``FILENAME_MAX``). A reserved version-file name (``stem__v2.csv``) is a
+    ``FieldError`` (L8): it addresses a history file, not a dataset, so a
+    wrangle on it would grow a second history on top of the version file."""
+    from .. import storage
+    name = str_field(data, key, FILENAME_MAX)
+    if name and storage.is_reserved_name(name):
+        raise FieldError(RESERVED_NAME_MESSAGE)
+    return name
+
+
 def dict_field(data, key):
     """An object field. Falsy (null, '', [], {}) -> ``{}``; any other non-dict
     is a ``FieldError``."""
