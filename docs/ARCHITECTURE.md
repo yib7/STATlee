@@ -218,7 +218,10 @@ the XSS defense (roadmap 0.5).
 `conftest.py` injects a `FakeLLMService` that maps each prompt to a canned
 response by a marker phrase, and gives every test its own temp upload root and
 SQLite file. The whole HTTP surface is exercised **offline**: no API key, no
-network. Coverage spans uploads, codebook, wrangling/versioning, the run-guard,
+network. The suite is hermetic: importing the `statlee` package never loads
+`.env` (only `wsgi.py` does, and never under `APP_ENV=testing`), and `conftest`
+sets `PYTHON_DOTENV_DISABLED=1` and scrubs provider keys plus `LLM_PROVIDER` /
+`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage spans uploads, codebook, wrangling/versioning, the run-guard,
 converse, export, auth, CSRF, the rate-limit key function, the billing seam, and
 Pro-mode routing. `ruff` lints; CI runs ruff + byte-compile + pytest on push.
 

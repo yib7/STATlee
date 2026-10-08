@@ -22,7 +22,8 @@ It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic
 ## Architecture
 
 The application lives in the `statlee/` package and uses the Flask app-factory
-pattern with focused modules (entry point: `wsgi.py` → `statlee.app:app`):
+pattern with focused modules (entry point: `wsgi:app`, which loads `.env` and calls
+`statlee.app.create_app()`; importing the package itself has no side effects):
 
 | Module | Responsibility |
 |---|---|

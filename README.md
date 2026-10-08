@@ -152,8 +152,8 @@ ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
 
-The application lives in the `statlee/` package (entry point: `wsgi.py` →
-`statlee.app:app`).
+The application lives in the `statlee/` package (entry point: `wsgi:app`, which
+loads `.env` and calls `statlee.app.create_app()`).
 
 | Module | Responsibility |
 |---|---|

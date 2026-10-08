@@ -10,6 +10,10 @@ owns the cross-cutting middleware:
 - rate limiting (1.4)
 - generic client errors / full server-side logs (1.6)
 - request-id correlated logging (3.3)
+
+Importing this module has no side effects (D5-14): it neither loads ``.env``
+nor builds an app. The entry point ``wsgi.py`` does both, so a test process
+that imports the package never picks up a developer's real ``.env``.
 """
 import hmac
 import logging
@@ -17,14 +21,11 @@ import os
 import secrets
 import uuid
 
-from dotenv import load_dotenv
 from flask import Flask, g, has_request_context, jsonify, request, session
 
 from . import llm
 from .config import Config
 from .extensions import db, limiter, login_manager
-
-load_dotenv()
 
 
 class RequestIdFilter(logging.Filter):
@@ -319,6 +320,3 @@ def create_app(config=None):
     logger.info("STATlee ready (env=%s, sandbox=%s, storage=%s)",
                 cfg.env, cfg.sandbox_mode, cfg.storage_backend)
     return app
-
-
-app = create_app()
