@@ -24,6 +24,22 @@ jobs:
       - name: Ruff lint
         run: ruff check --output-format=github .
 
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: pip install pip-audit==2.10.1
+      - name: Audit the pinned requirements
+        # --no-deps: audit exactly the pins (transitive deps are unpinned, so
+        # resolving them would audit whatever the index serves that day).
+        run: |
+          pip-audit --no-deps --disable-pip -r requirements.txt
+
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
