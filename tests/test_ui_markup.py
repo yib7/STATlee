@@ -791,3 +791,52 @@ def test_methods_card_copy_is_plain_language():
     strings = ' '.join(re.findall(r"'([^'\n]*)'", js))
     assert 'methods block' not in strings, 'internal jargon in user-facing copy'
     assert 'did not print a methods summary' in strings
+
+
+# --- SP4: export dialog with the bundle options ------------------------------
+def _export_modal(html):
+    start = html.find('id="exportModal"')
+    assert start != -1, 'no export dialog'
+    return html[start:html.find('<!--', start)]
+
+
+def test_export_button_opens_a_dialog_with_the_two_options(client):
+    html = _visible(_index_html(client))
+    modal = _export_modal(html)
+    assert 'role="dialog"' in html[html.find('id="exportModal"') - 120:
+                                   html.find('id="exportModal"') + 200]
+    # include_prompts: a labelled checkbox, on by default.
+    assert re.search(r'<input type="checkbox" id="exportIncludePrompts"[^>]*checked',
+                     modal)
+    assert 'for="exportIncludePrompts"' in modal or \
+        re.search(r'<label[^>]*>\s*<input type="checkbox" id="exportIncludePrompts"', modal)
+    # runs: all (default) | starred | latest.
+    select = modal[modal.find('id="exportRuns"'):]
+    select = select[:select.find('</select>')]
+    assert re.findall(r'<option value="(\w+)"', select) == ['all', 'starred', 'latest']
+    assert re.search(r'<option value="all" selected', select)
+    assert 'for="exportRuns"' in modal
+    assert 'id="exportDownloadBtn"' in modal
+
+
+def test_export_dialog_copy_is_plain_and_has_no_em_dashes(client):
+    modal = _export_modal(_visible(_index_html(client)))
+    text = re.sub(r'<[^>]+>', ' ', modal)
+    assert '—' not in text and '–' not in text
+    for words in ('Include my prompts', 'Runs to include', 'All runs',
+                  'Starred runs', 'Latest run only'):
+        assert words in text, words
+
+
+def test_export_js_sends_the_options_and_names_readme_md():
+    tools = _js_sources()['tools.js']
+    body = tools[tools.find('async function exportProject'):
+                 tools.find('// AI report builder')]
+    assert 'include_prompts' in body and "getElementById('exportIncludePrompts')" in body
+    assert re.search(r'\bruns\s*[,:]', body) and "getElementById('exportRuns')" in body
+    assert 'README.md' in body and 'README.txt' not in body
+    assert 'innerHTML' not in body
+    assert "CC.modal.open('exportModal')" in tools
+    assert "getElementById('exportDownloadBtn')" in tools
+    for js in _js_sources().values():
+        assert 'README.txt' not in js

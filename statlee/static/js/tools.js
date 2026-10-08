@@ -7,14 +7,27 @@
     // =====================================================================
     // Project export (5.3)
     // =====================================================================
-    async function exportProject() {
+    function openExportDialog() {
         if (!CC.state.filename && !CC.getCode()) {
-            CC.toast('Nothing to export yet — upload data or generate code first.', 'error');
+            CC.toast('Nothing to export yet. Upload data or generate code first.', 'error');
             return;
         }
-        const btn = document.getElementById('exportBtn');
+        CC.modal.open('exportModal');
+    }
+
+    async function exportProject() {
+        if (!CC.state.filename && !CC.getCode()) {
+            CC.toast('Nothing to export yet. Upload data or generate code first.', 'error');
+            return;
+        }
+        const btn = document.getElementById('exportDownloadBtn');
         btn.disabled = true;
         const code = CC.getCode();
+        // SP4 bundle options from the export dialog.
+        const promptsBox = document.getElementById('exportIncludePrompts');
+        const runsSelect = document.getElementById('exportRuns');
+        const includePrompts = promptsBox ? promptsBox.checked : true;
+        const runs = runsSelect ? runsSelect.value : 'all';
         try {
             const res = await fetch('/export', {
                 method: 'POST',
@@ -30,6 +43,8 @@
                     history: CC.state.chatHistory,
                     interpretation: CC.state.latestInterpretation,
                     report: CC.state.report,
+                    include_prompts: includePrompts,
+                    runs,
                 }),
             });
             if (!res.ok) {
@@ -52,12 +67,13 @@
             // D4-31: revoking synchronously can cancel the download in some
             // browsers before it has started reading the blob.
             setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+            CC.modal.close('exportModal');
             // S1-B contract 15: the zip runs as unzipped. The current data
             // sits next to the script under the name it reads, the original
             // upload is in data/, cleaning.py replays the cleaning steps.
-            CC.toast('Project archive downloaded. Unzip it and run the script in that folder: '
-                + 'README.txt lists the files, including the original upload in data/ and, '
-                + 'when you cleaned the data, cleaning.py to replay those steps.', 'success');
+            CC.toast('Project archive downloaded. Unzip it and run analysis.py (or analysis.R) in that folder: '
+                + 'README.md lists the files, including the original upload in data/, '
+                + 'the software versions and a record of every step.', 'success');
         } catch (e) {
             CC.toast('Network error during export.', 'error');
         } finally {
@@ -805,7 +821,8 @@
         initLegacyPasswordOverlay();
         renderCatalog();
 
-        document.getElementById('exportBtn').addEventListener('click', exportProject);
+        document.getElementById('exportBtn').addEventListener('click', openExportDialog);
+        document.getElementById('exportDownloadBtn').addEventListener('click', exportProject);
         document.getElementById('historyBtn').addEventListener('click', openHistory);
         const clearBtn = document.getElementById('historyClearBtn');
         if (clearBtn) clearBtn.addEventListener('click', clearHistory);

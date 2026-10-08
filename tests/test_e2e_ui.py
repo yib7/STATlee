@@ -811,11 +811,13 @@ def test_export_sends_the_generated_language_and_describes_the_zip(page):
     skip_codebook(page)
     generate(page)
     page.select_option('#languageSelect', 'R')
+    page.click('#exportBtn')
+    page.wait_for_selector('#exportModal:not(.hidden)')
     with page.expect_download():
-        page.click('#exportBtn')
+        page.click('#exportDownloadBtn')
     assert bodies[-1]['language'] == 'Python'
     page.wait_for_selector('.cc-toast.success')
-    assert 'README.txt' in page.inner_text('.cc-toast.success')
+    assert 'README.md' in page.inner_text('.cc-toast.success')
     title = page.get_attribute('#exportBtn', 'title')
     assert 'README' in title and 'original' in title
 

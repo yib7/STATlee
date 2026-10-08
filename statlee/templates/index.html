@@ -216,6 +216,36 @@
         </div>
     </div>
 
+    <!-- Project export (SP4 reproducibility bundle) -->
+    <div id="exportModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+        <div class="bg-[var(--s0)] p-8 rounded-[22px] shadow-2xl max-w-md w-full border border-[var(--border)] animate-fade-in-up">
+            <div class="flex justify-between items-center mb-3">
+                <h2 id="exportTitle" class="text-xl font-display font-bold text-[var(--text-1)] tracking-tight">Export project</h2>
+                <button data-close-modal="exportModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close export dialog">&times;</button>
+            </div>
+            <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">A zip that runs as unzipped: your data, the analysis script, the codebook, the software versions, a record of every step and the outputs of your runs, plus cleaning.py when you cleaned the data. README.md explains how to run it.</p>
+            <div class="flex flex-col gap-5">
+                <div>
+                    <label class="label-eyebrow mb-1" for="exportRuns">Runs to include</label>
+                    <select id="exportRuns" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-2 px-3 text-sm outline-none">
+                        <option value="all" selected>All runs</option>
+                        <option value="starred">Starred runs</option>
+                        <option value="latest">Latest run only</option>
+                    </select>
+                    <span class="block text-xs text-[var(--text-2)] leading-relaxed mt-1">Each run gets a folder with its output, plots, methods card and interpretation.</span>
+                </div>
+                <label class="flex items-start gap-3 cursor-pointer" for="exportIncludePrompts">
+                    <input type="checkbox" id="exportIncludePrompts" class="cc-switch mt-0.5 cursor-pointer shrink-0" checked>
+                    <span>
+                        <span class="block text-sm font-semibold text-[var(--text-1)]">Include my prompts</span>
+                        <span class="block text-xs text-[var(--text-2)] leading-relaxed mt-0.5">The questions and cleaning instructions you typed, in the step record and report.md. Turn off to share the bundle without them.</span>
+                    </span>
+                </label>
+            </div>
+            <button type="button" id="exportDownloadBtn" class="w-full btn-primary py-3 mt-6">Download zip</button>
+        </div>
+    </div>
+
     <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
     <div id="mainRow" class="flex flex-1 min-h-0 relative">
 
@@ -255,7 +285,7 @@
                     <button id="resetBtn" class="btn-toolbar" title="Start over with a clean workspace" aria-label="New analysis: reset everything">New</button>
                     <button id="historyBtn" class="btn-toolbar" title="Past analyses" aria-label="Open analysis history">History</button>
                     <button id="catalogBtn" class="btn-toolbar" title="Browse statistical tests and plots" aria-label="Open analysis catalog">Catalog</button>
-                    <button id="exportBtn" class="btn-toolbar" title="Download a zip that runs as unzipped: the current data next to the script, the original upload in data/original_*, cleaning.py to replay your cleaning steps, plots, the report and a README" aria-label="Download project archive">Export</button>
+                    <button id="exportBtn" class="btn-toolbar" title="Download a zip that runs as unzipped: the current data next to the script, the original upload in data/original_*, cleaning.py to replay your cleaning steps, the codebook, software versions, a step record, run outputs, the report and a README" aria-label="Export project archive">Export</button>
                     <button id="issueBtn" class="btn-toolbar" title="Report a problem" aria-label="Report an issue">Support</button>
                     <button id="accountBtn" class="btn-toolbar" title="Sign in to keep your work" aria-label="Account">Account</button>
                     <button id="settingsBtn" class="btn-toolbar" title="Workspace settings: suggestions, split view" aria-label="Workspace settings">Settings</button>
