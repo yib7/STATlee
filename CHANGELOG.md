@@ -4,6 +4,122 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-08
+
+A whole-project audit (backend, security, LLM layer, frontend, infrastructure,
+product) and the fixes that came out of it. The static pre-check is rebuilt as
+an allowlist, the export bundle now runs as unzipped, and many failure paths
+that used to return 500s, hang, or lose work are handled.
+
+### Security
+- Rebuilt the Python side of `codecheck.py` as an import allowlist (the
+  analysis stack plus a small set of stdlib modules) instead of a denylist. The
+  denylist missed `builtins.exec`, attribute chains such as `os.path.os.system`
+  and `pd.io.common.os.system`, low-level modules (`nt`, `posix`, `_socket`,
+  `runpy`), `from os import *`, `__dict__`/`vars()`/`__self__`/frame-object
+  lookups, `operator.attrgetter`, and pickle or absolute-path reads and writes
+  through pandas and numpy. All of these are now refused, and a corpus of
+  realistic analysis scripts is tested to still pass. The R denylist also covers
+  `do.call` and `get()` indirection, `eval(parse())`, and network packages.
+- Login does the same password-hash work for unknown emails, closing a timing
+  oracle for account enumeration.
+- Password-reset and email-verification links are built from `PUBLIC_BASE_URL`
+  instead of the request's Host header, and their tokens are never logged
+  outside development.
+- Model output rendered as Markdown is sanitized more strictly (no `style`,
+  `data-*`, forms or buttons), so it can't trigger in-app actions or overlay the
+  page. Links open in a new tab.
+- `/converse` and `/generate_report` ground on the server's stored run and
+  interpretation rather than client copies; any client text that is used is
+  length-capped and moderated.
+- `/metrics` requires `METRICS_TOKEN` and returns 404 in production without one.
+- Added a `.dockerignore` so `.env`, local databases and `.git` never enter the
+  app image, and the container runs as a non-root user.
+- Bumped `pypdf` to 6.19.0 and `Werkzeug` to 3.1.9 (nine advisories). CI now
+  runs `pip-audit`.
+
+### Fixed
+- Non-Latin filenames (e.g. `数据.csv`) upload correctly, keep their PDF page
+  cap, and no longer collide with each other.
+- cp1252/Latin-1 CSVs decode, and empty or ragged CSVs return a clear 422
+  instead of a 500 or a dataset that breaks later.
+- The data viewer no longer breaks on infinite values; NaN and infinity are sent
+  as null.
+- Wrong-typed JSON fields return 400 instead of 500 on every route.
+- Free-text inputs that reach a paid prompt are length-capped.
+- Anonymous workspaces expire as a whole after inactivity rather than file by
+  file, so an active session no longer loses its original upload.
+- JSON sidecar writes are atomic per write, and script approvals survive
+  concurrent saves.
+- A script approved as Python can't be run as R without its own review, and an
+  unchanged script runs in the language it was approved in.
+- `/interpret` switches to debugging mode from the real exit code (R errors and
+  timeouts included). A run timeout returns 200 with `timed_out`.
+- `/wrangle` checks a version token and returns 409 when the dataset changed
+  underneath it, including a re-upload during an edit.
+- Provider safety blocks, refusals, and empty or truncated replies are detected
+  on Gemini, Anthropic and OpenAI and explained to the user. `/chat` never
+  approves an empty script, and the credit is refunded.
+- Gemini calls retry 429/5xx errors with backoff; all providers have explicit
+  timeouts.
+- JSON replies are parsed tolerantly (code fences, leading prose) and checked
+  for shape; `/suggest` always returns up to three strings.
+- Gemini thinking tokens are counted in usage and cost, and streams cut short
+  still record their usage.
+- The monthly priority-call ceiling applies even with billing off, as
+  documented.
+- The Pro credit is refunded when the client disconnects mid-stream.
+- A database whose tables are already at the current schema but lack an Alembic
+  stamp is stamped instead of crash-looping at boot. A new
+  `flask --app wsgi statlee-doctor` command reports schema drift.
+- Docker Compose passes the documented environment through to the app.
+- Frontend: closing the codebook prompt with Escape no longer leaves the
+  workspace stuck; a failed upload keeps the current dataset; a new upload
+  clears the previous dataset's script, results, chat and report; errors no
+  longer overwrite the editor; double submits are guarded; streams that end
+  without a final event show an error; signing in keeps the workspace.
+
+### Changed
+- Exports run as unzipped: the data sits next to the script under the name the
+  script reads, with the original upload, a `README.txt`, and a `cleaning.py`
+  that replays every recorded cleaning step from the original file.
+- The dataset profile uses the full file (true N, missing counts, dtypes);
+  sample values stay sampled. Code generation can reach columns past the 80th
+  on wide datasets.
+- SPSS/Stata value labels feed the codebook, and Excel uploads warn when only
+  the first sheet is read.
+- Prompts: the draft prompt lists the packages that are actually installed and
+  asks for assumption checks, effect sizes with confidence intervals, and the N
+  used; the review pass sees the request and columns, never adds a global
+  `dropna()`, and runs on the Pro tier in Pro mode; the interpreter gets the
+  question, the columns and the true N; dataset and PDF text is marked as data.
+- Uploads default to a stable `instance/uploads` folder instead of a new temp
+  folder per process.
+- `python wsgi.py` binds to 127.0.0.1 unless `BIND_HOST` is set.
+- `TRUST_PROXY_HOPS` defaults to 0. Deployments behind a proxy must set it.
+- `STORAGE_BACKEND=s3` is rejected at startup until it is implemented.
+
+### Added
+- A "Forgot password?" flow in the account dialog and a visible "check your
+  email" step when verification is on.
+- A short disclosure of what is sent to the model provider, and a notice before
+  an anonymous upload expires.
+- Keyboard focus styles, focus management in dialogs, live regions for streamed
+  answers, WCAG AA contrast in the light theme, and a stacked layout for narrow
+  screens.
+- New settings: `PUBLIC_BASE_URL`, `BIND_HOST`, `METRICS_TOKEN`,
+  `LLM_TIMEOUT_SECONDS`, `LLM_PRO_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`,
+  `OPENAI_STREAM_MAX_TOKENS` (all in `.env.example`).
+
+### Internal
+- Test suite grew from 411 to 884 passing (plus 9 skip-marked: opt-in
+  screenshots and the real-Docker sandbox tests). New Playwright end-to-end UI
+  tests run against a fake-LLM server and skip when Playwright isn't installed.
+- Tests no longer read the developer's `.env`, and importing the package no
+  longer builds an app.
+- CI adds jobs for the real-Docker sandbox, the app image, migrations on
+  PostgreSQL, and a models-versus-migrations check.
+
 ## [1.4.1] - 2026-08-26
 
 Two security fixes from a re-audit: a vulnerable PDF-parser dependency and two
