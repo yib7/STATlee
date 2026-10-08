@@ -82,6 +82,9 @@
     /** PATCH JSON (e.g. renaming or starring a workbook run). */
     CC.patch = function (url, body) { return CC.send('PATCH', url, body); };
 
+    /** PUT JSON (e.g. a codebook edit). */
+    CC.put = function (url, body) { return CC.send('PUT', url, body); };
+
     /** GET JSON. Returns {ok, status, data}; data is {} for a non-JSON body. */
     CC.getJSON = async function (url) {
         const res = await fetch(url, { headers: { 'X-CSRF-Token': CC.csrfToken } });

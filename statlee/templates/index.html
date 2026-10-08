@@ -768,16 +768,52 @@
                     <!-- PDF VIEWER TAB -->
                     <div id="contentPdf" role="tabpanel" aria-labelledby="tabPdf" class="tab-content h-full p-8 overflow-hidden hidden">
                         <div class="w-full h-full bg-[var(--s0)] rounded-[14px] border border-[var(--border)] shadow-[var(--e1)] overflow-hidden flex flex-col">
-                            <div class="bg-[var(--s1)] border-b border-[var(--border)] p-4 flex justify-between items-center z-10">
+                            <div class="cb-head bg-[var(--s1)] border-b border-[var(--border)] p-4 flex justify-between items-center z-10">
                                 <h3 class="label-eyebrow flex items-center gap-2">
                                     <svg class="w-4 h-4 text-[var(--indigo)]" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
-                                    Codebook Reference
+                                    Codebook
                                 </h3>
+                                <!-- SP2: the server codebook (one editable row per
+                                     column) and the attached PDF/TXT document are two
+                                     views of this tab. codebook.js owns the switch. -->
+                                <div class="cb-switch" role="group" aria-label="Codebook view">
+                                    <button id="cbViewVariables" type="button" class="cb-switch-btn" aria-pressed="true" aria-controls="cbEditor">Variables</button>
+                                    <button id="cbViewDocument" type="button" class="cb-switch-btn" aria-pressed="false" aria-controls="cbDocument">Document</button>
+                                </div>
                                 <!-- D4-30: once a document is attached the empty
                                      state (with its upload buttons) is gone; this
                                      keeps "attach a different one" reachable. -->
                                 <button id="codebookReplaceBtn" type="button" class="hidden btn-toolbar">Replace document</button>
                             </div>
+
+                            <!-- Variables view: the server codebook, one row per
+                                 column. Every value is user, file or model text;
+                                 codebook.js renders it with textContent only. -->
+                            <section id="cbEditor" class="cb-editor" aria-label="Variable codebook">
+                                <div class="cb-toolbar">
+                                    <p id="cbSummary" class="cb-summary"></p>
+                                    <input id="cbFilter" type="search" class="cb-filter" placeholder="Filter variables" aria-label="Filter variables by name or label" autocomplete="off">
+                                    <div class="cb-actions">
+                                        <button id="cbImportBtn" type="button" class="wb-btn" title="Import a codebook JSON file">Import JSON</button>
+                                        <button id="cbExportBtn" type="button" class="wb-btn" title="Download this codebook as JSON">Export JSON</button>
+                                    </div>
+                                    <input type="file" id="cbImportInput" accept=".json,application/json" class="hidden" aria-hidden="true" tabindex="-1">
+                                </div>
+                                <p id="cbHint" class="cb-hint hidden">Edits save as you type, and a later re-classify never overwrites them. Importing a STATlee export brings over only the fields someone edited by hand; labels from the data file, a document or the model are worked out again for this dataset.</p>
+                                <div id="cbEmpty" class="cb-empty">
+                                    <p class="cb-empty-title">No variables yet</p>
+                                    <p class="cb-empty-sub">Upload a dataset to set each variable's type, label, value labels, missing codes and role here.</p>
+                                </div>
+                                <div class="cb-scroll">
+                                    <div id="cbHeadRow" class="cb-row cb-head-row hidden" aria-hidden="true">
+                                        <span>Variable</span><span>Type</span><span>Label</span><span>Role</span><span>Scale group</span><span>Missing codes</span><span>Values</span>
+                                    </div>
+                                    <ol id="cbList" class="cb-list" aria-label="Variables"></ol>
+                                </div>
+                            </section>
+
+                            <!-- Document view: the attached codebook or survey. -->
+                            <section id="cbDocument" class="cb-document hidden" aria-label="Codebook document">
                             <!-- Empty state: shown until a codebook document is loaded. -->
                             <div id="codebookEmptyState" class="flex-1 overflow-y-auto flex flex-col items-center justify-center text-center p-10 gap-4">
                                 <span class="w-12 h-12 rounded-[13px] bg-[var(--indigo-soft)] flex items-center justify-center text-[var(--indigo)]">
@@ -825,6 +861,7 @@
                             <!-- A .txt codebook stays text on the server (D1-10), so it
                                  is shown as text, never loaded into the PDF frame. -->
                             <pre id="codebookTextView" class="cc-codebook-text hidden" tabindex="0" aria-label="Uploaded codebook text"></pre>
+                            </section>
                         </div>
                     </div>
 
@@ -938,6 +975,7 @@
     <script src="{{ url_for('static', filename='js/data.js') }}"></script>
     <script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/workbook.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/codebook.js') }}"></script>
     <script src="{{ url_for('static', filename='js/converse.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tools.js') }}"></script>
 </body>

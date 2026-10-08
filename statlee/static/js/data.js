@@ -155,6 +155,9 @@
                 CC.state.codebook = data.codebook;
                 CC.renderCodebookUI();
                 if (data.usage) CC.addUsage(data.usage);
+                // The classification is now in the server codebook (SP2),
+                // under any edits the user made: show the merged result.
+                if (CC.codebookEditor && filename === CC.state.filename) CC.codebookEditor.refresh();
                 if (!quiet) CC.pipeline.set('classify', 'done', data.cached ? 'cached' : '');
             } else if (!quiet) {
                 CC.pipeline.set('classify', 'failed', (data && data.error) || 'failed');
@@ -278,6 +281,7 @@
         if (CC.dockWrangle) CC.dockWrangle();   // dock any floating cleaning panel before hiding
         document.getElementById('changelogPanel').classList.add('hidden');
         resetCodebookViewer();   // clear any prior codebook doc, back to empty state
+        if (CC.codebookEditor) CC.codebookEditor.show('variables');
     }
 
     /** The sidebar's "Loaded <name>" line (D1-1) plus upload warnings, e.g.
@@ -400,6 +404,13 @@
                             (coded ? `, ${coded} with value labels.` : '.'), 'success');
                     }
                     CC.renderTableHeaders(CC.state.headers);
+                    // The server codebook of the new dataset: native .sav/.dta
+                    // labels now, and earlier edits when identical content
+                    // was uploaded before (SP2).
+                    if (CC.codebookEditor) CC.codebookEditor.refresh();
+                    if (data.codebook_restored) {
+                        CC.toast('The codebook from your earlier upload of this file is back.', 'info');
+                    }
                     CC.pipeline.set('load', 'done', label);
                     // The table preview is its own request: a /data_page hiccup
                     // must not mark an accepted upload as failed (D4-23).
@@ -474,6 +485,7 @@
                         CC.state.pdfMapping = Object.assign({}, CC.state.pdfMapping, ext.data.mapping);
                         if (ext.data.usage) CC.addUsage(ext.data.usage);
                         CC.renderCodebookUI();   // surface new descriptions on hover (no-op if not yet classified)
+                        if (CC.codebookEditor) CC.codebookEditor.refresh();   // labels from the document (SP2)
                         const n = Object.keys(ext.data.mapping).length;
                         const matched = Object.keys(ext.data.mapping)
                             .filter(k => CC.state.headers.some(h => h.toLowerCase() === k.toLowerCase())).length;
@@ -564,6 +576,9 @@
             CC.state.headers = profile.headers;
             CC.renderTableHeaders(CC.state.headers);
             await CC.fetchDataPage(1);
+            // The new version's columns: added ones get a default codebook
+            // row now, the re-classify below fills them in (SP2).
+            if (CC.codebookEditor) CC.codebookEditor.refresh();
             // Re-classify in the BACKGROUND, not awaited: the edit itself is
             // already done and shown above. Awaiting this slow LLM re-profile
             // used to hold the Apply button's spinner spinning for seconds after
@@ -615,6 +630,7 @@
             }
         } catch (e) { /* the caller's toast still tells the user to reload */ }
         await CC.fetchDataPage(1);
+        if (CC.codebookEditor) CC.codebookEditor.refresh();
         return changelog;
     }
     CC.reloadDatasetState = reloadDatasetState;
@@ -806,6 +822,7 @@
         if (text) text.setAttribute('aria-label', label);
         if (empty) empty.classList.add('hidden');
         if (replace) replace.classList.remove('hidden');
+        if (CC.codebookEditor) CC.codebookEditor.show('document');
     }
     function resetCodebookViewer() {
         const frame = document.getElementById('pdfViewerFrame');

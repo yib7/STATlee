@@ -395,7 +395,10 @@
         if (label) label.textContent = codebookExpanded ? 'Compact' : 'Expand';
     };
 
-    CC.renderCodebookUI = function () {
+    /** `opts.keepState`: a codebook edit or refresh (codebook.js) re-renders
+     *  the chips without re-opening a list the user hid or popped out. */
+    CC.renderCodebookUI = function (opts) {
+        const keepState = !!(opts && opts.keepState);
         const cbContainer = document.getElementById('codebookContainer');
         const cbList = document.getElementById('codebookList');
         cbList.innerHTML = '';
@@ -442,6 +445,10 @@
         });
         cbList.classList.toggle('expanded', codebookExpanded);  // preserve density across re-renders
 
+        if (keepState) {
+            if (!document.getElementById('codebookFloat')) cbContainer.classList.remove('hidden');
+            return;
+        }
         codebookVisible = true;
         cbList.style.display = '';
         const lbl = document.getElementById('codebookToggleLabel');

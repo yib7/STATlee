@@ -624,3 +624,104 @@ def test_workbook_copy_has_no_em_dashes(client):
     js = _js_sources()['workbook.js']
     strings = re.findall(r"'([^'\n]*)'", js)
     assert not [s for s in strings if '\u2014' in s]
+
+
+# =============================================================================
+# SP2 survey-native codebook (2026-10-08): the editable Codebook tab
+# =============================================================================
+
+def test_codebook_tab_has_an_editor_and_keeps_the_document_viewer(client):
+    tab = _section(_index_html(client), 'contentPdf', 'contentReport')
+    for hook in ('cbEditor', 'cbList', 'cbSummary', 'cbFilter', 'cbImportBtn',
+                 'cbExportBtn', 'cbImportInput', 'cbEmpty', 'cbViewVariables',
+                 'cbViewDocument', 'cbDocument'):
+        assert f'id="{hook}"' in tab, hook
+    # The existing PDF/TXT viewer stays, inside the Document view.
+    doc = tab[tab.find('id="cbDocument"'):]
+    for hook in ('codebookEmptyState', 'pdfViewerFrame', 'codebookTextView',
+                 'codebookTabUploadBtn', 'codebookTabSurveyBtn'):
+        assert f'id="{hook}"' in doc, hook
+    assert 'id="codebookReplaceBtn"' in tab
+    # The two views are a pressed-button switch, not two unlabelled divs.
+    for view, target in (('cbViewVariables', 'cbEditor'), ('cbViewDocument', 'cbDocument')):
+        i = tab.find(f'id="{view}"')
+        tag = tab[tab.rfind('<', 0, i):tab.find('>', i)]
+        assert 'aria-pressed=' in tag and f'aria-controls="{target}"' in tag, view
+    m = re.search(r'<input[^>]*id="cbImportInput"[^>]*>', tab)
+    assert m and 'accept=".json,application/json"' in m.group(0)
+    assert re.search(r'<ol[^>]*id="cbList"', tab), 'variables are an ordered list'
+
+
+def test_codebook_controls_are_labelled(client):
+    tab = _section(_index_html(client), 'contentPdf', 'contentReport')
+    m = re.search(r'<input[^>]*id="cbFilter"[^>]*>', tab)
+    assert m and ('aria-label=' in m.group(0) or 'for="cbFilter"' in tab)
+    js = _js_sources()['codebook.js']
+    # Every per-row control gets an accessible name that names its column.
+    for field in ('Type', 'Label', 'Role', 'Scale group', 'Missing codes'):
+        assert f"'{field} for '" in js, field
+    assert "setAttribute('aria-expanded'" in js
+    assert "setAttribute('aria-controls'" in js
+
+
+def test_codebook_import_copy_says_only_edits_come_across(client):
+    tab = _visible(_section(_index_html(client), 'contentPdf', 'contentReport'))
+    i = tab.find('id="cbEditor"')
+    editor = tab[i:tab.find('id="cbDocument"')]
+    assert 'only' in editor and 'edit' in editor
+    assert re.search(r'export[^<]*only[^<]*edit', editor, re.I | re.S), \
+        'the import hint must say an export brings over only hand edits'
+
+
+def test_codebook_script_is_loaded_after_workbook(client):
+    html = _index_html(client)
+    w = html.find('js/workbook.js')
+    c = html.find('js/codebook.js')
+    t = html.find('js/tools.js')
+    assert c != -1, 'codebook.js is not loaded'
+    assert w < c < t
+
+
+def test_codebook_js_renders_codebook_text_as_text_only():
+    """Labels, value labels and column names are user/model/file text: the
+    codebook module builds its DOM with createElement + textContent only."""
+    js = _js_sources()['codebook.js']
+    assert 'innerHTML' not in js
+    assert 'insertAdjacentHTML' not in js
+    assert 'outerHTML' not in js
+    assert 'textContent' in js
+
+
+def test_codebook_writes_carry_the_csrf_header():
+    api = _js_sources()['api.js']
+    assert re.search(r"CC\.put\s*=.*CC\.send\('PUT'", api)
+    js = _js_sources()['codebook.js']
+    assert 'CC.put(' in js and 'CC.post(' in js
+    assert "method: 'PUT'" not in js or 'CC.headers()' in js
+
+
+def test_codebook_reads_the_server_and_refreshes_on_dataset_changes():
+    js = _js_sources()
+    assert "'/codebook?filename='" in js['codebook.js']
+    assert "'/codebook/import'" in js['codebook.js']
+    assert "'/codebook/export?filename='" in js['codebook.js']
+    # Classification, PDF extraction, wrangles, and a new dataset refresh it.
+    data = js['data.js']
+    assert data.count('CC.codebookEditor') >= 4, 'data.js must refresh the codebook editor'
+
+
+def test_codebook_styles_are_hand_written_not_purged_utilities():
+    css = _read('statlee', 'static', 'css', 'app.css')
+    for cls in ('cb-editor', 'cb-toolbar', 'cb-list', 'cb-row', 'cb-badge',
+                'cb-field', 'cb-values', 'cb-switch', 'cb-empty', 'cb-document'):
+        assert '.' + cls in css, f'{cls} has no rule in app.css'
+    for cls in ('cb-editor', 'cb-values', 'cb-empty', 'cb-document', 'cb-row'):
+        assert f'.{cls}.hidden' in css, f'.{cls} needs a .hidden override'
+
+
+def test_codebook_copy_has_no_em_dashes(client):
+    tab = _visible(_section(_index_html(client), 'contentPdf', 'contentReport'))
+    assert '—' not in tab
+    js = _js_sources()['codebook.js']
+    strings = re.findall(r"'([^'\n]*)'", js)
+    assert not [s for s in strings if '—' in s]

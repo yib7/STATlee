@@ -688,6 +688,151 @@ body.cc-no-data .es-hint { display: block; }
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* ============ Survey-native codebook editor (SP2) ============
+   The Codebook tab's Variables view: one row per column (codebook.js) and the
+   Variables / Document switch. Hand-written like the workbook chrome; every
+   block that sets `display` carries a .hidden override. Rows sit on a grid that
+   collapses to a stacked card when the editor is narrow (a container query, so
+   the split pane and a phone both get it). The wide grid's minimums add up
+   to about 840px, so the card layout takes over below 880px. */
+.cb-head { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
+.cb-switch {
+    display: inline-flex; gap: 2px; padding: 2px; margin-right: auto;
+    background: var(--s2); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.cb-switch-btn {
+    font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.75rem; cursor: pointer;
+    color: var(--text-2); background: transparent; border-radius: var(--r-sm);
+    transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.cb-switch-btn:hover { color: var(--text-1); }
+.cb-switch-btn[aria-pressed="true"] { background: var(--s0); color: var(--text-1); box-shadow: var(--e1); }
+
+.cb-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; }
+.cb-editor.hidden { display: none; }
+.cb-document { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cb-document.hidden { display: none; }
+
+.cb-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem;
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--border);
+}
+.cb-summary {
+    flex: 1 1 12rem; min-width: 0; margin: 0;
+    font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2);
+}
+.cb-filter {
+    flex: 0 1 14rem; min-width: 8rem; font-size: 0.8rem; padding: 0.4rem 0.6rem;
+    color: var(--text-1); background: var(--s0);
+    border: 1px solid var(--border-strong); border-radius: var(--r-md); outline: none;
+}
+.cb-filter:disabled, .cb-actions .wb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cb-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cb-hint {
+    margin: 0; padding: 0.5rem 1rem; font-size: 0.72rem; line-height: 1.45;
+    color: var(--text-2); background: var(--s1); border-bottom: 1px solid var(--border);
+}
+.cb-hint.hidden { display: none; }
+.cb-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.35rem; padding: 2.5rem 1.5rem; text-align: center;
+}
+.cb-empty.hidden { display: none; }
+.cb-empty-title { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--text-1); }
+.cb-empty-sub { margin: 0; max-width: 26rem; font-size: 0.85rem; line-height: 1.5; color: var(--text-2); }
+
+.cb-scroll { flex: 1; min-height: 0; overflow: auto; }
+.cb-list { list-style: none; margin: 0; padding: 0; }
+.cb-row {
+    display: grid; align-items: center; gap: 0.5rem; min-width: 0;
+    grid-template-columns: minmax(6.5rem, 1fr) 7.5rem minmax(8rem, 2fr) 8.25rem minmax(5rem, 0.8fr) minmax(5.5rem, 0.9fr) 6.5rem;
+    padding: 0.45rem 1rem; border-bottom: 1px solid var(--border);
+}
+.cb-row.hidden { display: none; }
+.cb-row.cb-open { background: color-mix(in srgb, var(--indigo-soft) 45%, transparent); }
+.cb-row.cb-head-row {
+    position: sticky; top: 0; z-index: 1; padding-top: 0.45rem; padding-bottom: 0.45rem;
+    background: var(--s1); font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+}
+.cb-row.cb-head-row.hidden { display: none; }
+.cb-cell { min-width: 0; }
+.cb-name-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; }
+.cb-name {
+    max-width: 100%; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700;
+    color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cb-badge {
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; white-space: nowrap; cursor: help;
+    padding: 0.05rem 0.45rem; border: 1px solid currentColor; border-radius: var(--r-pill);
+}
+.cb-src-user { color: var(--indigo); background: var(--indigo-soft); }
+.cb-src-native { color: var(--pipe-done); }
+.cb-src-pdf { color: var(--c-cont); }
+.cb-src-llm { color: var(--text-2); }
+.cb-src-default { color: var(--text-3); border-style: dashed; }
+
+.cb-field { display: block; min-width: 0; }
+.cb-field-name { display: none; }
+.cb-input {
+    display: block; width: 100%; min-width: 0; font-size: 0.8rem; padding: 0.35rem 0.5rem;
+    color: var(--text-1); background: var(--s0);
+    border: 1px solid var(--border-strong); border-radius: var(--r-md); outline: none;
+    transition: border-color var(--dur-1) var(--ease);
+}
+.cb-input::placeholder { color: var(--text-3); }
+.cb-input:hover { border-color: color-mix(in srgb, var(--indigo) 45%, var(--border-strong)); }
+.cb-input:focus-visible, .cb-filter:focus-visible { outline: 2px solid var(--indigo); outline-offset: 1px; border-color: var(--indigo); }
+.cb-type option:disabled { color: var(--text-3); }
+/* A field the user edited: an indigo edge, the same cue as the "edited" badge. */
+.cb-field.cb-user .cb-input { border-color: color-mix(in srgb, var(--indigo) 60%, transparent); box-shadow: inset 3px 0 0 var(--indigo); }
+.cb-row.cb-unset .cb-type { color: var(--text-3); }
+
+.cb-values-toggle {
+    width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 0.3rem;
+    font-size: 0.72rem; font-weight: 600; padding: 0.38rem 0.55rem; cursor: pointer; white-space: nowrap;
+    color: var(--text-2); background: var(--s0);
+    border: 1px solid var(--border-strong); border-radius: var(--r-md);
+}
+.cb-values-toggle:hover { color: var(--indigo); border-color: var(--indigo); }
+.cb-values-toggle.cb-user { color: var(--indigo); box-shadow: inset 3px 0 0 var(--indigo); }
+.cb-chevron { transition: transform var(--dur-2) var(--ease); }
+.cb-values-toggle[aria-expanded="true"] .cb-chevron { transform: rotate(180deg); }
+.cb-values {
+    grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.45rem;
+    margin: 0.15rem 0 0.25rem; padding: 0.65rem 0.75rem;
+    background: var(--s1); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.cb-values.hidden { display: none; }
+.cb-vl-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.cb-vl-row { display: grid; grid-template-columns: minmax(4rem, 7rem) minmax(0, 1fr) 2rem; gap: 0.4rem; align-items: center; max-width: 36rem; }
+.cb-vl-remove {
+    width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.05rem; line-height: 1; color: var(--text-3); background: transparent; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+}
+.cb-vl-remove:hover { color: var(--pipe-failed); background: var(--s2); }
+.cb-vl-add { align-self: flex-start; }
+.cb-vl-hint { margin: 0; font-size: 0.68rem; color: var(--text-2); }
+
+/* Narrow editor (a phone, the split pane): each row becomes a small card with
+   visible field names; the column header row goes away. */
+@container (max-width: 880px) {
+    .cb-row.cb-head-row { display: none; }
+    .cb-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.5rem 0.6rem; padding: 0.75rem 0.85rem; }
+    .cb-name-cell { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .cb-f-label, .cb-values-cell { grid-column: 1 / -1; }
+    /* Name, then the label across the card, then the short fields in pairs. */
+    .cb-name-cell { order: -2; }
+    .cb-f-label { order: -1; }
+    .cb-field-name {
+        display: block; margin-bottom: 0.15rem; font-family: var(--font-mono); font-size: 0.6rem;
+        font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3);
+    }
+    .cb-values-toggle { justify-content: center; }
+}
+
 /* Data-viewer zoom controls (cycle 2) */
 .data-zoom-btn { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; line-height: 1; min-width: 1.75rem; padding: 0.3rem 0.5rem; border: 1px solid var(--border-strong); border-radius: var(--r-sm); color: var(--text-2); background: var(--s0); transition: background var(--dur-1), border-color var(--dur-1); }
 .data-zoom-btn:hover { background: var(--indigo-soft); border-color: var(--indigo); color: var(--indigo); }
