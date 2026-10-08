@@ -208,8 +208,15 @@
         label.addEventListener('input', () => edit(col, 'label', label.value.trim()));
         scale.addEventListener('input', () => edit(col, 'scale_group', scale.value.trim() || null));
         missing.addEventListener('input', () => edit(col, 'missing_codes', parseCodes(missing.value)));
-        // Leaving a text field saves it now, and shows the server's cleaned value.
-        [label, scale, missing].forEach((node) => node.addEventListener('change', () => flush()));
+        // Leaving a text field saves it now. Once nothing is queued for it,
+        // it shows the server's cleaned value (trimmed, clamped), which a
+        // save that landed while it was focused could not write.
+        [[label, 'label'], [scale, 'scale_group'], [missing, 'missing_codes']].forEach(([node, f]) => {
+            node.addEventListener('change', () => flush());
+            node.addEventListener('blur', () => {
+                if (!hasPending(col, f)) syncField(refs, f, false);
+            });
+        });
         toggle.addEventListener('click', () => setExpanded(refs, toggle.getAttribute('aria-expanded') !== 'true'));
         return refs;
     }
@@ -562,7 +569,12 @@
         cb.inflight = null;
         const current = filename === cb.filename && filename === CC.state.filename;
         if (res && res.ok && res.data && Array.isArray(res.data.columns)) {
-            if (current) adopt(res.data, { only: batch });
+            if (current) {
+                // This answer carries the whole codebook after the edit: a
+                // refresh read sent before it would put the old values back.
+                cb.seq += 1;
+                adopt(res.data, { only: batch });
+            }
             return;
         }
         if (current) revert(batch);
@@ -638,6 +650,7 @@
         }
         if (filename !== CC.state.filename) return;
         const data = res.data || {};
+        cb.seq += 1;                 // discard any older refresh read (see save)
         adopt(data);
         const n = typeof data.imported === 'number' ? data.imported : 0;
         const ignored = Array.isArray(data.ignored) ? data.ignored.map(String) : [];

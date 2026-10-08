@@ -381,3 +381,47 @@ def test_codebook_screenshots(browser, e2e_server, fake, scheme, width, height):
         p.screenshot(path=os.path.join(out, f'codebook-editor-{tag}.png'), full_page=True)
     finally:
         p.context.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1: stale reads and cleaned values
+# ---------------------------------------------------------------------------
+
+SLOW_CODEBOOK_READS = """
+(ms) => {
+    const inner = window.fetch;
+    window.fetch = function (input, init) {
+        const path = new URL(String(input && input.url || input), location.href).pathname;
+        const method = ((init && init.method) || 'GET').toUpperCase();
+        const reply = inner(input, init);
+        if (path !== '/codebook' || method !== 'GET') return reply;
+        // The read reaches the server now; its answer arrives late.
+        return reply.then(r => new Promise(res => setTimeout(() => res(r), ms)));
+    };
+}
+"""
+
+
+def test_a_stale_read_never_overwrites_a_saved_edit(page, fake):
+    open_codebook(page, fake, 'cb-stale.csv')
+    page.evaluate(SLOW_CODEBOOK_READS, 1200)
+    page.evaluate('() => { window.__staleRead = CC.codebookEditor.refresh(); }')
+    with expect_put(page):
+        page.select_option(row('group') + ' select.cb-type', 'ordinal')
+    page.evaluate('() => window.__staleRead')       # the old read has now landed
+    page.wait_for_timeout(100)
+    assert page.input_value(row('group') + ' select.cb-type') == 'ordinal'
+    assert badge(page, 'group') == 'edited'
+    assert server_codebook(page)['codebook']['group']['type'] == 'ordinal'
+
+
+def test_leaving_a_field_shows_the_servers_cleaned_value(page, fake):
+    open_codebook(page, fake, 'cb-clean.csv')
+    page.click(row('age') + ' input.cb-label')
+    with expect_put(page):
+        page.keyboard.type('  Age in years  ')
+    # Still focused: the field keeps what was typed.
+    assert page.input_value(row('age') + ' input.cb-label') == '  Age in years  '
+    page.keyboard.press('Tab')
+    page.wait_for_function(
+        f"() => document.querySelector('{row('age')} input.cb-label').value === 'Age in years'")
