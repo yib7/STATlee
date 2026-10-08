@@ -126,6 +126,9 @@ Running generated code directly on your host is *not recommended for untrusted i
    APP_ENV=development python wsgi.py
    ```
 
+   The dev server listens on `127.0.0.1:5000` only. `BIND_HOST=0.0.0.0` exposes
+   it to your network, where anyone could run generated code billed to your key.
+
 **LLM.** Pick a provider with `LLM_PROVIDER` (gemini default, anthropic, or
 openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY`), required in production. Model ids per role can be pinned with

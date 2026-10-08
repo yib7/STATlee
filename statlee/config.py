@@ -56,6 +56,11 @@ class Config:
 
     # --- Server -------------------------------------------------------------
     port: int = 5000
+    # Interface the `python wsgi.py` dev server binds (D5-8). Loopback by
+    # default: the local run is open-auth and executes generated code, so LAN
+    # exposure is an explicit BIND_HOST=0.0.0.0 opt-in. gunicorn (the container)
+    # binds via its own --bind flag and ignores this.
+    bind_host: str = '127.0.0.1'
     max_upload_mb: int = 16
 
     # --- Storage / database --------------------------------------------------
@@ -254,6 +259,7 @@ class Config:
             openai_api_key=os.environ.get('OPENAI_API_KEY', '').strip(),
             openai_max_tokens=_env_int('OPENAI_MAX_TOKENS', 8192),
             port=_env_int('PORT', 5000),
+            bind_host=os.environ.get('BIND_HOST', '127.0.0.1').strip() or '127.0.0.1',
             max_upload_mb=_env_int('MAX_UPLOAD_MB', 16),
             upload_root=os.environ.get('UPLOAD_ROOT', '').strip(),
             database_url=os.environ.get('DATABASE_URL', '').strip(),
