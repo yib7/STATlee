@@ -18,11 +18,15 @@
     /* light theme */
     --s0: #ffffff; --s1: #f6f6fb; --s2: #eeedf6; --s3: #e4e3f0;
     --border: #e6e5f0; --border-strong: #d3d1e4;
-    --text-1: #171426; --text-2: #4c4860; --text-3: #8b8798;
+    /* D4-15: the light-theme text tokens are darkened to WCAG AA (4.5:1) on
+       s0/s1/s2. Old values, for the record: text-3 #8b8798 (3.5:1), c-nom
+       #e08600 (2.8:1, the amber "Original" button), pipe-done #0a9d63
+       (3.5:1), pipe-failed #e0463b (4.1:1). The .dark block is unchanged. */
+    --text-1: #171426; --text-2: #4c4860; --text-3: #6b677a;
     --indigo: #5b53e6; --indigo-2: #6d5cf5; --violet: #8b5cf6; --indigo-soft: #eeecfe;
-    --c-cont: #2f6df0; --c-nom: #e08600; --c-ord: #0a9d63;
-    --pipe-pending: #a7a3b8; --pipe-active: #5b53e6; --pipe-done: #0a9d63;
-    --pipe-failed: #e0463b; --pipe-skipped: #a7a3b8;
+    --c-cont: #2f6df0; --c-nom: #8f5300; --c-ord: #0a9d63;
+    --pipe-pending: #a7a3b8; --pipe-active: #5b53e6; --pipe-done: #056b42;
+    --pipe-failed: #b3322a; --pipe-skipped: #a7a3b8;
     /* skeleton fill for the empty states. Not in the token sheet (which has no
        skeleton surface); values taken from `STATlee Workspace Empty.dc.html`. */
     --skel: #e9e8f2;
@@ -33,7 +37,7 @@
     /* editor / terminal - always dark, both themes (so these two do NOT flip
        with the theme: they are read against the dark terminal in both) */
     --code-bg: #0c0a17; --code-chrome: #0f0c1e; --code-border: #241f3f;
-    --code-text: #d8d4f0; --code-muted: #655f86;
+    --code-text: #d8d4f0; --code-muted: #8a84ab;   /* was #655f86, 3.3:1 on code-bg (D4-15) */
     --code-dim: #a7a1c4;   /* secondary terminal line (traceback File "..." rows) */
     --code-err: #f8776b;   /* terminal error text; the dark-theme red, always */
 }
@@ -489,7 +493,11 @@ body.cc-no-data .es-hint { display: block; }
 
 /* Toasts */
 #toastArea { position: fixed; bottom: 56px; right: 18px; z-index: 120; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
-.cc-toast { padding: 0.7rem 1rem; border-radius: var(--r-md); font-size: 0.8rem; font-weight: 600; box-shadow: var(--e2); border: 1px solid transparent; animation: fadeInUp 0.3s var(--ease-out) forwards; }
+.cc-toast { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0.6rem 0.7rem 1rem; border-radius: var(--r-md); font-size: 0.8rem; font-weight: 600; box-shadow: var(--e2); border: 1px solid transparent; animation: fadeInUp 0.3s var(--ease-out) forwards; }
+.cc-toast.hidden { display: none; }
+.cc-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cc-toast-close { flex-shrink: 0; background: transparent; border: 0; color: inherit; font-size: 1rem; line-height: 1; padding: 0 0.3rem; border-radius: var(--r-sm); cursor: pointer; opacity: 0.75; }
+.cc-toast-close:hover { opacity: 1; }
 .cc-toast.info { background: var(--indigo-soft); color: var(--indigo); border-color: var(--indigo); }
 .cc-toast.error { background: color-mix(in srgb, var(--pipe-failed) 14%, var(--s1)); color: var(--pipe-failed); border-color: var(--pipe-failed); }
 .cc-toast.success { background: color-mix(in srgb, var(--pipe-done) 14%, var(--s1)); color: var(--pipe-done); border-color: var(--pipe-done); }
@@ -497,6 +505,27 @@ body.cc-no-data .es-hint { display: block; }
 /* Modal base - softer backdrop (modal pass, ask #10) */
 .cc-modal { position: fixed; inset: 0; z-index: 95; background: rgba(8, 6, 15, 0.55); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .cc-modal.hidden { display: none; }
+/* A forced dialog (accounts mode, signed out) cannot be dismissed, so it does
+   not show a close button that would do nothing (D4-14). */
+.cc-modal[data-forced] [data-close-modal] { display: none; }
+
+/* Screen-reader-only text (not in the purged Tailwind build). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Account dialog: info messages (202 "check your email", reset sent) are not
+   errors, so they are not red (D4-12). */
+#accError.acc-info { color: var(--indigo); }
+.acc-link { background: transparent; border: 0; padding: 0.15rem 0.1rem; font-size: 0.75rem; font-weight: 600; color: var(--indigo); cursor: pointer; border-radius: var(--r-sm); }
+.acc-link:hover { text-decoration: underline; }
+.acc-link:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Data-handling disclosure under the dropzone (D6 / D4-16). */
+.cc-disclosure { font-size: 0.75rem; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--s0); padding: 0.5rem 0.75rem; }
+.cc-disclosure > summary { cursor: pointer; font-weight: 600; color: var(--text-1); list-style-position: inside; border-radius: var(--r-sm); }
+.cc-disclosure ul { margin: 0.5rem 0 0.15rem; padding-left: 1.1rem; list-style: disc; display: flex; flex-direction: column; gap: 0.3rem; line-height: 1.45; }
+
+/* Anonymous-upload expiry line (D4-20). */
+.cc-session-expiry { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2); text-align: center; }
 
 /* Conversational data-cleaning transcript (5.16) */
 .wrangle-chat { max-height: 14rem; }
@@ -545,9 +574,11 @@ input[type="checkbox"].cc-switch::after {
 input[type="checkbox"].cc-switch:checked { background: var(--indigo); border-color: var(--indigo); }
 input[type="checkbox"].cc-switch:checked::after { left: 16px; }
 
-/* Focus visibility (5.9) */
-button:focus-visible, a:focus-visible, [tabindex]:focus-visible, input.cc-switch:focus-visible {
-    outline: 2px solid var(--indigo); outline-offset: 2px;
+/* Focus visibility (5.9, D4-13). !important because Tailwind's
+   focus:outline-none (a 2px *transparent* outline) used to win on most
+   buttons, leaving keyboard users with no visible focus at all. */
+:is(button, a, summary, [tabindex], [role="tab"], input.cc-switch):focus-visible {
+    outline: 2px solid var(--indigo) !important; outline-offset: 2px;
 }
 
 /* Respect reduced-motion */
@@ -558,4 +589,31 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible, input.cc-switch
         transition-duration: 0.001ms !important;
         scroll-behavior: auto !important;
     }
+    /* A one-shot indeterminate bar would freeze at 26% and read as stuck;
+       show a steady full-width "working" bar instead (D4-32). */
+    .lc-progress-bar { animation: none !important; width: 100%; opacity: 0.55; }
+}
+
+/* ============ Narrow screens (D4-17) ============
+   Below ~900px the side-by-side layout cannot fit: the sidebar alone has a
+   320px floor. Stack sidebar over workspace and let the PAGE scroll (no
+   horizontal scroll), hide the drag resizer and split view. */
+@media (max-width: 900px) {
+    body.cc-app { height: auto; min-height: 100vh; min-height: 100dvh; overflow-x: hidden; overflow-y: auto; }
+    #mainRow { flex-direction: column; min-height: auto; }
+    #leftSidebar { width: 100% !important; min-width: 0 !important; border-right: 0; border-bottom: 1px solid var(--border); }
+    #leftSidebar > .overflow-y-auto { overflow: visible; }
+    #resizer, #splitBtn, #paneDivider, #paneB, #expandSidebarBtn { display: none !important; }
+    #rightContent { width: 100%; min-height: 85vh; min-height: 85dvh; }
+    #rightContent [role="tablist"] { max-width: 100%; }
+    #paneArea { min-height: 75vh; min-height: 75dvh; }
+    .tab-content.p-8 { padding: 1rem; }
+    #chatLog { padding: 1rem; }
+    #codebookFloat, #wrangleFloat { left: 8px; right: 8px; width: auto; }
+    #toastArea { left: 12px; right: 12px; max-width: none; }
+    /* The codebook and data-cleaning toolbars (Undo/Redo/Original/Pop out)
+       are wider than a phone: wrap them instead of widening the page. */
+    #codebookContainer > .flex, #changelogPanel > .flex,
+    #codebookContainer > .flex > .flex, #changelogPanel > .flex > .flex { flex-wrap: wrap; }
+    #leftSidebar, #rightContent { max-width: 100vw; }
 }

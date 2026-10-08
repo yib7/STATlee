@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+{#- D4-16: only the docker sandbox removes network access. The default
+    subprocess sandbox is time/memory/output-limited but shares the host
+    network, so the copy may only claim isolation in docker mode. #}
+{%- set docker_sandbox = config['STATLEE'].sandbox_mode == 'docker' %}
+{%- set sandbox_phrase = 'a sandbox with no network access' if docker_sandbox else 'a time- and memory-limited sandbox' %}
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -612,7 +617,7 @@
                     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="var(--indigo)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"></path></svg>
                 </div>
                 <h3>Runs real code, not vibes</h3>
-                <p>Generates Python or R, executes it in a network-less sandbox, and shows you the
+                <p>Generates Python or R, executes it in {{ sandbox_phrase }}, and shows you the
                     script and the raw terminal output. Nothing is hidden.</p>
             </div>
             <div class="benefit" data-reveal>
@@ -646,7 +651,7 @@
             <div class="step" data-reveal>
                 <div class="step-n">03</div>
                 <h3>Run in a sandbox</h3>
-                <p>STATlee writes and executes the analysis with no network access to your data.</p>
+                <p>STATlee writes the analysis and executes it in {{ sandbox_phrase }}, with limits on run time, memory and output.</p>
             </div>
             <div class="step" data-reveal>
                 <div class="step-n">04</div>
@@ -769,7 +774,7 @@
             <div class="final-glow"></div>
             <div class="final-in">
                 <h2>Bring your dataset. Leave with a defensible result.</h2>
-                <p>No account required. Your data is processed in a sandbox with no network access.</p>
+                <p>No account required. Your scripts run in {{ sandbox_phrase }}, and anonymous uploads are deleted automatically.</p>
                 <a class="btn btn-primary" href="/">Open the workspace</a>
             </div>
         </div>
@@ -783,7 +788,7 @@
                     <img src="{{ url_for('static', filename='images/mark.png') }}" alt="">
                     <span>STATlee</span>
                 </div>
-                <p>Your data is processed in a network-less sandbox, and anonymous uploads are deleted
+                <p>Scripts run in {{ sandbox_phrase }}, and anonymous uploads are deleted
                     automatically. STATlee is a research aid, so always review generated code and
                     results before relying on them.</p>
             </div>

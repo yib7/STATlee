@@ -30,8 +30,16 @@
          executable, so a strict script-src 'self' does not block it). boot.js
          reads it into window.CC_BOOT. 'models' carries the code-generation
          model ids by role so the generation header can name the model that is
-         actually running (display only, exactly like 'prices'). -->
-    <script type="application/json" id="cc-boot-data">{{ {'accounts': accounts_enabled, 'prices': model_prices, 'models': model_roles} | tojson }}</script>
+         actually running (display only, exactly like 'prices'). 'provider',
+         'sandbox_mode', 'file_ttl' (seconds) and 'billing' keep the copy
+         honest about who receives the data, how scripts are isolated, and
+         when anonymous uploads are deleted (D4-16/D4-19/D4-20). -->
+    {%- set S = config['STATLEE'] %}
+    {%- set provider_names = {'gemini': 'Google Gemini', 'anthropic': 'Anthropic Claude', 'openai': 'OpenAI'} %}
+    {%- set provider_name = provider_names.get(S.llm_provider, S.llm_provider) %}
+    {%- set docker_sandbox = S.sandbox_mode == 'docker' %}
+    {%- set ttl_hours = '%g' % (((S.file_ttl_seconds or 0) / 3600) | round(1)) %}
+    <script type="application/json" id="cc-boot-data">{{ {'accounts': accounts_enabled, 'prices': model_prices, 'models': model_roles, 'provider': provider_name, 'sandbox_mode': S.sandbox_mode, 'file_ttl': S.file_ttl_seconds, 'billing': S.billing_enabled} | tojson }}</script>
     <script src="{{ url_for('static', filename='js/boot.js') }}"></script>
 </head>
 <!-- The three empty-state flags start set and are cleared by the JS as each
@@ -40,9 +48,12 @@
        cc-no-code  cleared by analyze.js when the editor has content
        cc-no-run   cleared by analyze.js when a run starts
        cc-no-chat  cleared by converse.js on the first message -->
-<body class="bg-[var(--s1)] text-[var(--text-1)] h-screen flex flex-col overflow-hidden relative transition-colors duration-500 cc-no-data cc-no-code cc-no-run cc-no-chat">
+<body class="cc-app bg-[var(--s1)] text-[var(--text-1)] h-screen flex flex-col overflow-hidden relative transition-colors duration-500 cc-no-data cc-no-code cc-no-run cc-no-chat">
 
-    <div id="toastArea" aria-live="polite"></div>
+    <div id="toastArea"></div>
+    <!-- One polite announcement per finished stream/run (D4-14); the streamed
+         panes themselves are not live regions, or every chunk would be read. -->
+    <div id="srAnnounce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
     <!-- Legacy master-password overlay -->
     <div id="authOverlay" class="fixed inset-0 z-[100] bg-[rgba(8,6,15,0.55)] backdrop-blur-md flex items-center justify-center transition-opacity duration-500 hidden">
@@ -83,7 +94,7 @@
             </div>
 
             <div id="codebookStepSurvey" class="hidden">
-                <h2 class="text-2xl font-display font-bold text-[var(--text-1)] mb-3 tracking-tight">Generate one from your survey?</h2>
+                <h2 id="codebookSurveyTitle" class="text-2xl font-display font-bold text-[var(--text-1)] mb-3 tracking-tight">Generate one from your survey?</h2>
                 <p class="text-sm text-[var(--text-2)] mb-8 leading-relaxed">
                     If you have the <span class="text-[var(--indigo)] font-semibold">survey questionnaire</span> the data came from, upload it and STATlee will infer variable descriptions, scales, and value labels from the questions themselves.
                 </p>
@@ -98,7 +109,7 @@
                 </div>
             </div>
 
-            <p class="text-[10px] text-[var(--text-3)] mt-6 font-mono uppercase tracking-widest">Max 50 pages &bull; PDF or TXT</p>
+            <p class="text-[10px] text-[var(--text-3)] mt-6 font-mono uppercase tracking-widest">Max {{ S.pdf_max_pages }} pages &bull; PDF or TXT</p>
         </div>
     </div>
 
@@ -110,19 +121,27 @@
                 <button data-close-modal="accountModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close account dialog">&times;</button>
             </div>
             <div id="accountLoginItem">
-                <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous sandbox use stays available. Nothing is stored without an account.</p>
-                <label class="label-eyebrow mb-1.5" for="accEmail">Email</label>
-                <input type="email" id="accEmail" autocomplete="email" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="you@university.edu">
-                <label class="label-eyebrow mb-1.5" for="accPassword">Password <span class="font-normal normal-case tracking-normal opacity-70">(8+ characters)</span></label>
-                <input type="password" id="accPassword" autocomplete="current-password" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-5 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="••••••••">
-                <p id="accError" class="text-[var(--pipe-failed)] text-sm mb-4 hidden font-medium"></p>
-                <div class="flex gap-3">
-                    <button id="accLoginBtn" class="flex-1 btn-primary py-3">Sign in</button>
-                    <button id="accRegisterBtn" class="flex-1 btn-secondary py-3">Create account</button>
-                </div>
+                <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous use stays available: anonymous uploads are deleted automatically after about {{ ttl_hours }} hours, and past analyses are kept only in this browser.</p>
+                <!-- A real form (D4-12): Enter in either field signs in, and
+                     password managers recognise the pair. -->
+                <form id="accForm" novalidate>
+                    <label class="label-eyebrow mb-1.5" for="accEmail">Email</label>
+                    <input type="email" id="accEmail" autocomplete="email" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="you@university.edu">
+                    <label class="label-eyebrow mb-1.5" for="accPassword">Password <span class="font-normal normal-case tracking-normal opacity-70">(8+ characters)</span></label>
+                    <input type="password" id="accPassword" autocomplete="current-password" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-2 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="••••••••">
+                    <div class="flex justify-end mb-4">
+                        <button type="button" id="accForgotBtn" class="acc-link">Forgot password?</button>
+                    </div>
+                    <p id="accError" class="text-[var(--pipe-failed)] text-sm mb-4 hidden font-medium" role="alert"></p>
+                    <div class="flex gap-3">
+                        <button type="submit" id="accLoginBtn" class="flex-1 btn-primary py-3">Sign in</button>
+                        <button type="button" id="accRegisterBtn" class="flex-1 btn-secondary py-3">Create account</button>
+                    </div>
+                </form>
             </div>
             <div id="accountLogoutItem" class="hidden">
-                <p class="text-sm text-[var(--text-2)] mb-5">You're signed in. Your analyses are saved to your account.</p>
+                <p class="text-sm text-[var(--text-2)] mb-2">You're signed in. Your analyses are saved to your account.</p>
+                <p id="accountCredits" class="hidden text-xs font-mono text-[var(--text-2)] mb-5"></p>
                 <button id="accLogoutBtn" class="w-full btn-secondary py-3">Sign out</button>
             </div>
         </div>
@@ -149,6 +168,10 @@
                 <button data-close-modal="historyModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close history">&times;</button>
             </div>
             <div id="historyList" class="flex-1 min-h-0 overflow-y-auto"></div>
+            <div class="flex items-center justify-between gap-3 px-6 py-3 border-t border-[var(--border)]">
+                <p class="text-[11px] text-[var(--text-2)] leading-snug">Saved in this browser (including prompts, scripts and output). Signed-in runs also sync to your account.</p>
+                <button type="button" id="historyClearBtn" class="btn-toolbar shrink-0">Clear history</button>
+            </div>
         </div>
     </div>
 
@@ -194,7 +217,7 @@
     </div>
 
     <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
-    <div class="flex flex-1 min-h-0 relative">
+    <div id="mainRow" class="flex flex-1 min-h-0 relative">
 
         <!-- Floating handle to reopen a collapsed sidebar -->
         <button id="expandSidebarBtn" data-action="toggleSidebar" class="hidden fixed top-1/2 -translate-y-1/2 left-0 z-40 btn-primary p-2 rounded-l-none rounded-r-lg shadow-lg" title="Expand sidebar" aria-label="Expand sidebar">
@@ -216,10 +239,10 @@
                     </div>
                     <div class="flex items-center gap-3 animate-fade-in-up" style="animation-delay: 0.1s;">
                         <span id="accountLabel" class="hidden text-[10px] font-mono text-[var(--text-2)] max-w-[110px] truncate"></span>
-                        <button data-action="toggleSidebar" class="text-[var(--text-3)] hover:text-[var(--indigo)] transition-colors focus:outline-none p-2 rounded-full hover:bg-[var(--s2)]" title="Collapse sidebar for a full-width workspace" aria-label="Collapse sidebar">
+                        <button data-action="toggleSidebar" class="text-[var(--text-3)] hover:text-[var(--indigo)] transition-colors p-2 rounded-full hover:bg-[var(--s2)]" title="Collapse sidebar for a full-width workspace" aria-label="Collapse sidebar">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg>
                         </button>
-                        <button data-action="toggleTheme" class="text-[var(--text-3)] hover:text-[var(--indigo)] transition-colors focus:outline-none p-2 rounded-full hover:bg-[var(--s2)]" title="Toggle Theme" aria-label="Toggle color theme">
+                        <button data-action="toggleTheme" class="text-[var(--text-3)] hover:text-[var(--indigo)] transition-colors p-2 rounded-full hover:bg-[var(--s2)]" title="Toggle Theme" aria-label="Toggle color theme">
                             <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                             <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
                         </button>
@@ -263,6 +286,21 @@
                         Anonymous · uploads auto-deleted
                         </p>
                     </div>
+                    <p id="sessionExpiry" class="cc-session-expiry hidden" role="status"></p>
+
+                    <!-- Data-handling disclosure (D6 / D4-16): what actually
+                         leaves the server, for IRB-minded users. -->
+                    <details class="cc-disclosure mt-3">
+                        <summary>What is sent to {{ provider_name }}?</summary>
+                        <ul>
+                            <li>Your column names, up to 3 sample values per column, and your prompts.</li>
+                            <li>The script's terminal output and plots, for interpretation. The full file is not sent, but any rows a script prints are.</li>
+                            <li>An attached codebook or questionnaire.</li>
+                            <li>Scripts run on this server in a {{ 'network-isolated container' if docker_sandbox else 'time- and memory-limited sandbox process' }}.</li>
+                            <li>Anonymous uploads are deleted after about {{ ttl_hours }} hours. Analysis history is kept in this browser.</li>
+                            <li>For IRB-protected data, remove direct identifiers before uploading.</li>
+                        </ul>
+                    </details>
 
                     <!-- Persistent pipeline checklist (4.4). Visible from first
                          paint: before an upload it reads all-pending against an
@@ -271,7 +309,10 @@
                         <span class="label-eyebrow">Pipeline</span>
                         <span id="pipelineStatus">awaiting data</span>
                     </div>
-                    <div id="pipelineChecklist" class="flex flex-col gap-0.5" aria-live="polite"></div>
+                    <div id="pipelineChecklist" class="flex flex-col gap-0.5"></div>
+                    <!-- Not a live region any more (D4-14): every step change
+                         re-rendered the list and was read out. Finished stages
+                         are announced once through #srAnnounce instead. -->
 
                     <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden" aria-hidden="true"/>
                 </div>
@@ -279,7 +320,7 @@
                 <!-- Intelligent Codebook -->
                 <div id="codebookContainer" class="hidden panel p-5 transition-all duration-500 animate-fade-in-up">
                     <div class="flex items-center justify-between w-full gap-2 mb-4">
-                        <button id="codebookToggleBtn" data-action="toggleCodebook" class="flex items-center gap-2 label-eyebrow group focus:outline-none" aria-label="Toggle codebook visibility">
+                        <button id="codebookToggleBtn" data-action="toggleCodebook" class="flex items-center gap-2 label-eyebrow group" aria-label="Toggle codebook visibility">
                             <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                             Intelligent Codebook
                             <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-[var(--text-3)] group-hover:text-[var(--indigo)] transition-colors normal-case tracking-normal">
@@ -298,7 +339,7 @@
                 <!-- Conversational data cleaning + version control (5.16) -->
                 <div id="changelogPanel" class="hidden panel p-5 animate-fade-in-up">
                     <div class="flex items-center justify-between gap-2 mb-3">
-                        <button id="wrangleToggleBtn" type="button" class="flex items-center gap-2 label-eyebrow group focus:outline-none" aria-label="Toggle data cleaning visibility">
+                        <button id="wrangleToggleBtn" type="button" class="flex items-center gap-2 label-eyebrow group" aria-label="Toggle data cleaning visibility">
                             Data Cleaning
                             <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-[var(--text-3)] group-hover:text-[var(--indigo)] transition-colors normal-case tracking-normal">
                                 <span id="wrangleToggleLabel">Hide</span>
@@ -364,7 +405,7 @@
                     </div>
                     <div class="mt-3 flex items-center gap-2.5">
                         <input type="checkbox" id="proToggle" class="cc-switch cursor-pointer">
-                        <label for="proToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Generates code with the larger gemini-3.1-pro-preview model instead of the default gemini-3.5-flash. Better on hard or unusual analyses; slower and more expensive per request.">
+                        <label for="proToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Generates code with the larger {{ S.model_pro_max }} model instead of the default {{ S.model_pro }}. Better on hard or unusual analyses; slower and more expensive per request.">
                             Pro mode
                             <span class="font-mono text-[9px] font-semibold text-[var(--violet)] border border-[var(--violet)] rounded px-1 py-px ml-1 align-middle">+CREDITS</span>
                         </label>
@@ -384,7 +425,7 @@
                     <p class="es-hint">Upload a dataset to enable</p>
                     <div id="loading" class="hidden mt-4 text-center text-sm font-mono font-bold text-[var(--indigo)] flex justify-center items-center gap-2">
                         <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span class="animate-pulse uppercase tracking-wider">Compiling Script...</span>
+                        <span class="animate-pulse uppercase tracking-wider">Sending request...</span>
                     </div>
                 </div>
             </div>
@@ -399,27 +440,27 @@
             <!-- Tabs + workspace controls -->
             <div class="px-6 pt-4 bg-[var(--s1)] border-b border-[var(--border)] flex justify-between items-end flex-wrap gap-2">
                 <div class="flex space-x-6 overflow-x-auto" role="tablist" aria-label="Workspace views">
-                    <button id="tabGenerate" role="tab" class="tab-btn active-tab pb-3 font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="generate">
+                    <button id="tabGenerate" role="tab" aria-selected="true" aria-controls="contentGenerate" class="tab-btn active-tab pb-3 font-semibold text-base border-b-2 border-indigo-700 text-indigo-900 dark:border-indigo-400 dark:text-indigo-300 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="generate">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                         Code
                     </button>
-                    <button id="tabData" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="data">
+                    <button id="tabData" role="tab" aria-selected="false" aria-controls="contentData" tabindex="-1" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="data">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
                         Data
                     </button>
-                    <button id="tabResults" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="results">
+                    <button id="tabResults" role="tab" aria-selected="false" aria-controls="contentResults" tabindex="-1" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="results">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         Results
                     </button>
-                    <button id="tabConverse" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="converse">
+                    <button id="tabConverse" role="tab" aria-selected="false" aria-controls="contentConverse" tabindex="-1" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="converse">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                         Converse
                     </button>
-                    <button id="tabReport" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="report">
+                    <button id="tabReport" role="tab" aria-selected="false" aria-controls="contentReport" tabindex="-1" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="report">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         Report
                     </button>
-                    <button id="tabPdf" role="tab" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 focus:outline-none transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="pdf">
+                    <button id="tabPdf" role="tab" aria-selected="false" aria-controls="contentPdf" tabindex="-1" class="tab-btn pb-3 font-medium text-base text-slate-600 hover:text-slate-900 border-b-2 border-transparent dark:text-slate-400 dark:hover:text-slate-200 transition-all flex items-center gap-2 whitespace-nowrap" data-action="switchTab" data-arg="pdf">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         Codebook
                     </button>
@@ -441,7 +482,7 @@
                 <div id="paneA" class="pane flex-1">
 
                     <!-- CODE GENERATION TAB -->
-                    <div id="contentGenerate" class="tab-content h-full p-8 overflow-auto flex flex-col">
+                    <div id="contentGenerate" role="tabpanel" aria-labelledby="tabGenerate" class="tab-content h-full p-8 overflow-auto flex flex-col">
 
                         <!-- Generation phase header: what is running, on which
                              model, for how long. Shown only while generating. -->
@@ -500,13 +541,13 @@
                         <div id="runSection" class="mt-8 flex justify-end hidden animate-fade-in-up">
                             <button id="runBtn" class="btn-primary py-3 px-6 flex items-center gap-2 text-base shadow-[var(--e2)]">
                                 <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
-                                Execute Script Locally
+                                Run in sandbox
                             </button>
                         </div>
                     </div>
 
                     <!-- DATA VIEWER TAB -->
-                    <div id="contentData" class="tab-content h-full p-8 overflow-auto hidden">
+                    <div id="contentData" role="tabpanel" aria-labelledby="tabData" class="tab-content h-full p-8 overflow-auto hidden">
                         <div class="flex flex-col h-full bg-[var(--s0)] rounded-[14px] border border-[var(--border)] shadow-[var(--e1)] overflow-hidden">
                             <div class="flex items-center justify-end gap-1.5 px-3 py-2 border-b border-[var(--border)] bg-[var(--s1)]">
                                 <span class="text-[10px] font-mono uppercase tracking-widest text-[var(--text-3)] mr-1">Zoom</span>
@@ -561,7 +602,7 @@
                     </div>
 
                     <!-- RESULTS TAB -->
-                    <div id="contentResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6">
+                    <div id="contentResults" role="tabpanel" aria-labelledby="tabResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6">
 
                         <!-- Execution phase header: sandbox badge + live timer.
                              Shown once a run starts; flips to a failed variant
@@ -627,6 +668,10 @@
                             </h3>
                             <div class="relative" style="min-height:76px">
                                 <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body"></div>
+                                <!-- Plots render once, beside (not inside) the
+                                     streamed markdown, so each chunk does not
+                                     re-decode every base64 image (D4-27). -->
+                                <div id="plotOutput"></div>
                                 <div class="es-skels es-run" aria-hidden="true" style="padding:0">
                                     <div class="es-skel" style="height:9px;width:92%"></div>
                                     <div class="es-skel" style="height:9px;width:80%"></div>
@@ -649,8 +694,8 @@
                     </div>
 
                     <!-- CONVERSE TAB -->
-                    <div id="contentConverse" class="tab-content h-full flex flex-col hidden bg-transparent">
-                        <div id="chatLog" class="flex-1 min-h-0 p-8 overflow-y-auto flex flex-col gap-6">
+                    <div id="contentConverse" role="tabpanel" aria-labelledby="tabConverse" class="tab-content h-full flex flex-col hidden bg-transparent">
+                        <div id="chatLog" role="log" aria-label="Conversation with STATlee" class="flex-1 min-h-0 p-8 overflow-y-auto flex flex-col gap-6">
                             <!-- Converse empty state. The chips FILL the composer and
                                  never auto-send: a send is a billable model call, so
                                  it stays the user's decision. Their wording is
@@ -673,7 +718,7 @@
                         </div>
                         <div class="p-6 border-t border-[var(--border)] bg-[var(--s1)]">
                             <div class="flex gap-3 relative max-w-4xl mx-auto">
-                                <input type="text" id="chatInput" class="flex-1 bg-[var(--s0)] border border-[var(--border-strong)] rounded-[10px] py-4 px-5 pr-16 text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--indigo)] focus:border-[var(--indigo)] text-base transition-all font-medium" placeholder="Ask a follow-up question..." aria-label="Ask a follow-up question">
+                                <input type="text" id="chatInput" class="flex-1 bg-[var(--s0)] border border-[var(--border-strong)] rounded-[10px] py-4 px-5 pr-16 text-[var(--text-1)] focus:ring-2 focus:ring-[var(--indigo)] focus:border-[var(--indigo)] text-base transition-all font-medium" placeholder="Ask a follow-up question..." aria-label="Ask a follow-up question">
                                 <button id="chatSend" class="absolute right-2 top-2 bottom-2 btn-primary px-6 rounded-lg flex items-center justify-center" aria-label="Send message">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                                 </button>
@@ -686,13 +731,17 @@
                     </div>
 
                     <!-- PDF VIEWER TAB -->
-                    <div id="contentPdf" class="tab-content h-full p-8 overflow-hidden hidden">
+                    <div id="contentPdf" role="tabpanel" aria-labelledby="tabPdf" class="tab-content h-full p-8 overflow-hidden hidden">
                         <div class="w-full h-full bg-[var(--s0)] rounded-[14px] border border-[var(--border)] shadow-[var(--e1)] overflow-hidden flex flex-col">
                             <div class="bg-[var(--s1)] border-b border-[var(--border)] p-4 flex justify-between items-center z-10">
                                 <h3 class="label-eyebrow flex items-center gap-2">
                                     <svg class="w-4 h-4 text-[var(--indigo)]" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
                                     Codebook Reference
                                 </h3>
+                                <!-- D4-30: once a document is attached the empty
+                                     state (with its upload buttons) is gone; this
+                                     keeps "attach a different one" reachable. -->
+                                <button id="codebookReplaceBtn" type="button" class="hidden btn-toolbar">Replace document</button>
                             </div>
                             <!-- Empty state: shown until a codebook document is loaded. -->
                             <div id="codebookEmptyState" class="flex-1 overflow-y-auto flex flex-col items-center justify-center text-center p-10 gap-4">
@@ -742,7 +791,7 @@
                     </div>
 
                     <!-- REPORT BUILDER TAB (5.17) -->
-                    <div id="contentReport" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-3">
+                    <div id="contentReport" role="tabpanel" aria-labelledby="tabReport" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-3">
                         <div class="flex items-center justify-between flex-wrap gap-2">
                             <h3 class="label-eyebrow flex items-center gap-2">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -832,8 +881,10 @@
         <!-- "auto-deleted", not "not stored": anonymous sessions never touch the
              DB, but the uploaded file IS written to disk and reaped on a TTL
              (config.file_ttl_seconds, 2h default). Same correction SP1 made to
-             the landing page, kept consistent with the dropzone line above. -->
-        <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">Sandbox Environment • Anonymous uploads auto-deleted • AI powered by Google Gemini</p>
+             the landing page, kept consistent with the dropzone line above.
+             The provider is the configured one, not a hardcoded "Gemini"
+             (D4-16), and only docker mode is called network-isolated. -->
+        <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">{{ 'Network-isolated sandbox' if docker_sandbox else 'Sandboxed execution' }} • Anonymous uploads auto-deleted • AI powered by {{ provider_name }}</p>
     </footer>
 
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
