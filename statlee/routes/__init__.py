@@ -297,8 +297,18 @@ class FieldError(ValueError):
     through ``register_field_errors``."""
 
 
+class RunNotFound(LookupError):
+    """A request named a run the caller does not have (malformed, unknown,
+    evicted or another identity's): a 404, never a fallback to another run."""
+
+
+RUN_NOT_FOUND_MESSAGE = 'Run not found.'
+
+
 def register_field_errors(bp):
     bp.register_error_handler(FieldError, lambda e: json_error(str(e), 400))
+    bp.register_error_handler(
+        RunNotFound, lambda e: json_error(RUN_NOT_FOUND_MESSAGE, 404))
 
 
 def request_json():
@@ -356,6 +366,29 @@ def list_field(data, key):
     if not isinstance(value, list):
         raise FieldError(f"'{key}' must be a list.")
     return value
+
+
+def run_id_field(data, key='run_id'):
+    """An optional run id (SP1). Missing/null/'' -> None; a non-string is a
+    ``FieldError``. Format and ownership are checked by ``selected_run_id``."""
+    value = data.get(key)
+    if value is None or value == '':
+        return None
+    if not isinstance(value, str):
+        raise FieldError(f"'{key}' must be a string.")
+    return value
+
+
+def selected_run_id(run_id):
+    """The run a request grounds on: ``run_id`` when given (``RunNotFound``
+    unless it is one of the caller's own runs), else the latest run (None
+    when there is none)."""
+    from .. import storage
+    if run_id is None:
+        return storage.latest_run_id()
+    if storage.run_meta(run_id) is None:
+        raise RunNotFound(run_id)
+    return run_id
 
 
 LANGUAGES = {'python': 'Python', 'r': 'R'}

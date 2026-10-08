@@ -37,6 +37,8 @@ from . import (
     moderation_gate,
     register_field_errors,
     request_json,
+    run_id_field,
+    selected_run_id,
     sse_event,
     sse_stream,
     str_field,
@@ -52,6 +54,18 @@ register_field_errors(bp)
 
 def _cfg():
     return current_app.config['STATLEE']
+
+
+# The configured model behind each LLM role (mirrors LLMService._resolve),
+# recorded with a run so provenance names the model that wrote the script.
+_ROLE_MODEL_ATTRS = {'draft': 'model_pro', 'pro': 'model_pro',
+                     'pro_max': 'model_pro_max', 'flash': 'model_flash',
+                     'lite': 'model_flash_lite'}
+
+
+def _model_for_role(role):
+    attr = _ROLE_MODEL_ATTRS.get(role)
+    return getattr(_cfg(), attr, None) if attr else None
 
 
 def _sum_usage(*usages):
@@ -80,6 +94,8 @@ def chat():
     codebook = clamp_codebook(data.get('codebook', {}) or {})
     current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
     pro_mode = bool(data.get('pro'))  # "Pro mode": code-gen on the bigger model
+    draft_role = 'pro_max' if pro_mode else 'draft'
+    draft_model = _model_for_role(draft_role)
 
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
@@ -190,7 +206,7 @@ def chat():
             # Pro mode routes code generation to the bigger 'pro_max' model.
             yield sse_event({'type': 'phase', 'phase': 'drafting'})
             draft_accumulated = ''
-            for delta in service.stream('pro_max' if pro_mode else 'draft',
+            for delta in service.stream(draft_role,
                                         draft_prompt, temperature=0.1,
                                         usage_out=draft_usage):
                 draft_accumulated += delta
@@ -286,7 +302,9 @@ def chat():
                          'columns': [str(c) for c in filtered_headers]
                          [:CONTEXT_COLUMNS_MAX],
                          'codebook': clamp_codebook(filtered_codebook,
-                                                    CONTEXT_CODEBOOK_MAX)})
+                                                    CONTEXT_CODEBOOK_MAX),
+                         # SP1 provenance: the role/model that drafted it.
+                         'role': draft_role, 'model': draft_model})
 
             usage = _sum_usage(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
@@ -382,10 +400,10 @@ def run_code():
         output_limit=cfg.exec_output_limit, mode=cfg.sandbox_mode,
         runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
 
-    storage.save_last_run(result.output, result.plots,
-                          script=code, language=language,
-                          returncode=result.returncode,
-                          timed_out=result.timed_out)
+    run_id = storage.save_run(
+        result.output, result.plots, script=code, language=language,
+        returncode=result.returncode, timed_out=result.timed_out,
+        **_run_provenance(code, language, filename, dataset_path))
 
     # L9/S5: a timeout is an executed failure, not a server error. The script
     # ran and was stopped; its outcome is recorded above, so the reply is a 200
@@ -398,7 +416,40 @@ def run_code():
         'returncode': result.returncode,
         'timed_out': bool(result.timed_out),
         'language': language,
+        'run_id': run_id,
     })
+
+
+def _run_provenance(code, language, filename, dataset_path):
+    """What produced this run, from the server's own records (SP1): the
+    question and the drafting role/model /chat stored with the approval, and
+    the exact dataset version and bytes the sandbox read. An edited or pasted
+    script inherits the latest generation's question (as /interpret does) but
+    no model: no model wrote it."""
+    entry = storage.approved_entry(code, language) or {}
+    ctx = entry.get('context')
+    generated = isinstance(ctx, dict)
+    if not generated:
+        latest = storage.load_approved_script(exclude_sources=('wrangle', 'run'))
+        ctx = (latest or {}).get('context')
+    ctx = ctx if isinstance(ctx, dict) else {}
+    prompt = ctx.get('prompt') if isinstance(ctx.get('prompt'), str) else None
+    role = model = None
+    if generated:
+        role = ctx.get('role') if isinstance(ctx.get('role'), str) else None
+        model = ctx.get('model') if isinstance(ctx.get('model'), str) else None
+    stored_name = version = sha = None
+    if filename and dataset_path and os.path.isfile(dataset_path):
+        stored_name = os.path.basename(
+            storage.resolve_path(filename) or '') or None
+        version = storage.active_version_number(filename)
+        try:
+            sha = datatools.file_sha256(dataset_path)
+        except OSError:
+            logger.warning("Could not hash the dataset for run provenance")
+    return {'prompt': prompt, 'filename': stored_name,
+            'dataset_version': version, 'dataset_sha256': sha,
+            'model': model, 'role': role}
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +527,9 @@ def _analysis_context(record):
     return question, column_context, len(df)
 
 
+NOTHING_TO_INTERPRET = 'No statistical output or plots generated to interpret.'
+
+
 def _looks_failed(output):
     """Text heuristic for a failed run, used only when no recorded outcome
     exists (legacy run dirs, or the client-copy fallback without a success
@@ -498,8 +552,19 @@ def interpret_results():
     # server run is on record do we fall back to the client copy, and then it
     # must pass the same moderation gate /chat and /converse use (this route is
     # otherwise a general-purpose LLM proxy on the operator's key).
-    server_output, server_plot_paths = storage.last_run_artifacts()
+    # SP1: ground on the selected run (default: the latest). A named run the
+    # caller does not have is a 404, never a fallback to another run.
+    requested = run_id_field(data)
+    run_id = selected_run_id(requested)
+    server_output, server_plot_paths = (
+        storage.run_artifacts(run_id) if run_id else ('', []))
     grounded = bool(server_output.strip() or server_plot_paths)
+    if not grounded:
+        if requested is not None:
+            # A named run that printed nothing: never swap in client text.
+            return jsonify({'interpretation': NOTHING_TO_INTERPRET,
+                            'run_id': run_id})
+        run_id = None
 
     if grounded:
         # The debug `code` must be server-side too: prefer the script that
@@ -510,7 +575,7 @@ def interpret_results():
         # (P2-1/P2-7). Preferring the last-run script keeps the debugged code in
         # sync with `final_output` after a post-run /wrangle poisons the shared
         # approved-script store's "most recent" slot.
-        record = storage.last_run_script() or storage.load_approved_script()
+        record = storage.run_script(run_id) or storage.load_approved_script()
         code = clamp((record or {}).get('code'), FREE_TEXT_MAX)
         final_output = clamp(server_output, FREE_TEXT_MAX)
         plots = []
@@ -524,7 +589,7 @@ def interpret_results():
         # client-sent (spoofable) success flag. D1-2: the sandbox's real return
         # code / timeout flag decide; the text heuristic is only a fallback
         # for run dirs written before the outcome was persisted.
-        status = storage.last_run_status()
+        status = storage.run_status(run_id)
         if status is not None:
             failed = status['returncode'] != 0 or status['timed_out']
         else:
@@ -547,8 +612,7 @@ def interpret_results():
         question = column_context = n_rows = None
 
     if not final_output.strip() and not plots:
-        return jsonify({'interpretation':
-                        'No statistical output or plots generated to interpret.'})
+        return jsonify({'interpretation': NOTHING_TO_INTERPRET})
 
     # Fallback path only: moderate the client-supplied text before it reaches
     # the model, failing closed exactly like /converse (P2-7).
@@ -586,11 +650,12 @@ def interpret_results():
                 # D3-2: /converse and /generate_report ground on this copy
                 # instead of the client's.
                 try:
-                    storage.save_last_interpretation(text)
+                    storage.save_interpretation(text, run_id=run_id)
                 except Exception:
                     logger.warning("Could not store the interpretation",
                                    exc_info=True)
             yield sse_event({'type': 'done', 'debug': failed,
+                             'run_id': run_id,
                              'usage': _sum_usage(usage)})
         except Exception as exc:
             logger.exception("Interpretation stream failed")

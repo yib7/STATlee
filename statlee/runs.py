@@ -391,6 +391,12 @@ def _evictions(root, index):
     return doomed
 
 
+def run_ids(identity=None):
+    """The caller's run ids, oldest first."""
+    _ensure_adopted(identity)
+    return list(_load_index(_runs_root(identity))['runs'])
+
+
 def latest_run_id(identity=None):
     _ensure_adopted(identity)
     return _load_index(_runs_root(identity))['latest']

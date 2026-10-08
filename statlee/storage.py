@@ -398,6 +398,16 @@ def dataset_version_token(filename, identity=None):
     return _version_token(manifest) if manifest else None
 
 
+def active_version_number(filename, identity=None):
+    """The active version number (1 = the original upload), or None for an
+    unknown dataset. Recorded with each run (SP1 provenance)."""
+    manifest = _load_manifest(filename, identity)
+    active = manifest.get('active') if isinstance(manifest, dict) else None
+    if isinstance(active, bool) or not isinstance(active, int):
+        return None
+    return active
+
+
 def add_dataset_version(filename, new_df, instruction, summary=None,
                         identity=None, code=None, base_file=None,
                         base_token=None):
@@ -807,8 +817,13 @@ def adopt_workspace(from_identity, to_identity):
             os.replace(os.path.join(src, n), os.path.join(dst, n))
         report['moved'].extend(datasets)
     for name in singles:
-        if not os.path.exists(os.path.join(dst, name)):
-            os.replace(os.path.join(src, name), os.path.join(dst, name))
+        target = os.path.join(dst, name)
+        if name == RUNS_DIR and os.path.isdir(target) and not run_ids(to_identity):
+            # Reading the workbook creates an empty runs/ dir; an account with
+            # no runs takes the anonymous workbook whole.
+            shutil.rmtree(target, ignore_errors=True)
+        if not os.path.exists(target):
+            os.replace(os.path.join(src, name), target)
     return report
 
 
@@ -862,12 +877,14 @@ def cleanup_old_files(ttl_seconds=7200):
 # Session workbook re-exports (SP1). Imported last: runs.py imports this
 # module lazily, so the import order is safe either way.
 from .runs import (  # noqa: E402, F401 (re-exported API)
+    RUN_NAME_MAX,
     RUNS_DIR,
     RUNS_MAX,
     latest_run_id,
     list_runs,
     load_run,
     run_artifacts,
+    run_ids,
     run_interpretation,
     run_meta,
     run_script,

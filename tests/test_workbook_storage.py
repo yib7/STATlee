@@ -269,3 +269,19 @@ def test_max_runs_per_identity_setting(monkeypatch):
     cfg = Config(env='testing', max_runs_per_identity=0)
     cfg.validate()
     assert cfg.max_runs_per_identity == 50
+
+
+def test_adopt_workspace_replaces_an_empty_account_workbook(ctx):
+    storage.save_run('ANON RUN', [], identity='anon_wbadopt2')
+    assert storage.list_runs(identity='user_78') == []   # creates runs/
+    storage.adopt_workspace('anon_wbadopt2', 'user_78')
+    assert [r['run_id'] for r in storage.list_runs(identity='user_78')] == [
+        'r0001']
+
+
+def test_adopt_workspace_keeps_an_account_workbook(ctx):
+    storage.save_run('ANON RUN', [], identity='anon_wbadopt3')
+    storage.save_run('ACCOUNT RUN', [], identity='user_79')
+    storage.adopt_workspace('anon_wbadopt3', 'user_79')
+    assert storage.load_run('r0001', identity='user_79')['output'] == \
+        'ACCOUNT RUN'

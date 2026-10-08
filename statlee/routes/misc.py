@@ -14,6 +14,8 @@ from . import (
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
     DebitGuard,
+    FieldError,
+    RunNotFound,
     clamp,
     clamp_history,
     json_error,
@@ -177,6 +179,58 @@ def _join_material(*sections):
                         if text and text.strip()) or None
 
 
+REPORT_RUN_IDS_MAX = 200        # far above any identity's run cap
+REPORT_RUN_LABEL_MAX = 200      # chars of a run's question in its heading
+
+
+def _report_run_ids(data):
+    """``(run_ids, explicit)`` for /generate_report (SP1). Without
+    ``run_ids`` the report grounds on the latest run; with them, on each
+    named run, in the order they were run. Every id must be one of the
+    caller's own runs (``RunNotFound`` otherwise, never a silent skip)."""
+    raw = data.get('run_ids')
+    if raw is None or raw == []:
+        latest = storage.latest_run_id()
+        return ([latest] if latest else []), False
+    if (not isinstance(raw, list) or len(raw) > REPORT_RUN_IDS_MAX
+            or not all(isinstance(r, str) for r in raw)):
+        raise FieldError("'run_ids' must be a list of run ids.")
+    wanted = set(raw)
+    for run_id in wanted:
+        if storage.run_meta(run_id) is None:
+            raise RunNotFound(run_id)
+    return [r for r in storage.run_ids() if r in wanted], True
+
+
+def _run_grounding(run_ids):
+    """``(output, interpretation)`` from the server's record of the selected
+    runs. One run reads exactly as before; several are each labelled with
+    their id and question (both server-side: the question passed /chat's
+    moderation; client-chosen run names are left out of the prompt) and
+    share the same ``FREE_TEXT_MAX`` budget evenly."""
+    if len(run_ids) == 1:
+        output, _plots = storage.run_artifacts(run_ids[0])
+        return (clamp(output, FREE_TEXT_MAX).strip(),
+                clamp(storage.run_interpretation(run_ids[0]),
+                      FREE_TEXT_MAX).strip())
+    share = FREE_TEXT_MAX // max(1, len(run_ids))
+    outputs, interps = [], []
+    for run_id in run_ids:
+        question = clamp((storage.run_meta(run_id) or {}).get('prompt'),
+                         REPORT_RUN_LABEL_MAX).strip()
+        heading = f'=== Run {run_id}: {question} ===' if question \
+            else f'=== Run {run_id} ==='
+        body_max = max(0, share - len(heading) - 2)
+        output = clamp(storage.run_artifacts(run_id)[0], body_max).strip()
+        interp = clamp(storage.run_interpretation(run_id), body_max).strip()
+        if output:
+            outputs.append(f'{heading}\n{output}')
+        if interp:
+            interps.append(f'{heading}\n{interp}')
+    return ('\n\n'.join(outputs)[:FREE_TEXT_MAX],
+            '\n\n'.join(interps)[:FREE_TEXT_MAX])
+
+
 def _moderate_free_text(service, text, material=None):
     """P1-2: the same fail-closed moderation gate /converse applies, run on
     the report builder's client free-text. Returns ``(error_response, usage)``
@@ -201,6 +255,7 @@ def generate_report():
     mod_usage = None
     debited = False
     billing_user = None
+    run_ids = []
 
     if revision:
         # P1-7/P1-2: every revision field is client text; clamp before use.
@@ -228,16 +283,20 @@ def generate_report():
         # the interpretation /interpret stored) and fall back to the client's
         # copy only where no server record exists. Client copies are then
         # moderated below with the rest of the client text.
-        server_output, _plots = storage.last_run_artifacts()
-        server_interp = storage.last_interpretation()
-        if server_output.strip():
-            output, output_trusted = clamp(server_output, FREE_TEXT_MAX).strip(), True
+        # SP1: ``run_ids`` selects the runs (default: the latest). Named runs
+        # are grounded on the server's record only; the client copies are a
+        # fallback for the default path with no server run.
+        # (SP3 adds each run's methods card here.)
+        run_ids, explicit = _report_run_ids(data)
+        server_output, server_interp = (
+            _run_grounding(run_ids) if run_ids else ('', ''))
+        if server_output or explicit:
+            output, output_trusted = server_output, True
         else:
             output = clamp(data.get('output'), FREE_TEXT_MAX).strip()
             output_trusted = False
-        if server_interp.strip():
-            interpretation = clamp(server_interp, FREE_TEXT_MAX).strip()
-            interp_trusted = True
+        if server_interp or explicit:
+            interpretation, interp_trusted = server_interp, True
         else:
             interpretation = clamp(data.get('interpretation'),
                                    FREE_TEXT_MAX).strip()
@@ -324,7 +383,8 @@ def generate_report():
                 'type': 'done',
                 'usage': usage_breakdown(draft_result.usage,
                                          stream_usage, mod_usage),
-                'revision': False}))
+                'revision': False,
+                'run_ids': run_ids}))
         except Exception as exc:
             logger.exception("Report generation failed")
             # The credit was taken before any model call; the request

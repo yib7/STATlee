@@ -366,12 +366,13 @@ def create_app(config=None):
         _init_schema(app, cfg)
 
     # --- blueprints ---------------------------------------------------------
-    from .routes import analyze, auth, converse, datasets, misc
+    from .routes import analyze, auth, converse, datasets, misc, runs
     app.register_blueprint(misc.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(datasets.bp)
     app.register_blueprint(analyze.bp)
     app.register_blueprint(converse.bp)
+    app.register_blueprint(runs.bp)
 
     # --- CLI commands -------------------------------------------------------
     from .cli import register_cli
@@ -400,7 +401,9 @@ def create_app(config=None):
 
     @app.before_request
     def csrf_protect():
-        if not cfg.csrf_enabled or request.method not in ('POST', 'PUT', 'DELETE'):
+        # PATCH too: /runs/<run_id> renames and stars runs (SP1).
+        if not cfg.csrf_enabled or request.method not in (
+                'POST', 'PUT', 'PATCH', 'DELETE'):
             return None
         token = (request.headers.get('X-CSRF-Token')
                  or (request.form.get('csrf_token') if request.form else None))

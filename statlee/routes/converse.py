@@ -18,7 +18,10 @@ from . import (
     json_error,
     llm_error_payload,
     moderation_gate,
+    register_field_errors,
     request_json,
+    run_id_field,
+    selected_run_id,
     sse_event,
     sse_stream,
 )
@@ -26,18 +29,19 @@ from . import (
 logger = logging.getLogger('statlee.converse')
 
 bp = Blueprint('converse', __name__)
+register_field_errors(bp)
 
 
 def _cfg():
     return current_app.config['STATLEE']
 
 
-def _known_script(code):
+def _known_script(code, run_id=None):
     """True when ``code`` is a script the server already reviewed: approved
-    for either language, or the script that produced the last run."""
+    for either language, or the script that produced the selected run."""
     if any(storage.is_approved_script(code, lang) for lang in ('Python', 'R')):
         return True
-    record = storage.last_run_script()
+    record = storage.run_script(run_id) if run_id else None
     return bool(record and record.get('code') == code)
 
 
@@ -53,6 +57,9 @@ def converse():
     context = clamp(data.get('context'), FREE_TEXT_MAX)
     code = clamp(data.get('code'), FREE_TEXT_MAX)
     guide_mode = data.get('mode') == 'guide'
+    # SP1: the run being discussed (default: the latest); a named run the
+    # caller does not have is a 404.
+    run_id = selected_run_id(run_id_field(data))
 
     if not message:
         return json_error('Missing message')
@@ -67,13 +74,14 @@ def converse():
     # needs no second review. Whatever client text remains (an unverified
     # context, an edited or pasted script, the chat history) is moderated
     # together with the message, failing closed.
-    server_context = storage.last_interpretation().strip()
+    server_context = (storage.run_interpretation(run_id).strip()
+                      if run_id else '')
     if server_context:
         context = clamp(server_context, FREE_TEXT_MAX)
     unverified = []
     if not server_context and context.strip():
         unverified.append('RESULTS CONTEXT:\n' + context)
-    if code.strip() and not _known_script(code):
+    if code.strip() and not _known_script(code, run_id):
         unverified.append('SCRIPT:\n' + code)
     history_text = '\n'.join(t['text'] for t in history if t.get('text'))
     if history_text.strip():
@@ -95,7 +103,8 @@ def converse():
                                         temperature=0.6, usage_out=usage):
                 yield sse_event({'type': 'delta', 'text': delta})
             done_usage = usage_breakdown(usage, mod.usage)
-            yield sse_event({'type': 'done', 'usage': done_usage})
+            yield sse_event({'type': 'done', 'usage': done_usage,
+                             'run_id': run_id})
         except Exception as exc:
             logger.exception("Converse stream failed")
             yield sse_event(llm_error_payload(
