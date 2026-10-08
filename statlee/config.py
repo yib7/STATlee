@@ -90,6 +90,9 @@ class Config:
     # cap, so the byte cap reflects real disk pressure.
     max_datasets_per_identity: int = 10
     max_bytes_per_identity: int = 200 * 1024 * 1024   # 200 MB
+    # Session workbook (SP1): runs kept per identity. Over the cap the oldest
+    # unstarred run is evicted (the oldest run when every one is starred).
+    max_runs_per_identity: int = 50
     # Parse-time bounds against a decompression bomb (P2-2). max_upload_mb caps
     # the request body, but normalize_to_csv fully materializes Excel/Stata/SPSS
     # into a pandas DataFrame in the web request handler before writing CSV, so
@@ -295,6 +298,7 @@ class Config:
             max_datasets_per_identity=_env_int('MAX_DATASETS_PER_IDENTITY', 10),
             max_bytes_per_identity=_env_int(
                 'MAX_BYTES_PER_IDENTITY', 200 * 1024 * 1024),
+            max_runs_per_identity=_env_int('MAX_RUNS_PER_IDENTITY', 50),
             max_upload_uncompressed_mb=_env_int(
                 'MAX_UPLOAD_UNCOMPRESSED_MB', 512),
             max_upload_cells=_env_int('MAX_UPLOAD_CELLS', 10_000_000),
@@ -487,6 +491,10 @@ class Config:
         if not 0 <= self.llm_max_retries <= 5:
             self._warn("LLM_MAX_RETRIES must be between 0 and 5; using 2.")
             self.llm_max_retries = 2
+
+        if self.max_runs_per_identity < 1:
+            self._warn("MAX_RUNS_PER_IDENTITY must be >= 1; using 50.")
+            self.max_runs_per_identity = 50
 
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")

@@ -696,127 +696,55 @@ def load_approved_script(identity=None, exclude_sources=()):
     return None
 
 
+# Session workbook (SP1): the run store lives in ``runs.py`` and is
+# re-exported at the bottom of this module. The single-run API below is kept
+# as thin wrappers over the LATEST run so existing callers keep working.
+
 def save_last_run(output, plots_b64, script=None, language=None, identity=None,
                   returncode=None, timed_out=False):
-    """Keep the latest run's artifacts server-side so /export can bundle them.
-
-    When ``script`` is provided, the exact script that PRODUCED this run is
-    persisted alongside the output as a small ``script.json`` sidecar. /export
-    and the /interpret grounded-debug path read THAT (via ``last_run_script``)
-    so a later /wrangle — which saves its own transform into the shared
-    approved-script store and thereby becomes "most recent" — cannot substitute
-    the transform snippet for the analysis script that actually ran (P2-1/P2-7).
-    ``save_last_run`` wipes and recreates the run dir on every call, so omitting
-    ``script`` leaves no stale sidecar behind.
-
-    ``returncode``/``timed_out`` (D1-2) record the real sandbox outcome in a
-    ``status.json`` sidecar so /interpret can choose debug mode from it rather
-    than from the output text (R errors and timeouts used to be missed).
-    """
-    import base64
-    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
-    shutil.rmtree(run_dir, ignore_errors=True)
-    os.makedirs(run_dir, exist_ok=True)
-    with open(os.path.join(run_dir, 'output.txt'), 'w', encoding='utf-8') as f:
-        f.write(output or '')
-    if script is not None:
-        _write_json_atomic(
-            os.path.join(run_dir, 'script.json'),
-            {'code': script, 'language': language or 'Python'})
-    if returncode is not None:
-        _write_json_atomic(
-            os.path.join(run_dir, 'status.json'),
-            {'returncode': int(returncode), 'timed_out': bool(timed_out)})
-    for i, b64 in enumerate(plots_b64 or [], start=1):
-        try:
-            with open(os.path.join(run_dir, f'plot_{i}.png'), 'wb') as f:
-                f.write(base64.b64decode(b64))
-        except Exception:
-            logger.warning("Could not persist plot %d for export", i)
-
-
-INTERPRETATION_FILE = 'interpretation.md'
+    """Record a run (see ``runs.save_run``) and return its ``run_id``."""
+    return save_run(output, plots_b64, script=script, language=language,
+                    identity=identity, returncode=returncode,
+                    timed_out=timed_out)
 
 
 def save_last_interpretation(text, identity=None):
-    """Keep the interpretation of the last run next to its output (D3-2), so
-    /converse and /generate_report can ground on the server's copy instead of
-    a client-supplied one. A new run wipes the run dir, so a stale
-    interpretation never outlives the run it describes. No-op without a run."""
-    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
-    if not os.path.isdir(run_dir):
-        return
-    path = os.path.join(run_dir, INTERPRETATION_FILE)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        f.write(text or '')
-    _retry_on_windows_lock(os.replace, tmp, path)
+    """Store the interpretation of the latest run (D3-2). No-op without a run;
+    a newer run starts without one, so a stale interpretation never outlives
+    the run it describes."""
+    save_interpretation(text, identity=identity)
 
 
 def last_interpretation(identity=None):
-    """The stored interpretation of the last run, or ''."""
-    path = os.path.join(identity_root(identity), LAST_RUN_DIR,
-                        INTERPRETATION_FILE)
-    try:
-        with open(path, encoding='utf-8') as f:
-            return f.read()
-    except OSError:
-        return ''
+    """The stored interpretation of the latest run, or ''."""
+    run_id = latest_run_id(identity)
+    return run_interpretation(run_id, identity) if run_id else ''
 
 
 def last_run_script(identity=None):
-    """Return the script that produced the last run as ``{code, language}``.
-
-    Reads the ``script.json`` sidecar written by ``save_last_run``. Returns
-    None when no run has recorded a script (or the sidecar is missing/corrupt),
-    tolerating a bad file the same way the other loaders do."""
-    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
-    path = os.path.join(run_dir, 'script.json')
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get('code'), str):
-        return None
-    return {'code': data['code'], 'language': data.get('language') or 'Python'}
+    """The script that produced the latest run as ``{code, language}``, or
+    None when it recorded none (or the sidecar is missing/corrupt)."""
+    run_id = latest_run_id(identity)
+    return run_script(run_id, identity) if run_id else None
 
 
 def last_run_status(identity=None):
-    """``{'returncode': int, 'timed_out': bool}`` for the last run, or None for
-    a run dir written before the outcome was recorded (D1-2)."""
-    path = os.path.join(identity_root(identity), LAST_RUN_DIR, 'status.json')
-    data = _read_json(path)
-    if not isinstance(data, dict) or not isinstance(data.get('returncode'), int):
-        return None
-    return {'returncode': data['returncode'],
-            'timed_out': bool(data.get('timed_out'))}
+    """``{'returncode': int, 'timed_out': bool}`` for the latest run, or None
+    for a run recorded before the outcome was (D1-2)."""
+    run_id = latest_run_id(identity)
+    return run_status(run_id, identity) if run_id else None
 
 
 def last_run_time(identity=None):
-    """Epoch seconds of the last run, or None."""
-    path = os.path.join(identity_root(identity), LAST_RUN_DIR, 'output.txt')
-    try:
-        return os.path.getmtime(path)
-    except OSError:
-        return None
+    """Epoch seconds of the latest run, or None."""
+    run_id = latest_run_id(identity)
+    return run_time(run_id, identity) if run_id else None
 
 
 def last_run_artifacts(identity=None):
-    run_dir = os.path.join(identity_root(identity), LAST_RUN_DIR)
-    if not os.path.isdir(run_dir):
-        return '', []
-    output = ''
-    out_path = os.path.join(run_dir, 'output.txt')
-    if os.path.exists(out_path):
-        with open(out_path, encoding='utf-8') as f:
-            output = f.read()
-    plots = sorted(
-        os.path.join(run_dir, p) for p in os.listdir(run_dir)
-        if p.startswith('plot_') and p.endswith('.png'))
-    return output, plots
+    """``(output, plot_paths)`` of the latest run; ``('', [])`` without one."""
+    run_id = latest_run_id(identity)
+    return run_artifacts(run_id, identity) if run_id else ('', [])
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +790,7 @@ def adopt_workspace(from_identity, to_identity):
     groups = {}
     singles = []
     for name in os.listdir(src):
-        if name in (APPROVED_SCRIPT, LAST_RUN_DIR):
+        if name in (APPROVED_SCRIPT, LAST_RUN_DIR, RUNS_DIR):
             singles.append(name)
             continue
         stem = _adoption_group(name)
@@ -929,3 +857,25 @@ def cleanup_old_files(ttl_seconds=7200):
         if last is None or now - last > ttl_seconds:
             shutil.rmtree(identity_dir, ignore_errors=True)
             logger.info("Expired idle anonymous workspace: %s", entry)
+
+
+# Session workbook re-exports (SP1). Imported last: runs.py imports this
+# module lazily, so the import order is safe either way.
+from .runs import (  # noqa: E402, F401 (re-exported API)
+    RUNS_DIR,
+    RUNS_MAX,
+    latest_run_id,
+    list_runs,
+    load_run,
+    run_artifacts,
+    run_interpretation,
+    run_meta,
+    run_script,
+    run_status,
+    run_summary,
+    run_time,
+    save_interpretation,
+    save_run,
+    update_run_meta,
+    valid_run_id,
+)
