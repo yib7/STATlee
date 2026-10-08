@@ -4,6 +4,75 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-08
+
+A session workbook, an editable codebook, a methods and assumptions card, and a
+reproducibility bundle that records what produced what.
+
+### Added
+- **Session workbook.** Every run is kept under `runs/<run_id>/` (output, plots,
+  script, status, interpretation, provenance), not just the last one. The
+  Results tab has a numbered run rail: star a run, rename it, open an older one
+  read-only with its own write-up, load its script back into the editor, or
+  interpret it. The report builder takes a checklist of runs and grounds on each
+  one's stored output. `MAX_RUNS_PER_IDENTITY` (default 50) caps the store and
+  evicts the oldest unstarred run first. New routes: `GET /runs`,
+  `GET /runs/<run_id>`, `PATCH /runs/<run_id>`. `/interpret` and `/converse`
+  accept `run_id`, `/generate_report` accepts `run_ids`, and account history
+  rows link to their run.
+- **Editable codebook.** The Codebook tab is now a per-variable editor (type,
+  label, value labels, missing codes, role, scale group) with a filter and JSON
+  import and export. It is stored on the server in layers merged as
+  user > file > PDF > model, so a re-classification or a new PDF never
+  overwrites your edits. `.sav` and `.dta` labels, value labels and user-missing
+  codes seed it at upload, and a codebook comes back when the same file is
+  uploaded again. Prompts use the server codebook: missing codes are treated as
+  missing, ID and ignored columns are not modelled, and a survey weight column
+  is named. New routes: `GET`/`PUT /codebook`, `POST /codebook/import`,
+  `GET /codebook/export`.
+- **Methods and assumptions card.** Scripts print a `METHOD`, `ASSUMPTIONS`,
+  `EFFECT` block. It is parsed leniently, stored with the run, shown above the
+  terminal, and cited by the interpretation and the report. A script that prints
+  none gets a card that says assumptions were not reported.
+- **Reproducibility bundle v2.** The export adds `provenance.json` (upload,
+  cleaning, run and interpretation steps with hashes, models, roles and
+  timestamps), `codebook.json`, `environment.txt` (Python and R versions and the
+  analysis package versions, captured through the sandbox) and a per-run
+  `outputs/run_NNNN/` folder. The export dialog chooses all, starred or the
+  latest run, and whether your prompts are included.
+
+### Changed
+- In the export, `script.py` is now `analysis.py` (or `analysis.R`, the script of
+  the latest included run), `README.txt` is `README.md`, and plots live in each
+  run's folder instead of a top-level `plots/`.
+- `/export` shares the `/run` rate limit, since it can start the environment
+  probe. The zip is built in a spooled temporary file instead of in memory.
+- Cleaning steps record the model and role that produced them.
+- The CSRF check also covers `PATCH`.
+
+### Fixed
+- Long terminal output scrolls inside the terminal box instead of being clipped
+  in the fixed-height Results column.
+
+### Known limitations
+- Run plots count toward the per-identity storage cap.
+- Signing in does not merge an anonymous workbook into an account that already
+  has runs; the account's runs win.
+- With prompts excluded from an export, text written by the model
+  (interpretations, reports, script comments) may still restate the question.
+- `environment.txt` is captured once per boot and sandbox mode; a failed capture
+  is retried after 5 minutes.
+- The methods block depends on the model following the format; otherwise the
+  card reports assumptions as not reported.
+- Runs saved before this release did not record a dataset name and are left out
+  of dataset exports.
+
+### Internal
+- New settings: `MAX_RUNS_PER_IDENTITY` (in `.env.example`). One migration adds
+  nullable `run_id`, `dataset_version` and `model` columns to `analysis_runs`.
+- Test suite grew from 884 to 1222 passing, including Playwright end-to-end
+  tests for the run rail, codebook editor, methods card and export dialog.
+
 ## [1.5.0] - 2026-10-08
 
 A whole-project audit (backend, security, LLM layer, frontend, infrastructure,

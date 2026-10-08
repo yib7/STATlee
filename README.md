@@ -20,7 +20,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-884%20passing-3fb950">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1222%20passing-3fb950">
   <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
@@ -57,6 +57,19 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   variable (nominal / ordinal / continuous) so the model won't run a linear
   model on a categorical outcome. Codebooks can be inferred from a PDF data
   dictionary or even the original survey questionnaire.
+- **A codebook you can edit.** The Codebook tab lists every variable with its
+  type, label, value labels, missing codes, role (analyze, ID, survey weight,
+  ignore) and scale group. Labels, value labels and user-missing codes in `.sav`
+  and `.dta` files seed it automatically; your edits always win over file, PDF
+  and model guesses, are kept when you clean the data, and can be exported and
+  imported as JSON. The model is told about missing codes, weights and ID columns.
+- **Every run is kept.** The Results tab has a numbered run rail: star or rename
+  a run, reopen an older one read-only (output, plots, its own write-up), load its
+  script back into the editor, and pick which runs the report is grounded in.
+- **Methods and assumptions card.** Each script prints a short summary of the
+  test used, N used, assumption checks (pass, warn, fail) and effect sizes, shown
+  as a card above the terminal and cited in the plain-English write-up. If a
+  script prints none, the card says so instead of guessing.
 - **Secure sandbox.** Generated code runs in a throwaway working directory with
   a **secret-free environment**, screened first by a non-LLM **static pre-check**
   (an AST denylist rejecting network access, process/shell spawning, `os`/env
@@ -76,8 +89,12 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   notes column", "filter for age > 30"*) with a back-and-forth transcript, full
   version history (**undo / redo**), and a one-click **revert to the original
   upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
-  down. Plus an **AI report builder** grounded strictly in your real outputs and
-  one-click **project export** (data + script + plots + report).
+  down. Plus an **AI report builder** grounded strictly in your real outputs.
+- **Reproducibility bundle.** Project export is a zip that runs as unzipped: the
+  data, `cleaning.py`, `analysis.py` (or `.R`), per-run outputs, the codebook,
+  a `provenance.json` of what produced what (hashes, models, timestamps), an
+  `environment.txt` of the sandbox's package versions, and a README. Choose which
+  runs go in and whether your prompts are included.
 - **Pro mode** toggle generates code with a larger model (`gemini-3.1-pro-preview` by
   default) for hard or unusual analyses, instead of the standard code model.
 
@@ -146,12 +163,12 @@ and the documented [`.env.example`](.env.example).
 ```bash
 pip install -r requirements-dev.txt
 ruff check .      # lint
-pytest            # 884 tests, fully offline (deterministic fake LLM, no API key)
+pytest            # 1222 tests, fully offline (deterministic fake LLM, no API key)
 ```
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
-codebook, wrangling, run-guard, converse, export, auth, CSRF, rate-limit keying,
-billing seam, Pro-mode routing) is exercised without network or API keys. CI runs
+codebook, workbook, methods card, wrangling, run-guard, converse, export bundle,
+auth, CSRF, rate-limit keying, billing seam, Pro-mode routing) is exercised without network or API keys. CI runs
 ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
@@ -164,13 +181,17 @@ loads `.env` and calls `statlee.app.create_app()`).
 | `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
 | `statlee/app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
+| `statlee/runs.py` | Session workbook: every run kept under `runs/<run_id>/`, with the run cap. |
+| `statlee/codebook.py` | Layered, editable variable codebook (user > file > PDF > model). |
+| `statlee/methods.py` | Parser for the methods and assumptions block scripts print. |
+| `statlee/bundle.py`, `statlee/environment.py` | Reproducibility bundle: provenance, README, environment probe. |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
 | `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
 | `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (off by default; atomic debit + refund + monthly top-up when enabled). |
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
 | `statlee/models.py` | SQLAlchemy models (users, runs, issue reports). |
-| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
+| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`, `runs`, `codebook`. |
 
 A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

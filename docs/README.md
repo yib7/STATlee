@@ -15,7 +15,7 @@ It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic
 * **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
 * **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo.
 * **AI interpretation & auto-debugging:** Translates dense terminal output and p-values into plain-English Markdown insights, and switches to a debugging assistant when a run fails.
-* **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits, and exports the whole project (data, script, plots, report) as a zip.
+* **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits, and exports a reproducibility bundle (data, cleaning and analysis scripts, per-run outputs, codebook, provenance, environment, report) as a zip that runs as unzipped.
 * **Converse tab:** A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a rigorous, ready-to-run analysis prompt.
 * **Optional accounts:** Anonymous sandbox use by default (nothing persisted); optional email/password accounts persist datasets and analysis history.
 

@@ -7,7 +7,7 @@ security boundaries, and where each responsibility lives.
 ## Big picture
 
 STATlee is a **Flask app-factory** (`app.py`) wiring together focused modules and
-five route blueprints. The frontend is **vanilla JavaScript** (no build step)
+seven route blueprints. The frontend is **vanilla JavaScript** (no build step)
 organized under a single `CC` namespace, talking to the backend over JSON and
 **Server-Sent Events** (SSE) for streamed generation. There is no SPA framework
 and no client bundler; `static/js/*.js` files are served as-is.
@@ -22,11 +22,18 @@ Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate
    ├─ routes/auth.py      /login /register /logout /check_auth /history
    ├─ routes/datasets.py  /upload /data_page /classify_variables /suggest /wrangle /export …
    ├─ routes/analyze.py   /chat /run /interpret /method_prompt
+   ├─ routes/runs.py      /runs (the session workbook)
+   ├─ routes/codebook.py  /codebook (+ import, export)
    └─ routes/converse.py  /converse
         │
         ├─ llm.py        role-based LLM calls (+ usage, cache)
         ├─ prompts.py    every prompt string builder
         ├─ storage.py    per-identity files + dataset versions
+        ├─ runs.py       session workbook: every run kept under runs/<run_id>/
+        ├─ codebook.py   layered, editable variable codebook
+        ├─ methods.py    parser for the methods and assumptions block
+        ├─ bundle.py     reproducibility bundle pieces (provenance, README)
+        ├─ environment.py  sandbox environment probe for the bundle
         ├─ codecheck.py  static allowlist pre-check before any execution
         ├─ sandbox.py    isolated code execution
         ├─ datatools.py  ingestion + profiling
@@ -60,6 +67,12 @@ Settings added in the 2026-10 audit cycle:
 | `MAX_UPLOAD_UNCOMPRESSED_MB` / `MAX_UPLOAD_CELLS` | 512 / 10,000,000 | Decompression-bomb and size bounds on an upload's parse. |
 | `RATE_LIMIT_DATA_PAGE` | `60 per minute` | Limit for the data viewer's paging route. |
 
+Added with the session workbook:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MAX_RUNS_PER_IDENTITY` | 50 | Runs kept per identity. Over the cap the oldest unstarred run is deleted (the oldest run when every one is starred). Below 1 warns and resets to 50. |
+
 ## Request lifecycle (`app.py`)
 
 Every request passes through ordered middleware:
@@ -67,7 +80,7 @@ Every request passes through ordered middleware:
 1. **`assign_request_context`**: mints an 8-char `request_id` (correlated into
    every log line via a logging filter), a per-browser `sid` (the file-isolation
    key), and a `csrf_token`.
-2. **`csrf_protect`**: double-submit check on `POST/PUT/DELETE`: the
+2. **`csrf_protect`**: double-submit check on `POST/PUT/PATCH/DELETE`: the
    `X-CSRF-Token` header must equal the session token.
 3. **`require_auth`**: gate everything except `PUBLIC_ENDPOINTS` (the loader,
    landing, health, and auth handshake). Behavior depends on the auth *mode*.
@@ -158,21 +171,195 @@ The **approved-script** store (`.approved_script.json`) backs the run-guard. It
 is keyed on `sha256(language + code)` (a script approved as Python must be
 re-checked before it runs under R) and updated under a file lock.
 
-### Export bundle (`/export`)
+### Session workbook (`runs.py`, `routes/runs.py`)
 
-The zip runs as unzipped:
+Every run is kept, not just the last one. A run is a directory under the
+caller's own root:
 
-- `<name>.csv` at the root: the active version, under the name the script reads;
-- `data/original_<name>.csv`: the original upload, after CSV conversion;
-- `script.py` / `script.R`: the editor code if it was reviewed in this session
-  as an analysis script, otherwise the newer of the last-run script and the last
-  generated script (a `/wrangle` transform is never bundled as the script);
-- `cleaning.py`: replays the recorded cleaning steps from the original upload
-  (a revert restarts the lineage, undone steps are left out); omitted when there
-  are no steps or a step predates code recording;
-- `README.txt`: how to run it, the file list, and a note when the editor code
-  was not bundled;
-- `report.md`, `full_report.md` and `plots/`.
+```
+<identity_root>/runs/
+  index.json            {"runs": [ids, oldest first], "latest": id, "next": n}
+  .index.lock
+  r0001/
+    meta.json           run_id, created_at, prompt, filename, dataset_version,
+                        dataset_sha256, model, role, name, starred, methods,
+                        prompt_inherited
+    script.json         {code, language}
+    status.json         {returncode, timed_out}
+    output.txt
+    plot_1.png ...
+    interpretation.md   written later, by /interpret for that run
+```
+
+`save_run` allocates the id, writes the run into a hidden temp directory, renames
+it into place and updates the index, all under one file lock, so a reader that
+goes through the index never sees a half-written run. `next` only grows, so an id
+is never reused after an eviction. A missing or corrupt index is rebuilt from the
+run directories. A run id is `^r[0-9]{4,6}$`, must be listed in the caller's own
+index and resolves under the caller's `runs/` only: a malformed, unknown, evicted
+or foreign id is the same `404` (no existence oracle). A pre-workbook
+`.last_run/` is adopted as the first run on first access.
+
+Routes: `GET /runs` (summaries, oldest first), `GET /runs/<run_id>` (the full
+run, including the parsed methods card), `PATCH /runs/<run_id>` (`name`, up to 80
+characters, and `starred`). `/run` returns its `run_id`; `/interpret` and
+`/converse` take an optional `run_id` (default: the latest run); `/generate_report`
+takes optional `run_ids` and grounds on each selected run's output,
+interpretation and methods card, in run order. All of that grounding is the
+server's record, never client text. A run records the question, dataset name,
+active dataset version and its sha256, and the drafting role and model. A re-run
+of an unchanged script keeps the provenance of the most recent run of that
+script; an edited or pasted script gets the latest generation's question marked
+`prompt_inherited`, with no role or model. `/interpret` on an older run reads
+that run's own dataset version, and omits the row count and column context when
+the file is gone or its hash no longer matches.
+
+The store is capped by `MAX_RUNS_PER_IDENTITY`. For account users the history
+rows (`analysis_runs`) link back to a run through nullable `run_id`,
+`dataset_version` and `model` columns; a restored row gets its full output and
+plots only while its run still exists (`run_available`).
+
+Limits worth knowing:
+
+- Run plots count toward `MAX_BYTES_PER_IDENTITY`, so a plot-heavy workbook can
+  bring an identity close to its storage cap.
+- Signing in moves an anonymous workbook into the account only when the account
+  has no runs. If it has its own, the account's workbook wins and the anonymous
+  runs expire with the anonymous workspace; the two are not merged.
+
+### Codebook (`codebook.py`, `routes/codebook.py`)
+
+The codebook is server state, kept in the dataset's meta sidecar as one layer
+per source, each holding only the fields that source set:
+
+```
+"codebook": {"layers": {"user": {col: {...}}, "native": {...}, "pdf": {...}, "llm": {...}}}
+```
+
+The merged entry for a column is worked out per request, field by field, in the
+order **user > native > pdf > llm**, so a seed or a re-classification can never
+overwrite something the user typed. An entry has `type` (continuous, ordinal,
+nominal, binary, text, id, date), `label`, `value_labels`, `missing_codes`,
+`role` (analyze, id, weight, ignore) and `scale_group`, plus `source`,
+`user_fields` and `field_sources` for provenance. Sources:
+
+- **native**: the labels, value labels and user-missing codes in a `.sav` or
+  `.dta` file, read at upload;
+- **pdf**: the description extracted from an attached data dictionary or
+  questionnaire (`/extract_pdf_codebook` with `dataset`);
+- **llm**: the type from `/classify_variables`;
+- **user**: `PUT /codebook` and `POST /codebook/import`.
+
+Because the merge runs over the active version's columns, a wrangled dataset
+inherits entries by column name, a new column shows a default entry, and a
+dropped column disappears and comes back on undo. A sha256-keyed archive
+(`.codebook__<sha>.json`, the 50 newest kept) restores the user, pdf and llm
+layers when the same content is uploaded again, even under another name.
+
+Routes: `GET /codebook`, `PUT /codebook` (partial: only the fields sent become
+user fields), `POST /codebook/import` and `GET /codebook/export`. The export is
+the `statlee-codebook` document that import accepts back, and that the bundle
+ships as `codebook.json`. Responses carry an explicit `columns` list because
+`jsonify` sorts object keys. Every field is length-clamped (labels 2000
+characters, 200 value labels, 50 missing codes), and writes are locked
+read-modify-write cycles with an atomic replace.
+
+Prompts read only the server codebook. A client-sent `codebook` or `pdf_mapping`
+is accepted but ignored (logged at debug). The text is user- or model-supplied,
+so it sits inside the untrusted-data delimiters and under the prompt clamps. The
+draft prompt also gets the field rules (missing codes are treated as missing; id
+and ignore columns are never modelled; a weight column is applied for weighted
+estimates; scale groups) and a `CODEBOOK ROLES` block naming them.
+
+### Methods and assumptions block (`methods.py`)
+
+The draft prompt (`prompts.METHODS_BLOCK`) asks every script to print this at the
+very end of its output, with Python `print()` or R `cat()`:
+
+```
+== METHOD ==
+test: <name>; outcome: <var>; predictors: <vars>; n_used: <int>; dropped: <int> (<reason>)
+== ASSUMPTIONS ==
+<check name>: <statistic/result> -> PASS|WARN|FAIL
+== EFFECT ==
+<effect size name> = <value> [95% CI <lo>, <hi>]
+== END ==
+```
+
+`methods.parse(output)` never raises. It tolerates case and spacing, header
+synonyms, Windows line endings, R's `[1] "..."` prefixes, a missing `END`, extra
+lines, a repeated block (the last wins) and a verdict followed by a short note.
+A check line with no verdict, or a negated one ("did not pass"), is kept with
+status `unknown` rather than guessed as a pass. Lines that are the contract's own
+unfilled placeholders are dropped. The result is
+`{method, assumptions: [{name, detail, status}], effects, reported}`; with no
+block it is the empty card with `reported: false`.
+
+`/run` parses the output once and stores the card in the run's `meta.json`
+(`methods: null` still means "saved before this existed" and is parsed lazily
+when served). The Results tab shows it above the terminal. `/interpret` and
+`/generate_report` are given each run's card as server-side context, so the
+write-up cites the test, the N used and each check's verdict (WARN and FAIL as
+caveats), and says so when the card is not reported. A failed run's debug path
+gets no card. The block depends on the model following the format: the parser is
+lenient, but when a script prints no block the card reads "Assumptions not
+reported" and nothing is inferred.
+
+### Reproducibility bundle (`/export`, `bundle.py`, `environment.py`)
+
+The zip runs as unzipped. Its layout:
+
+```
+<name>.csv                   the active version, under the name the script reads
+data/original_<name>.csv     the original upload, after CSV conversion
+cleaning.py                  replays the recorded cleaning steps from the original
+analysis.py | analysis.R     the script
+codebook.json                the statlee-codebook export (importable)
+provenance.json              what produced what (below)
+environment.txt              Python/R versions and the analysis package versions
+README.md                    how to run it, contents, how it was produced
+report.md, full_report.md    the report, when one exists
+outputs/run_0001/            one folder per included run:
+    output.txt, plot_N.png, methods.json, interpretation.md, analysis.py|R
+```
+
+- `analysis.py|R` is the script of the latest run within the selected set, so its
+  `script_sha256` matches a provenance run step and `report.md` describes the
+  same run. With no selected run it falls back to the reviewed editor code, else
+  the newest approved script. `cleaning.py` is written only when there are
+  recorded steps and both dataset files are in the zip (a revert restarts the
+  lineage, undone steps are left out, and a step that predates code recording
+  omits it).
+- The export dialog sends `runs` (`all`, `starred` or `latest`; default `all`) and
+  `include_prompts` (a boolean; default true). Any other value is a `400`. Runs
+  are scoped to the exported dataset by its stored name, then capped at
+  `MAX_RUNS_PER_IDENTITY`. Runs saved before this release did not record a
+  dataset name and are left out of dataset exports.
+- `provenance.json` is `{generated_at, app_version, llm_provider, steps}`. Steps
+  are ordered by time and are of four kinds: `upload` (`dataset_sha256_after`),
+  `wrangle` (instruction, model, role, before and after hashes, the transform's
+  `script_sha256`), `run` (question, model, role, `dataset_sha256_before`,
+  `script_sha256`, `run_id`, and `prompt_inherited`, an extension to the
+  provenance format) and `interpret` (`run_id`). Only recorded fields are
+  written, never nulls, and it holds no data values and no system prompts.
+- With `include_prompts=false` every `prompt` and `prompt_inherited` is dropped
+  from the provenance, along with the request list in `report.md` and the
+  instruction fallback in `cleaning.py` comments. Text written by the model
+  (interpretations, reports, script comments) is not scrubbed and may still
+  restate the question; the README and the dialog say so.
+- `environment.txt` comes from a probe script (`environment.PYTHON_PROBE`, a
+  fixed list of the analysis stack, reading `__version__`; R lists its installed
+  packages when `Rscript` exists) that goes through `codecheck` and the sandbox
+  like any other code. It runs lazily on the first export per boot and is cached
+  per sandbox mode. A failed Python probe, or an R probe that did not finish, is
+  cached for `FAILURE_TTL` (5 minutes) and then retried; a full success is cached
+  until restart. Concurrent first exports share one probe, and the cache lock is
+  never held while the sandbox runs. The file therefore describes the sandbox as
+  it was when captured.
+- The zip is built in a `SpooledTemporaryFile` (16 MB in memory, then on disk),
+  PNGs are stored uncompressed, and every file copied in is checked to resolve
+  under the caller's identity root. `/export` carries the same rate limit as
+  `/run`, because it can start the probe.
 
 ## The analysis pipeline (`routes/analyze.py`)
 
@@ -214,7 +401,8 @@ Both ground on what the server stored, not on what the client sends. `/converse`
 uses the stored interpretation of the last run as its results context, and
 treats the editor code as already reviewed only when it is approved for either
 language or is the script that produced the last run. `/generate_report` takes
-the terminal output and interpretation from the server's last-run record.
+the terminal output and interpretation from the server's record of each
+selected run (the latest by default).
 Client copies are used only where no server record exists. Those copies, an
 edited or pasted script, the chat and converse history, and (for a revision)
 the selected passage and the report are moderated together with the request,
@@ -394,10 +582,13 @@ deploy.
 | File | Responsibility |
 |---|---|
 | `api.js` | `CC` namespace: state, fetch/CSRF helpers, SSE parser (one terminal callback per stream, per-reason error wording), sanitized markdown, usage badge, credit balance, toasts, console-error ring buffer. |
-| `data.js` | Upload, data viewer paging, codebook UI, cleaning history (wrangle, undo/redo, the `409` reload). |
+| `data.js` | Upload, data viewer paging, cleaning history (wrangle, undo/redo, the `409` reload). |
+| `codebook.js` | The Codebook tab editor: per-variable rows (type, label, role, scale group, missing codes, value labels), debounced partial saves, import and export. |
+| `workbook.js` | The run rail in Results: list, star, inline rename, read-only view of an older run, Load script, Interpret this run; the report's run checklist. |
+| `methods.js` | The methods and assumptions card above the terminal. |
 | `analyze.js` | Editor (CodeMirror), streamed generation, run + interpret, Pro mode toggle. |
 | `converse.js` | Converse tab (mentor + guide mode). |
-| `tools.js` / `ui.js` | Report builder, export, account dialog (sign-in keeps the workspace in place), tabs, sidebar, theming. |
+| `tools.js` / `ui.js` | Report builder, export dialog (runs to include, include my prompts), account dialog (sign-in keeps the workspace in place), tabs, sidebar, theming. |
 
 **Security note:** every piece of LLM/Markdown text reaches the DOM through
 `CC.renderMarkdown` → `marked` → **DOMPurify**. That is the only path, which is
@@ -414,7 +605,7 @@ SQLite file. The whole HTTP surface is exercised **offline**: no API key, no
 network. The suite is hermetic: importing the `statlee` package never loads
 `.env` (only `wsgi.py` does, and never under `APP_ENV=testing`), and `conftest`
 sets `PYTHON_DOTENV_DISABLED=1` and scrubs provider keys plus `LLM_PROVIDER` /
-`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage spans uploads, codebook, wrangling/versioning, the run-guard,
+`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage spans uploads, the workbook and codebook, methods parsing, the export bundle, wrangling/versioning, the run-guard,
 converse, export, auth, CSRF, the rate-limit key function, the billing seam, and
 Pro-mode routing. `tests/test_e2e_ui.py` drives the real frontend in Chromium
 (Playwright) against a live localhost server that uses the same fake model; it
