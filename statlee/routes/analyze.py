@@ -387,15 +387,16 @@ def run_code():
                           returncode=result.returncode,
                           timed_out=result.timed_out)
 
-    if result.timed_out:
-        return json_error(result.output, 500)
-
+    # L9/S5: a timeout is an executed failure, not a server error. The script
+    # ran and was stopped; its outcome is recorded above, so the reply is a 200
+    # with ``timed_out`` and whatever it printed before the stop.
     return jsonify({
         'output': result.output,
         'plots': result.plots,
         'plot': result.plots[0] if result.plots else None,  # back-compat
         'success': result.success,
         'returncode': result.returncode,
+        'timed_out': bool(result.timed_out),
         'language': language,
     })
 

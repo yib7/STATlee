@@ -581,10 +581,16 @@
     // same language, or it will not recognise the reviewed editor script.
     CC.runLanguage = runLanguage;
 
-    /** The sandbox's timeout message (sandbox.py). /run answers a timeout
-     *  with HTTP 500 and this text as `error` (L9), but the script DID run
-     *  and its outcome was recorded, so it is a failed run, not a refusal. */
+    /** A timed-out run DID run (L9): its outcome was recorded, so it is a
+     *  failed run, not a refusal. Since S5 /run answers 200 with
+     *  `timed_out: true` and the output printed before the stop. Servers
+     *  before S5 sent HTTP 500 with the sandbox's timeout message as `error`;
+     *  that text match is kept as a fallback for one release. */
     const TIMEOUT_RE = /^Execution timed out after/;
+    function timeoutReply(ok, status, data) {
+        if (ok) return !!(data && data.timed_out);
+        return status === 500 && !!data && TIMEOUT_RE.test(String(data.error || ''));
+    }
 
     /** Wording for a run that never reached the sandbox. Since S1-B, any
      *  script /chat did not approve in this session (a restored history
@@ -630,16 +636,18 @@
             const { ok, status, data } = await CC.post('/run', {
                 code, language, filename: CC.state.filename,
             });
-            if (!ok && status === 500 && data && TIMEOUT_RE.test(String(data.error || ''))) {
+            if (timeoutReply(ok, status, data)) {
                 // L9: it ran and was stopped. The server recorded the outcome
                 // (returncode / timed_out), so /interpret diagnoses it.
-                const out = String(data.error);
-                CC.state.lastRun = { output: out, plots: [], success: false, timedOut: true, code };
+                const out = String((ok ? data.output : data.error) || '');
+                const plots = (ok && Array.isArray(data.plots)) ? data.plots : [];
+                CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code };
                 renderTerminal(out, true);
                 execFinished(true, null, 'timed out', { noFix: true });
+                if (plotOutput) plotOutput.innerHTML = renderPlots(plots);
                 interpretationOutput.innerHTML =
                     `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Diagnosing the failure...</span>`;
-                await interpret({ output: out, plots: [], success: false }, code, language);
+                await interpret({ output: out, plots, success: false }, code, language);
                 return;
             }
             if (!ok) {

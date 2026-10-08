@@ -864,3 +864,28 @@ def test_credits_remaining_refreshes_the_balance(page):
     page.press('#chatInput', 'Enter')
     page.wait_for_function("() => CC.state.user.credits === 40")
     assert page.text_content('#accountCredits').strip() == '40 credits'
+
+
+# ---------------------------------------------------------------------------
+# S5: backend contract follow-ups (FIX-S4.md "backend follow-ups")
+# ---------------------------------------------------------------------------
+
+
+def test_run_timeout_flag_is_an_executed_failure(page):
+    # S5: a timeout is a 200 with timed_out and the partial output.
+    upload(page, 'slow2.csv', CSV_A + '76,1,A\n')
+    skip_codebook(page)
+    generate(page)
+    page.context.route('**/run', lambda route: route.fulfill(
+        status=200, content_type='application/json',
+        body=json.dumps({'output': 'fitted 3 of 10 models\n\nExecution timed out after 30 '
+                                   'seconds. Code took too long to run.',
+                         'plots': [], 'plot': None, 'success': False, 'returncode': -1,
+                         'timed_out': True, 'language': 'Python'})))
+    page.click('#runBtn')
+    page.wait_for_selector('#pipelineChecklist [data-step="execute"][data-state="failed"]')
+    assert 'timed out' in page.inner_text('#pipelineChecklist [data-step="execute"] .step-note')
+    assert 'fitted 3 of 10 models' in page.inner_text('#runOutput')
+    page.wait_for_function('() => (window.__fetchCalls["/interpret"] || 0) >= 1')
+    assert page.evaluate('() => CC.state.lastRun.timedOut') is True
+    assert page.locator('#pipelineChecklist .step-fix').count() == 0

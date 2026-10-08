@@ -100,6 +100,20 @@ def _timeout_message(timeout):
             "Code took too long to run.")
 
 
+def _as_text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace')
+    return value or ''
+
+
+def _timeout_output(stdout, stderr, timeout, output_limit):
+    """What the script printed before it was stopped, then the timeout notice
+    (S5): a long model fit that dies at the limit still shows its progress."""
+    partial = _combine_output(_as_text(stdout), _as_text(stderr), output_limit)
+    notice = _timeout_message(timeout)
+    return f"{partial}\n\n{notice}" if partial else notice
+
+
 def _kill_subprocess(proc):
     """Kill ``proc`` on timeout. On POSIX the child leads its own process group
     (start_new_session=True), so signal the whole group to reap orphaned
@@ -189,14 +203,15 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
                 result.returncode = proc.returncode
                 result.output = _combine_output(
                     proc.stdout, proc.stderr, output_limit)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
                 # Kill the orphaned container by name before the finally block
                 # removes its bind-mounted run_dir.
                 subprocess.run(['docker', 'kill', container],
                                capture_output=True, timeout=10)
                 result.timed_out = True
                 result.returncode = -1
-                result.output = _timeout_message(timeout)
+                result.output = _timeout_output(
+                    exc.stdout, exc.stderr, timeout, output_limit)
             except FileNotFoundError as e:
                 result.returncode = -1
                 result.output = f"Interpreter not available: {e}"
@@ -232,10 +247,13 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
                         stdout, stderr, output_limit)
                 except subprocess.TimeoutExpired:
                     _kill_subprocess(proc)
-                    proc.communicate()   # reap the killed child
+                    # Reap the killed child; what it wrote before the kill is
+                    # still in the pipes and is kept (S5).
+                    stdout, stderr = proc.communicate()
                     result.timed_out = True
                     result.returncode = -1
-                    result.output = _timeout_message(timeout)
+                    result.output = _timeout_output(
+                        stdout, stderr, timeout, output_limit)
 
         for plot_path in sorted(glob.glob(os.path.join(run_dir, 'plot*.png'))):
             try:
