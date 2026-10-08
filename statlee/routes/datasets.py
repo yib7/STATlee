@@ -441,8 +441,9 @@ def extract_pdf_codebook():
         if doc_ext == '.txt':
             # D1-10: TXT codebooks are sent as text, so non-Latin text survives.
             text, _enc = datatools.decode_text_bytes(doc_bytes)
-            contents = [prompt, 'ATTACHED DOCUMENT (plain text, from the '
-                                "user's .txt upload):\n" + text]
+            contents = [prompt, "ATTACHED DOCUMENT (plain text, from the "
+                                "user's .txt upload):\n"
+                        + prompts.untrusted('DOCUMENT', text)]
         else:
             contents = [llm.MediaPart(data=doc_bytes, mime_type='application/pdf'),
                         prompt]

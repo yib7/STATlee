@@ -147,8 +147,9 @@ def test_chat_no_fallback_event_on_normal_selection(client, fake_llm):
 
 
 def test_chat_pro_mode_routes_codegen_to_pro_max(client, fake_llm):
-    """Pro mode runs code generation (the draft) on the bigger 'pro_max' model;
-    the other pipeline steps stay on their normal cheap roles."""
+    """Pro mode runs code generation (the draft) AND its review pass on the
+    bigger 'pro_max' model (D3-8: a weaker model must not rewrite the Pro
+    draft); moderation and the run-guard stay on their normal cheap roles."""
     upload_csv(client, SAMPLE_CSV)
     resp = post_json(client, '/chat',
                      {'filename': 'test.csv', 'prompt': 'describe the data',
@@ -157,7 +158,8 @@ def test_chat_pro_mode_routes_codegen_to_pro_max(client, fake_llm):
     # FakeLLMService records (role, kind, text); the code-gen call must use pro_max.
     roles = {c[1]: c[0] for c in fake_llm.calls}
     assert roles.get('draft') == 'pro_max'
-    assert roles.get('validation') == 'lite'   # cleanup pass unaffected
+    assert roles.get('validation') == 'pro_max'  # review on the same tier
+    assert roles.get('code_moderation') == 'lite'
 
 
 def test_chat_default_uses_draft_model(client, fake_llm):

@@ -204,9 +204,14 @@ def chat():
             # Phase B: stream the validation pass (replaces the draft client-side).
             yield sse_event({'type': 'phase', 'phase': 'validating'})
             validated = ''
+            # D3-8: the reviewer sees the request and the analysed columns.
+            # In Pro mode it runs on the same Pro model as the draft: a
+            # weaker model rewriting a Pro draft undid what the user paid for.
             for delta in service.stream(
-                    'lite',
-                    prompts.validation(target_language, filename, draft_code),
+                    'pro_max' if pro_mode else 'lite',
+                    prompts.validation(target_language, filename, draft_code,
+                                       user_prompt=user_prompt,
+                                       columns_meta=metadata_summary),
                     temperature=0.0,
                     usage_out=validation_usage):
                 validated += delta
