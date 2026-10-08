@@ -74,14 +74,23 @@ def _incoming_size(file):
         return 0
 
 
-def _quota_error(incoming_bytes):
+def _quota_error(incoming_bytes, replacing=None):
     """P2-4: return a 413 ``json_error`` if accepting ``incoming_bytes`` more
     would push the caller's identity dir past its file-count or byte quota,
     else ``None``. Uses a cheap directory scan BEFORE the new file is saved so
-    a burst of uploads cannot fill the disk ahead of the 2h TTL cleanup."""
+    a burst of uploads cannot fill the disk ahead of the 2h TTL cleanup.
+
+    ``replacing`` is the path the upload will overwrite, if it exists: the file
+    count then does not grow and its bytes are freed, so a user at the cap can
+    still refresh ``data.csv`` (D1-14)."""
     cfg = _cfg()
     count, used = storage.identity_usage()
-    if cfg.max_datasets_per_identity and count >= cfg.max_datasets_per_identity:
+    if replacing and os.path.exists(replacing):
+        try:
+            used -= os.stat(replacing).st_size
+        except OSError:
+            pass
+    elif cfg.max_datasets_per_identity and count >= cfg.max_datasets_per_identity:
         return json_error(
             'Storage limit reached: at most '
             f'{cfg.max_datasets_per_identity} files per session. Remove data '
@@ -168,13 +177,15 @@ def upload_file():
     if not file.filename:
         return json_error('No selected file')
 
-    ext = os.path.splitext(file.filename)[1].lower()
+    # D1-1: derive the extension and the stored name together, so the
+    # extension that is validated is the one that is kept (non-Latin names
+    # used to lose it to secure_filename).
+    filename, ext = storage.upload_name(file.filename)
     if ext not in datatools.SUPPORTED_EXTENSIONS:
         return json_error(
             'Invalid file format. Supported: '
             + ', '.join(datatools.SUPPORTED_EXTENSIONS))
 
-    filename = secure_filename(file.filename)
     # P2-3: version artifacts are named "{stem}__vN.csv" and share this flat
     # identity dir, so a file whose stem already ends in a __vN suffix could
     # later be overwritten by a wrangle of another dataset. Reserve that suffix
@@ -183,52 +194,60 @@ def upload_file():
         return json_error(
             'Filenames ending in a version suffix like "__v2" are reserved for '
             'dataset history. Please rename the file and upload again.')
-    filepath = storage.resolve_path(filename)
-    if not filepath:
+    csv_name = os.path.splitext(filename)[0] + '.csv'
+    target = storage.resolve_path(csv_name)
+    if not target:
         return json_error('Invalid filename')
 
-    quota = _quota_error(_incoming_size(file))
+    quota = _quota_error(_incoming_size(file), replacing=target)
     if quota is not None:
         return quota
-    file.save(filepath)
 
+    # D1-8: parse in a hidden staging file and move it into place only on
+    # success. No failure path can leave an unregistered file counting toward
+    # the quota, and a failed re-upload leaves the existing dataset intact.
+    staged = storage.incoming_path(ext)
+    staged_csv = os.path.splitext(staged)[0] + '.csv'
+
+    def _discard(status, message):
+        for p in {staged, staged_csv}:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        return json_error(message, status)
+
+    file.save(staged)
     cfg = _cfg()
+    info = {}
     try:
         # P2-2: bound the parse so a decompression bomb can't OOM/pin the
         # worker. 0 disables either cap (0 * 1024 * 1024 == 0).
         csv_path, labels = datatools.normalize_to_csv(
-            filepath,
+            staged,
             max_cells=cfg.max_upload_cells,
-            max_uncompressed_bytes=cfg.max_upload_uncompressed_mb * 1024 * 1024)
+            max_uncompressed_bytes=cfg.max_upload_uncompressed_mb * 1024 * 1024,
+            info=info)
     except datatools.ParseLimitError as e:
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
-        return json_error(str(e), 413)
-    except datatools.MissingDependencyError as e:
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
-        return json_error(str(e), 422)
+        return _discard(413, str(e))
+    except (datatools.MissingDependencyError, datatools.DatasetParseError) as e:
+        return _discard(422, str(e))
     except Exception:
         logger.exception("Failed to parse uploaded dataset")
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
-        return json_error('Could not read that file. Is it a valid dataset?', 422)
+        return _discard(422, 'Could not read that file. Is it a valid dataset?')
 
-    csv_name = os.path.basename(csv_path)
     try:
-        df = pd.read_csv(csv_path, nrows=100)
+        df = info.get('frame')
+        if df is None:
+            df = pd.read_csv(csv_path)
         profile = datatools.profile_dataframe(df)
     except Exception:
         logger.exception("Failed to profile dataset")
-        return json_error('Could not read the dataset after conversion.', 500)
+        return _discard(422, 'Could not read the dataset after conversion.')
 
-    sha256 = datatools.file_sha256(csv_path)
+    os.replace(csv_path, target)
+    clear_caches()
+    sha256 = datatools.file_sha256(target)
     storage.register_dataset(csv_name)
     storage.save_dataset_meta(csv_name, {
         'sha256': sha256,
@@ -239,8 +258,10 @@ def upload_file():
     return jsonify({
         'message': 'File uploaded',
         'filename': csv_name,
+        'original_name': file.filename,   # display name (D1-1)
         'profile': profile,
         'labels': labels,        # native .sav/.dta labels seed the codebook
+        'warnings': info.get('warnings', []),   # e.g. skipped sheets (D1-13)
         'sha256': sha256,
         'changelog': storage.dataset_changelog(csv_name),  # seeds the cleaning panel
     }), 200
@@ -259,17 +280,18 @@ def upload_pdf():
     if not file.filename:
         return json_error('No selected file')
 
-    lower = file.filename.lower()
-    if not (lower.endswith('.pdf') or lower.endswith('.txt')):
+    # D1-1: branch on the extension of the name we STORE, derived once from
+    # the raw name. Non-Latin names used to sanitize to a bare 'pdf', which
+    # skipped both the page cap and the TXT size check below.
+    filename, ext = storage.upload_name(file.filename)
+    if ext not in ('.pdf', '.txt'):
         return json_error('Invalid file format. Please upload a PDF or TXT.')
-
-    filename = secure_filename(file.filename)
     filepath = storage.resolve_path(filename)
     if not filepath:
         return json_error('Invalid filename')
 
     incoming = _incoming_size(file)
-    quota = _quota_error(incoming)
+    quota = _quota_error(incoming, replacing=filepath)
     if quota is not None:
         return quota
 
@@ -280,60 +302,53 @@ def upload_pdf():
     # real text density (~3 KB per dense rendered page), so nothing short enough
     # to pass the page cap is rejected here -- it only short-circuits the
     # pathological oversized case before any conversion work happens.
-    if filename.lower().endswith('.txt'):
+    if ext == '.txt':
         max_txt_bytes = max_pages * 4096
         if incoming > max_txt_bytes:
             return json_error(
                 f'Text file is too large ({incoming // 1024} KB). The '
                 f'{max_pages}-page documentation limit allows roughly '
                 f'{max_txt_bytes // 1024} KB of text. Please upload a shorter '
-                'document.')
+                'document.', 413)
 
-    file.save(filepath)
+    staged = storage.incoming_path(ext)
+    file.save(staged)
 
-    from pypdf import PdfReader
-
-    if filename.lower().endswith('.pdf'):
+    def _discard(status, message):
         try:
-            with open(filepath, 'rb') as f:
+            os.remove(staged)
+        except OSError:
+            pass
+        return json_error(message, status)
+
+    if ext == '.pdf':
+        from pypdf import PdfReader
+        try:
+            with open(staged, 'rb') as f:
                 page_count = len(PdfReader(f).pages)
         except Exception:
-            os.remove(filepath)
-            return json_error('Failed to read PDF.', 422)
+            return _discard(422, 'Failed to read PDF.')
         if page_count > max_pages:
-            os.remove(filepath)
-            return json_error(
-                f'PDF is {page_count} pages, which exceeds the {max_pages}-page '
-                'limit. Please upload a shorter document.')
-
-    if filename.lower().endswith('.txt'):
-        pdf_filename = filename.rsplit('.', 1)[0] + '.pdf'
-        pdf_filepath = storage.resolve_path(pdf_filename)
+            return _discard(
+                413, f'PDF is {page_count} pages, which exceeds the '
+                     f'{max_pages}-page limit. Please upload a shorter document.')
+    else:
+        # D1-10: a TXT codebook is kept as UTF-8 text and inlined into the
+        # extraction prompt. It used to be rendered to PDF in a Latin-1 core
+        # font, which silently erased Cyrillic/CJK text and smart quotes. The
+        # byte budget above stands in for the page cap.
         try:
-            from fpdf import FPDF
-            pdf = FPDF()
-            pdf.set_auto_page_break(auto=True, margin=15)
-            pdf.add_page()
-            pdf.set_font('Helvetica', size=11)
-            with open(filepath, encoding='utf-8', errors='replace') as f:
-                for line in f:
-                    clean = line.encode('latin-1', 'ignore').decode('latin-1')
-                    pdf.multi_cell(0, 6, text=clean)
-            pdf.output(pdf_filepath)
-            os.remove(filepath)
-            with open(pdf_filepath, 'rb') as f:
-                page_count = len(PdfReader(f).pages)
-            if page_count > max_pages:
-                os.remove(pdf_filepath)
-                return json_error(
-                    f'TXT file converts to {page_count} pages, which exceeds '
-                    f'the {max_pages}-page limit. Please upload a shorter document.')
-            filename = pdf_filename
+            with open(staged, 'rb') as f:
+                text, _enc = datatools.decode_text_bytes(f.read())
+            with open(staged, 'w', encoding='utf-8', newline='') as f:
+                f.write(text)
         except Exception:
-            logger.exception("TXT→PDF conversion failed")
-            return json_error('Failed to convert TXT to PDF.', 500)
+            logger.exception("TXT codebook decode failed")
+            return _discard(422, 'Failed to read the text file.')
 
-    return jsonify({'message': 'Documentation uploaded', 'filename': filename}), 200
+    os.replace(staged, filepath)
+    return jsonify({'message': 'Documentation uploaded', 'filename': filename,
+                    'original_name': file.filename}), 200
 
 
 @bp.route('/extract_pdf_codebook', methods=['POST'])
@@ -355,19 +370,28 @@ def extract_pdf_codebook():
     filepath = storage.resolve_path(filename)
     if not filepath or not os.path.exists(filepath):
         return json_error('Invalid filename')
+    doc_ext = os.path.splitext(filepath)[1].lower()
+    if doc_ext not in ('.pdf', '.txt'):
+        return json_error('Not a documentation file.')
 
     try:
         with open(filepath, 'rb') as f:
-            pdf_bytes = f.read()
+            doc_bytes = f.read()
         if mode == 'survey':
             prompt = prompts.survey_extract(headers)
         else:
             prompt = prompts.pdf_extract()
 
+        if doc_ext == '.txt':
+            # D1-10: TXT codebooks are sent as text, so non-Latin text survives.
+            text, _enc = datatools.decode_text_bytes(doc_bytes)
+            contents = [prompt, 'ATTACHED DOCUMENT (plain text, from the '
+                                "user's .txt upload):\n" + text]
+        else:
+            contents = [llm.MediaPart(data=doc_bytes, mime_type='application/pdf'),
+                        prompt]
         result = llm.get_service().generate(
-            'flash',
-            [llm.MediaPart(data=pdf_bytes, mime_type='application/pdf'), prompt],
-            temperature=0.1, json_mode=True)
+            'flash', contents, temperature=0.1, json_mode=True)
         mapping = json.loads(result.text)
         if not isinstance(mapping, dict):
             raise ValueError('mapping is not an object')

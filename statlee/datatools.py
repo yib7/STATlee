@@ -10,6 +10,7 @@
 import hashlib
 import json
 import os
+import re
 import zipfile
 
 import pandas as pd
@@ -32,6 +33,106 @@ class ParseLimitError(ValueError):
     pass
 
 
+class DatasetParseError(ValueError):
+    """The upload is a supported format but its content cannot be parsed (empty
+    file, ragged rows, ...). The message is user-facing; the route maps it to
+    a 422 (D1-8)."""
+    pass
+
+
+def decode_text_bytes(raw):
+    """Decode uploaded text: UTF-8 (BOM tolerated) first, then cp1252 (what
+    Excel on Windows and many SPSS exports write), then latin-1, which cannot
+    fail. Returns ``(text, encoding)``."""
+    for enc in ('utf-8-sig', 'cp1252'):
+        try:
+            return raw.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('latin-1'), 'latin-1'
+
+
+def _transcode_to_utf8(path):
+    """Rewrite a non-UTF-8 text file in place as UTF-8 so every later reader
+    (pandas, the generated scripts, R) sees one encoding. Returns the source
+    encoding."""
+    with open(path, 'rb') as f:
+        raw = f.read()
+    text, enc = decode_text_bytes(raw)
+    if enc != 'utf-8-sig':
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            f.write(text)
+    return enc
+
+
+def _read_delimited(path, sep=','):
+    """Full parse of a CSV/TSV with clear, user-facing failures (D1-8). The
+    whole file is parsed, not a 100-row preview, so a ragged row deep in the
+    file is caught at upload instead of breaking /data_page later."""
+    _transcode_to_utf8(path)
+    try:
+        return pd.read_csv(path, sep=sep)
+    except pd.errors.EmptyDataError as e:
+        raise DatasetParseError(
+            'The file is empty. Upload a file with a header row and data.') from e
+    except pd.errors.ParserError as e:
+        m = re.search(r'line (\d+), saw (\d+)', str(e))
+        where = (f' Line {m.group(1)} has {m.group(2)} fields, unlike the '
+                 'header.') if m else ''
+        raise DatasetParseError(
+            'Could not parse the file: the rows do not all have the same '
+            f'number of columns.{where} Check the delimiter and quoting, then '
+            'upload again.') from e
+
+
+_VALUE_LABELS_MAX = 40
+
+
+def _fmt_code(value):
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _merge_value_labels(names, col_labels, value_labels):
+    """Native .sav/.dta labels for the codebook: the variable label plus its
+    value labels, e.g. ``"Respondent gender (1=Male, 2=Female)"`` (D1-13).
+    Without the value labels the model saw a coded column as continuous."""
+    labels = {}
+    for name, label in zip(names, col_labels, strict=False):
+        if label:
+            labels[name] = str(label)
+    for name, mapping in (value_labels or {}).items():
+        if not isinstance(mapping, dict) or not mapping:
+            continue
+        pairs = [f'{_fmt_code(k)}={v}' for k, v in
+                 list(mapping.items())[:_VALUE_LABELS_MAX]]
+        if len(mapping) > _VALUE_LABELS_MAX:
+            pairs.append('...')
+        coding = ', '.join(pairs)
+        base = labels.get(name)
+        labels[name] = f'{base} ({coding})' if base else coding
+    return labels
+
+
+def _read_excel_all_sheets(src_path, info):
+    """Read every sheet and keep the one with the most cells (D1-13). A
+    workbook whose first sheet is a README/notes tab used to be ingested as
+    "the dataset"; now the choice is made on content and announced."""
+    sheets = pd.read_excel(src_path, sheet_name=None)
+    if not sheets:
+        raise DatasetParseError('The workbook has no sheets.')
+    names = list(sheets)
+    chosen = max(names, key=lambda n: (sheets[n].size, -names.index(n)))
+    if len(names) > 1:
+        others = ', '.join(f"'{n}'" for n in names if n != chosen)
+        info.setdefault('warnings', []).append(
+            f"This workbook has {len(names)} sheets. Imported '{chosen}' (the "
+            f"largest); ignored {others}. Save the sheet you want as its own "
+            'file to analyze a different one.')
+    return sheets[chosen]
+
+
 def _cell_limit_message(n_cells, cap):
     return (
         f"This file is too large to process: it expands to ~{n_cells:,} cells, "
@@ -47,8 +148,13 @@ def file_sha256(path):
     return h.hexdigest()
 
 
-def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
+def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
+                     info=None):
     """Read any supported format and write a CSV next to it.
+
+    ``info``, when given, is a dict the function fills with ``warnings`` (a
+    list of user-facing notes, e.g. skipped workbook sheets) and ``frame``
+    (the parsed DataFrame, so the caller need not parse the CSV again).
 
     Returns ``(csv_path, labels)`` where ``labels`` maps column names to
     human-readable variable labels when the source format carries them
@@ -66,14 +172,20 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
     """
     ext = os.path.splitext(src_path)[1].lower()
     labels = {}
+    if info is None:
+        info = {}
+    info.setdefault('warnings', [])
 
     if ext == '.csv':
-        # Passthrough: no DataFrame is built and the file is not compressed, so
-        # it is already bounded by the request-body size cap. Nothing to guard.
+        # Kept in place (an uncompressed CSV is already bounded by the request
+        # body cap, so no cell guard), but transcoded to UTF-8 if needed and
+        # fully parsed so an unreadable file fails HERE with a clear 422
+        # instead of a 500 later (D1-8).
+        info['frame'] = _read_delimited(src_path)
         return src_path, labels
 
     if ext == '.tsv':
-        df = pd.read_csv(src_path, sep='\t')
+        df = _read_delimited(src_path, sep='\t')
     elif ext in ('.xlsx', '.xls'):
         engine_pkg = 'openpyxl' if ext == '.xlsx' else 'xlrd'
         # .xlsx is a zip container: a 16 MB upload can hold cells that unpack to
@@ -92,7 +204,7 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
                     "uncompressed-size limit. Please upload a smaller extract "
                     "or a CSV.")
         try:
-            df = pd.read_excel(src_path)
+            df = _read_excel_all_sheets(src_path, info)
         except ImportError as e:
             raise MissingDependencyError(
                 f"Excel support requires the '{engine_pkg}' package on the "
@@ -117,11 +229,11 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
                 raise ParseLimitError(
                     _cell_limit_message(n_rows * n_cols, max_cells))
         df, meta = reader(src_path)
-        # Native variable labels seed the codebook (no LLM call needed).
-        names = list(getattr(meta, 'column_names', []) or [])
-        col_labels = list(getattr(meta, 'column_labels', []) or [])
-        labels = {name: label
-                  for name, label in zip(names, col_labels, strict=False) if label}
+        # Native variable AND value labels seed the codebook (no LLM call).
+        labels = _merge_value_labels(
+            list(getattr(meta, 'column_names', []) or []),
+            list(getattr(meta, 'column_labels', []) or []),
+            getattr(meta, 'variable_value_labels', None) or {})
     else:
         raise UnsupportedFormatError(
             f"Unsupported file format '{ext}'. Supported: "
@@ -139,6 +251,7 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None):
         os.remove(src_path)
     except OSError:
         pass
+    info['frame'] = df
     return csv_path, labels
 
 

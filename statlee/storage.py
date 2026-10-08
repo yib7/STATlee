@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import time
+import unicodedata
 
 from filelock import FileLock
 from flask import current_app, session
@@ -119,6 +120,52 @@ def identity_usage(identity=None):
     return dataset_count, total_bytes
 
 
+_EXT_RE = re.compile(r'\.[a-z0-9]{1,8}')
+_UPLOAD_STEM_MAX = 100
+
+
+def upload_name(raw_filename):
+    """Map a client upload filename to ``(stored_name, ext)`` (D1-1).
+
+    ``secure_filename`` drops every non-ASCII character, so ``数据.csv`` used to
+    become ``csv`` (no extension, unparseable) and every Cyrillic PDF collapsed
+    to ``pdf``. Here the extension is split off the RAW name first and always
+    kept, so the caller validates the same extension it stores. Latin accents
+    still transliterate (``café`` -> ``cafe``). When the stem loses any
+    non-ASCII character, an 8-hex digest of the original stem is appended, so
+    distinct non-Latin names never collide while the same name maps to the
+    same stored file (a re-upload replaces it). An empty stem falls back to
+    ``upload_<digest>``. ``ext`` is lowercase and '' when it is not a plain
+    short ASCII extension.
+    """
+    base = (raw_filename or '').replace('\\', '/').rsplit('/', 1)[-1]
+    stem, ext = os.path.splitext(base)
+    ext = ext.lower()
+    if not _EXT_RE.fullmatch(ext):
+        ext = ''
+    decomposed = unicodedata.normalize('NFKD', stem)
+    lossy = any(ord(c) > 127 and not unicodedata.combining(c)
+                for c in decomposed)
+    safe_stem = secure_filename(stem)[:_UPLOAD_STEM_MAX].strip('._')
+    if lossy or not safe_stem:
+        digest = hashlib.sha256(stem.encode('utf-8')).hexdigest()[:8]
+        safe_stem = f'{safe_stem}_{digest}' if safe_stem else f'upload_{digest}'
+    return safe_stem + ext, ext
+
+
+INCOMING_PREFIX = '.incoming_'
+
+
+def incoming_path(ext, identity=None):
+    """A unique hidden staging path for an upload in progress. The route parses
+    and validates the file here and only moves it to its real name on success,
+    so a failed upload never leaves a stray file behind, and a failed re-upload
+    never clobbers the dataset it would have replaced (D1-8)."""
+    import secrets
+    return os.path.join(identity_root(identity),
+                        f'{INCOMING_PREFIX}{secrets.token_hex(8)}{ext}')
+
+
 def resolve_path(filename, identity=None):
     """Map a client-supplied filename to a safe path inside the caller's
     own directory. Returns None for empty names or traversal attempts."""
@@ -177,7 +224,23 @@ def _manifest_lock(filename, identity=None):
 
 
 def register_dataset(filename, identity=None):
-    """Initialise the version manifest for a freshly uploaded dataset."""
+    """Initialise the version manifest for a freshly uploaded dataset.
+
+    A re-upload under the same name starts a fresh history; the previous
+    history's version files are deleted so they neither linger on disk nor
+    count toward the byte quota (D1-14)."""
+    previous = _load_manifest(filename, identity)
+    if previous:
+        keep = secure_filename(filename)
+        for v in previous.get('versions', []):
+            old = v.get('file') if isinstance(v, dict) else None
+            if old and secure_filename(old) != keep:
+                path = resolve_path(old, identity)
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        logger.warning("Could not remove old version %s", path)
     manifest = {
         'filename': secure_filename(filename),
         'versions': [{

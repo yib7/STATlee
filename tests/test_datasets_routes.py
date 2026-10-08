@@ -582,19 +582,20 @@ def test_upload_pdf_rejects_oversized_txt_before_conversion(
     resp = client.post('/upload_pdf', data=data,
                        content_type='multipart/form-data',
                        headers={'X-CSRF-Token': token})
-    assert resp.status_code == 400
+    assert resp.status_code == 413   # size limits are 413 (deep audit tweak)
     assert 'too large' in resp.get_json()['error'].lower()
 
 
 def test_upload_pdf_allows_small_txt(client):
-    """P2-5: a .txt within the size budget still converts to a PDF normally."""
+    """P2-5: a .txt within the size budget is accepted. D1-10: it is now kept
+    as UTF-8 text (no lossy Latin-1 PDF rendering)."""
     token = csrf_token(client)
     data = {'file': (io.BytesIO(b'Q1. Age?\nQ2. Sex?'), 'ok.txt')}
     resp = client.post('/upload_pdf', data=data,
                        content_type='multipart/form-data',
                        headers={'X-CSRF-Token': token})
     assert resp.status_code == 200
-    assert resp.get_json()['filename'].endswith('.pdf')
+    assert resp.get_json()['filename'] == 'ok.txt'
 
 
 def test_extract_pdf_codebook_survey_mode(client, fake_llm):
