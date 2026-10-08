@@ -181,20 +181,33 @@ is the point where real money and secrets enter.
 ## Database schema & migrations (`migrations/`, `app.py`)
 
 The schema is versioned with Alembic (Flask-Migrate). At boot `create_app`
-brings the database up to date: a fresh DB is migrated to head, a legacy
-`create_all()` DB (tables but no `alembic_version`) is stamped at the baseline
-revision `171777e71dff` and then upgraded, and an already-migrated DB just
-upgrades to head. Each DB URI is upgraded once per process. The testing env
-keeps plain `create_all()` for fast throwaway DBs. Add a schema change with
-`flask db migrate -m "..."`, review the generated file under
-`migrations/versions/`, and the boot upgrade applies it on the next deploy.
+brings the database up to date:
 
-Caveat: stamping assumes a v1.2.0-era schema and does NOT verify columns. The
-stamp only writes the revision into `alembic_version`; it never inspects or
-alters the existing tables. So a legacy database whose columns predate the
-baseline (e.g. one missing `email_verified`) boots as "migrated" yet still
-crashes on the first query that touches the missing column. Such a DB needs a
-manual column backfill before boot; the auto-stamp cannot heal it.
+- a fresh DB is migrated to head;
+- an unstamped DB (tables but no `alembic_version`) whose schema already
+  matches the models is stamped at head (nothing to replay);
+- an unstamped DB that is behind the models is treated as a legacy
+  `create_all()` DB: stamped at the baseline revision `171777e71dff`, then
+  upgraded. If that upgrade fails, the stamp is removed again, so the DB is
+  never left claiming a revision it did not reach;
+- an already-migrated DB just upgrades to head.
+
+After upgrading, the boot compares the live schema with the models
+(`alembic.autogenerate.compare_metadata`). A missing table or column (a DB
+stamped at head but lacking, say, `users.email_verified`) is logged as an
+actionable error, and in production the boot refuses to start rather than
+serving 500s. `flask --app wsgi statlee-doctor` prints the same report.
+
+Each DB URI is handled once per process. The boot upgrade is skipped for
+`flask ... db <cmd>` and `flask ... statlee-doctor` (and whenever
+`STATLEE_SKIP_BOOT_MIGRATE=1`), so the Alembic CLI stays usable as a repair
+tool: `db current` reports the real revision and `db stamp head` runs even on a
+DB the boot upgrade cannot handle. The testing env keeps plain `create_all()`
+for fast throwaway DBs; `test_models_match_migration_head` and the CI
+`flask db check` step fail when the models and the migration head drift. Add a
+schema change with `flask --app wsgi db migrate -m "..."`, review the generated
+file under `migrations/versions/`, and the boot upgrade applies it on the next
+deploy.
 
 ## Frontend (`static/js/`, `templates/index.html`)
 

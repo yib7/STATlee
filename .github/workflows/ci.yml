@@ -47,3 +47,24 @@ jobs:
         env:
           APP_ENV: testing
         run: pytest -q
+
+  migrations:
+    name: Migrations match the models
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Upgrade a scratch DB to head and diff it against the models
+        env:
+          APP_ENV: development
+          DATABASE_URL: sqlite:///${{ runner.temp }}/check.db
+          UPLOAD_ROOT: ${{ runner.temp }}/uploads
+        run: |
+          flask --app wsgi db upgrade
+          flask --app wsgi db check
+          flask --app wsgi statlee-doctor

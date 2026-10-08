@@ -145,6 +145,187 @@ def test_already_migrated_db_boots_again_cleanly(tmp_path, dev_app_factory):
     assert _stamped_revision(tmp_path, 'again.db') == _head_revision()
 
 
+def _seed_create_all_db(tmp_path, db_name, drop_columns=()):
+    """A DB built by create_all() from today's models (no alembic_version),
+    optionally with some post-baseline user columns stripped, holding one
+    user row."""
+    from flask import Flask
+    from sqlalchemy import text
+
+    from statlee.models import User
+
+    uri = 'sqlite:///' + str(tmp_path / db_name).replace('\\', '/')
+    seed = Flask('seed')
+    seed.config['SQLALCHEMY_DATABASE_URI'] = uri
+    db.init_app(seed)
+    with seed.app_context():
+        db.create_all()
+        user = User(email='veteran@example.com')
+        user.set_password('hunter2!')
+        db.session.add(user)
+        db.session.commit()
+        if 'password_reset_token' in drop_columns:
+            db.session.execute(
+                text('DROP INDEX IF EXISTS ix_users_password_reset_token'))
+        for col in drop_columns:
+            db.session.execute(text(f'ALTER TABLE users DROP COLUMN {col}'))
+        db.session.commit()
+        db.engine.dispose()
+
+
+def _tables_in_file(tmp_path, db_name):
+    con = sqlite3.connect(str(tmp_path / db_name))
+    try:
+        return {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        con.close()
+
+
+def test_unstamped_db_already_at_head_is_stamped_head(tmp_path, dev_app_factory):
+    """D5-1: a create_all() DB built from today's models already has every
+    post-baseline column. Stamping it at the baseline and replaying the head
+    migration crashed with `duplicate column name: credits_month`, and the
+    stamp survived the failure, so every later boot crashed the same way. A
+    schema that already matches head must be stamped head instead."""
+    _seed_create_all_db(tmp_path, 'athead.db')
+
+    application = dev_app_factory(_dev_config(tmp_path, 'athead.db'))
+
+    assert _stamped_revision(tmp_path, 'athead.db') == _head_revision()
+    with application.app_context():
+        from statlee.models import User
+        assert db.session.query(User).filter_by(
+            email='veteran@example.com').one().check_password('hunter2!')
+
+
+def test_failed_legacy_upgrade_leaves_no_stamp(tmp_path, dev_app_factory):
+    """D5-1: when the legacy upgrade fails (here a half-migrated DB that has
+    credits_month but not the other head columns), the baseline stamp must be
+    rolled back. Otherwise SQLite's non-transactional DDL leaves the DB stamped
+    and every later boot takes the 'already migrated' path into the same
+    crash."""
+    _seed_create_all_db(tmp_path, 'half.db', drop_columns=(
+        'token_issued_at', 'password_reset_token', 'reset_token_issued_at'))
+
+    with pytest.raises(Exception, match='credits_month'):
+        dev_app_factory(_dev_config(tmp_path, 'half.db'))
+
+    assert 'alembic_version' not in _tables_in_file(tmp_path, 'half.db')
+
+
+@pytest.mark.parametrize('argv, expected', [
+    (['/venv/bin/flask', '--app', 'wsgi', 'db', 'stamp', 'head'], True),
+    (['C:\\venv\\Scripts\\flask.exe', 'db', 'current'], True),
+    (['/usr/lib/python3/site-packages/flask/__main__.py', '-A', 'wsgi', 'db',
+      'downgrade'], True),
+    (['/venv/bin/flask', '--app=wsgi', 'statlee-doctor'], True),
+    (['/venv/bin/flask', '--app', 'wsgi', 'grant-credits', 'a@b.c', '1'], False),
+    (['/venv/bin/flask', '--app', 'db', 'run'], False),
+    (['/venv/bin/gunicorn', 'wsgi:app', 'db'], False),
+    (['wsgi.py'], False),
+])
+def test_schema_repair_command_detection(argv, expected):
+    assert app_module._is_schema_repair_command(argv) is expected
+
+
+def test_flask_db_invocation_skips_boot_migration(tmp_path, dev_app_factory,
+                                                  monkeypatch):
+    """D5-1: `flask --app wsgi db stamp head` imports wsgi, which builds the
+    app. The boot upgrade must not run first, or a DB it cannot upgrade makes
+    the Alembic CLI (the repair tool) crash before its command executes."""
+    from flask_migrate import stamp
+
+    # The crash-looping state: stamped at the baseline, columns already at head.
+    _seed_create_all_db(tmp_path, 'poisoned.db')
+    con = sqlite3.connect(str(tmp_path / 'poisoned.db'))
+    con.execute('CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)')
+    con.execute("INSERT INTO alembic_version VALUES (?)", (app_module.BASELINE_REVISION,))
+    con.commit()
+    con.close()
+
+    monkeypatch.setattr(app_module.sys, 'argv',
+                        ['/venv/bin/flask', '--app', 'wsgi', 'db', 'stamp', 'head'])
+    repair_app = dev_app_factory(_dev_config(tmp_path, 'poisoned.db'))  # no crash
+    assert _stamped_revision(tmp_path, 'poisoned.db') == app_module.BASELINE_REVISION
+
+    # What `db stamp head` then does:
+    monkeypatch.setenv('STATLEE_INPROCESS_MIGRATION', '1')
+    with repair_app.app_context():
+        stamp(revision='head')
+    monkeypatch.delenv('STATLEE_INPROCESS_MIGRATION')
+
+    # A normal boot is healthy again.
+    monkeypatch.setattr(app_module.sys, 'argv', ['wsgi.py'])
+    app_module._upgraded_uris.clear()
+    dev_app_factory(_dev_config(tmp_path, 'poisoned.db'))
+    assert _stamped_revision(tmp_path, 'poisoned.db') == _head_revision()
+
+
+def test_skip_boot_migrate_env_leaves_db_untouched(tmp_path, dev_app_factory,
+                                                   monkeypatch):
+    monkeypatch.setenv('STATLEE_SKIP_BOOT_MIGRATE', '1')
+    dev_app_factory(_dev_config(tmp_path, 'skipped.db'))
+    assert 'alembic_version' not in _tables_in_file(tmp_path, 'skipped.db')
+
+
+def _drift_db(tmp_path, db_name, dev_app_factory):
+    """Head-stamped DB missing the baseline columns email_verified and
+    verification_token: the state the developer's local instance DB is in."""
+    from sqlalchemy import text
+    application = dev_app_factory(_dev_config(tmp_path, db_name))
+    with application.app_context():
+        db.session.execute(text('DROP INDEX IF EXISTS ix_users_verification_token'))
+        db.session.execute(text('ALTER TABLE users DROP COLUMN verification_token'))
+        db.session.execute(text('ALTER TABLE users DROP COLUMN email_verified'))
+        db.session.commit()
+        db.engine.dispose()
+    app_module._upgraded_uris.clear()
+
+
+def test_stamped_db_missing_columns_logs_actionable_error(tmp_path, dev_app_factory,
+                                                         caplog):
+    """D5-2: a DB stamped at head that lacks model columns used to boot
+    'healthy' and then 500 on every auth query. Boot must detect it and say
+    exactly what is missing and how to fix it."""
+    _drift_db(tmp_path, 'drift.db', dev_app_factory)
+
+    with caplog.at_level('ERROR', logger='statlee'):
+        dev_app_factory(_dev_config(tmp_path, 'drift.db'))   # dev: logs, boots
+
+    text_ = ' '.join(r.getMessage() for r in caplog.records
+                     if r.levelname == 'ERROR')
+    assert 'users.email_verified' in text_
+    assert 'users.verification_token' in text_
+    assert 'statlee-doctor' in text_
+
+
+def test_stamped_db_missing_columns_fails_boot_in_production(tmp_path,
+                                                             dev_app_factory):
+    _drift_db(tmp_path, 'drift_prod.db', dev_app_factory)
+    cfg = _dev_config(tmp_path, 'drift_prod.db')
+    cfg.env = 'production'
+    cfg.gemini_api_key = 'not-a-real-key'
+    with pytest.raises(RuntimeError, match='users.email_verified'):
+        dev_app_factory(cfg)
+
+
+def test_models_match_migration_head(tmp_path, dev_app_factory):
+    """D5-15: tests build their DBs with create_all(), which always matches
+    the models, so a model change without a migration passed the whole suite
+    and then 500'd in production. A DB migrated to head must have exactly the
+    models' schema (the in-process equivalent of `flask db check`)."""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    application = dev_app_factory(_dev_config(tmp_path, 'parity.db'))
+    with application.app_context(), db.engine.connect() as conn:
+        diff = compare_metadata(MigrationContext.configure(conn), db.metadata)
+    assert diff == [], (
+        'models and the migration head disagree; run `flask --app wsgi db '
+        f'migrate -m "..."` and commit the revision. Diff: {diff}')
+
+
 def test_testing_env_still_uses_create_all(app):
     """The test suite keeps fast create_all() DBs: no alembic_version."""
     tables = _table_names(app)
