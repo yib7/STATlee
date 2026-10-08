@@ -295,6 +295,15 @@ def _checks(*lines):
     'Independence: failed to pass',
     'Normality: fails to pass',
     'Normality: p=0.01 -> not PASS',
+    'Normality: cannot pass',
+    'Normality: can not pass',
+    "Normality: can't pass",
+    'Normality: can’t pass',
+    'Normality: unable to pass',
+    'Normality: no, pass',
+    'Normality: not a pass',
+    'Normality: not an ok',
+    'Normality: never; pass',
 ])
 def test_a_negated_verdict_is_never_a_pass(line):
     (_name, _detail, status), = _checks(line)
@@ -302,8 +311,12 @@ def test_a_negated_verdict_is_never_a_pass(line):
 
 
 def test_plain_word_verdicts_without_negation_still_count():
-    assert _checks('Normality: p=0.3 pass', 'VIF: max 2.1 OK.') == [
-        ('Normality', 'p=0.3', 'pass'), ('VIF', 'max 2.1', 'pass')]
+    assert _checks('Normality: p=0.3 pass', 'VIF: max 2.1 OK.',
+                   'Normality: cannot reject -> PASS', 'Fit: a pass',
+                   'Outliers: none, pass') == [
+        ('Normality', 'p=0.3', 'pass'), ('VIF', 'max 2.1', 'pass'),
+        ('Normality', 'cannot reject', 'pass'), ('Fit', 'a', 'pass'),
+        ('Outliers', 'none,', 'pass')]
 
 
 def test_arrow_verdict_with_a_short_trailing_note_keeps_the_note():

@@ -61,10 +61,13 @@ _STATUS_RE = re.compile(
     r'[\[(]?(?P<status>pass(?:ed)?|ok|warn(?:ing)?|fail(?:ed)?)[\])]?[.!]?$',
     re.I)
 # A bare-word verdict right after a negation ("did not pass", "not ok") is
-# not a verdict. Only checked when no arrow separates the verdict: with an
-# arrow ("Outliers: no -> PASS") the word before it is part of the result.
+# not a verdict, also with an article or punctuation in between ("not a
+# pass", "no, pass", "cannot pass"). Only checked when no arrow separates the
+# verdict: with an arrow ("Outliers: no -> PASS", "cannot reject -> PASS")
+# the words before it are the result.
 _NEGATION_RE = re.compile(
-    r"(?:\bnot|\bno|n't|\bnever|\bfail(?:s|ed)?\s+to|\bunable\s+to)\s*$",
+    r"(?:\bnot|\bno|\bcannot|n['’]t|\bnever|\bfail(?:s|ed)?\s+to|"
+    r"\bunable\s+to)(?:[\s,;:]+(?:an?|the)\b)?[\s,;:]*$",
     re.I)
 _ARROW_RE = re.compile(r'-+>|=+>|\u2192')
 # An arrow, its verdict, then a short note: "-> FAIL (use Welch)".
