@@ -226,6 +226,14 @@ class Config:
     # --- CSRF (1.5) -----------------------------------------------------------------
     csrf_enabled: bool = True
 
+    # --- /metrics (3.3) ----------------------------------------------------------------
+    # Bearer token for the operator-only /metrics snapshot (uptime and every
+    # model's call/token totals). Set: a request must carry it (Authorization:
+    # Bearer <token> or X-Metrics-Token), in every environment, and needs no
+    # session or login. Unset: /metrics is a 404 in production and open behind
+    # the normal app gate in development/testing.
+    metrics_token: str = ''
+
     # --- Issue reporting (6.3) ---------------------------------------------------------
     smtp_host: str = ''
     smtp_port: int = 587
@@ -329,6 +337,7 @@ class Config:
             smtp_user=os.environ.get('SMTP_USER', '').strip(),
             smtp_password=os.environ.get('SMTP_PASSWORD', ''),
             issue_report_to=os.environ.get('ISSUE_REPORT_TO', '').strip(),
+            metrics_token=os.environ.get('METRICS_TOKEN', '').strip(),
         )
         cfg.validate()
         return cfg

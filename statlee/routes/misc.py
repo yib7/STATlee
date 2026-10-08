@@ -1,4 +1,5 @@
 """Index, health, metrics (3.3), issue reporting (6.3), report builder (5.17)."""
+import hmac
 import logging
 import time
 
@@ -64,9 +65,40 @@ def health_check():
     return 'OK', 200
 
 
+def _metrics_denied():
+    """None when this request may read /metrics, else the response to send.
+
+    The snapshot is operational data about every user of the server (uptime,
+    per-model call and token totals), so it is an operator endpoint (S5): with
+    METRICS_TOKEN set the request must carry that token, with or without a
+    session; unset, production hides the route (404) and development/testing
+    keep the normal app gate."""
+    cfg = _cfg()
+    if cfg.metrics_token:
+        auth = request.headers.get('Authorization', '')
+        supplied = (auth[7:].strip() if auth[:7].lower() == 'bearer '
+                    else request.headers.get('X-Metrics-Token', '').strip())
+        if supplied and hmac.compare_digest(
+                supplied.encode('utf-8', 'replace'),
+                cfg.metrics_token.encode('utf-8', 'replace')):
+            return None
+        resp = jsonify({'error': 'A valid metrics token is required.'})
+        resp.headers['WWW-Authenticate'] = 'Bearer'
+        return resp, 401
+    if cfg.is_production:
+        return json_error('Not found.', 404)
+    from .auth import is_authorized
+    if not is_authorized():
+        return jsonify({'error': 'Unauthorized. Please log in.'}), 401
+    return None
+
+
 @bp.route('/metrics')
 def metrics():
-    """Structured usage/uptime snapshot (3.3)."""
+    """Structured usage/uptime snapshot (3.3), for the operator only."""
+    denied = _metrics_denied()
+    if denied is not None:
+        return denied
     try:
         usage = llm.get_service().usage_snapshot()
     except RuntimeError:

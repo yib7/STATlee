@@ -297,8 +297,9 @@ def _init_schema(app, cfg):
 
 
 # Endpoints reachable without authorization (frontend loader, auth handshake).
+# /metrics applies its own operator gate (METRICS_TOKEN, see misc.metrics).
 PUBLIC_ENDPOINTS = {
-    'misc.index', 'misc.welcome', 'static', 'misc.health_check',
+    'misc.index', 'misc.welcome', 'static', 'misc.health_check', 'misc.metrics',
     'auth.check_auth', 'auth.login', 'auth.register', 'auth.logout',
     'auth.verify_email', 'auth.request_password_reset', 'auth.reset_password',
 }
@@ -388,7 +389,8 @@ def create_app(config=None):
     @app.before_request
     def assign_request_context():
         g.request_id = uuid.uuid4().hex[:8]
-        if request.endpoint == 'misc.health_check':
+        # Probes and metric scrapes never mint a session (D5-18, S5).
+        if request.endpoint in ('misc.health_check', 'misc.metrics'):
             return
 
         if 'sid' not in session:
