@@ -148,13 +148,14 @@ def llm_json_error(exc, default_message, default_status=500):
     """JSON error response for a failed model call: a provider safety block is
     a 422 (the request itself was declined, retrying will not help), an empty
     or truncated reply a 502 (the upstream answer was unusable); anything else
-    is ``default_message``/``default_status``."""
+    is ``default_message``/``default_status``. A typed failure carries the
+    same ``reason`` code as the SSE error event (S5)."""
     err = _output_error(exc)
     if err is None:
         return json_error(default_message, default_status)
     from .. import llm
     status = 422 if isinstance(err, llm.BlockedGenerationError) else 502
-    return json_error(err.user_message, status)
+    return jsonify({'error': err.user_message, 'reason': err.reason}), status
 
 
 def moderation_gate(service, prompt, *, denied='Request denied.',

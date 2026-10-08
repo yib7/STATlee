@@ -108,7 +108,7 @@
 
     /** Human message for a non-streaming error reply. */
     CC.errorMessage = function (status, data, fallback) {
-        if (data && data.error) return CC.explainError(data.error);
+        if (data && data.error) return CC.reasonMessage(data.reason, data.error);
         if (status) return (fallback || 'Request failed') + ' (HTTP ' + status + ').';
         return fallback || 'Request failed.';
     };
@@ -131,6 +131,24 @@
         return CC.state.originalName || CC.state.filename || '';
     };
 
+    /** What to tell the user for a typed model failure. S1-C puts a `reason`
+     *  code on SSE `error` events (and on JSON errors from model routes):
+     *  each one gets wording that says what happened and what to try. An
+     *  unknown or missing reason keeps the server's own message. */
+    const REASON_MESSAGES = {
+        truncated: "The model's answer was cut off at its length limit, so it was discarded. "
+            + 'Try Pro mode or a narrower request (fewer variables, or one step at a time).',
+        blocked: "The AI provider's safety filter declined this request, so nothing was produced. "
+            + 'Rephrase it, or rename columns whose names or values look sensitive, then try again.',
+        empty: 'The model sent back an empty answer. This is usually temporary: try again in a moment.',
+        malformed: "The model's answer was not in the expected format. Try again; if it keeps "
+            + 'happening, rephrase the request.',
+    };
+    CC.reasonMessage = function (reason, serverMessage) {
+        const known = typeof reason === 'string' && Object.prototype.hasOwnProperty.call(REASON_MESSAGES, reason);
+        return known ? REASON_MESSAGES[reason] : CC.explainError(serverMessage);
+    };
+
     /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
      *  onPhase receives (phase, message): some phases are notices rather than
      *  progress (P2-8's feature-selection fallback carries the text to show),
@@ -151,7 +169,7 @@
             else if (parsed.type === 'done') { terminal = true; if (h.onDone) h.onDone(parsed); }
             else if (parsed.type === 'error') {
                 terminal = true;
-                if (h.onError) h.onError(CC.explainError(parsed.message || 'Stream error.'));
+                if (h.onError) h.onError(CC.reasonMessage(parsed.reason, parsed.message || 'Stream error.'), parsed);
             }
         };
         const handleEvent = (event) => {

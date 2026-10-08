@@ -974,3 +974,48 @@ def test_sign_in_without_collisions_says_the_dataset_moved(page):
     text = page.inner_text('.cc-toast.success')
     assert 'moved into your account' in text, text
     assert 'account copy is kept' not in text, text
+
+
+def test_truncated_generation_explains_what_to_do(page, fake):
+    # S1-C sends `reason` on SSE errors; the client words each one.
+    upload(page, 'trunc.csv', CSV_A + '77,1,A\n')
+    skip_codebook(page)
+    fake.fail('validation', llm.TruncatedGenerationError(provider='fake', model='m'))
+    try:
+        page.fill('#promptInput', 'Describe the data')
+        page.click('#generateBtn')
+        page.wait_for_selector('.cc-toast.error')
+        text = page.inner_text('.cc-toast.error')
+    finally:
+        fake._failures.clear()
+    assert 'cut off' in text and 'Pro mode' in text, text
+
+
+@pytest.mark.parametrize('reason, expected', [
+    ('blocked', 'safety filter'),
+    ('empty', 'empty answer'),
+    ('malformed', 'expected format'),
+])
+def test_stream_error_reasons_get_specific_messages(page, reason, expected):
+    page.context.route('**/converse', lambda route: route.fulfill(
+        status=200, content_type='text/event-stream',
+        body='data: ' + json.dumps({'type': 'error', 'reason': reason,
+                                    'message': 'server text'}) + '\n\n'))
+    page.click('#tabConverse')
+    page.fill('#chatInput', 'question')
+    page.press('#chatInput', 'Enter')
+    page.wait_for_selector('#chatLog .bg-red-50')
+    text = page.inner_text('#chatLog')
+    assert expected in text, text
+
+
+def test_unknown_stream_error_reason_keeps_the_server_message(page):
+    page.context.route('**/converse', lambda route: route.fulfill(
+        status=200, content_type='text/event-stream',
+        body='data: ' + json.dumps({'type': 'error', 'reason': 'something_new',
+                                    'message': 'The server explains it.'}) + '\n\n'))
+    page.click('#tabConverse')
+    page.fill('#chatInput', 'question')
+    page.press('#chatInput', 'Enter')
+    page.wait_for_selector('#chatLog .bg-red-50')
+    assert 'The server explains it.' in page.inner_text('#chatLog')
