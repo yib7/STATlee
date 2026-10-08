@@ -594,11 +594,54 @@ def load_dataset_meta(filename, identity=None):
     path = _meta_path(filename, identity)
     if not os.path.exists(path):
         return {}
+    data = _read_json(path)
+    return data if isinstance(data, dict) else {}
+
+
+def dataset_meta_lock(filename, identity=None):
+    """Cross-process lock for a read-modify-write of one dataset's meta
+    sidecar (SP2: the codebook lives there and is edited concurrently by
+    PUT /codebook, classification and PDF extraction)."""
+    return FileLock(_meta_path(filename, identity) + '.lock',
+                    timeout=_MANIFEST_LOCK_TIMEOUT)
+
+
+# SP2: codebooks keyed by a dataset's original sha256, so re-uploading
+# identical content restores the user's edits even after the meta sidecar of
+# that name was replaced by another upload. Hidden files, so they never count
+# as datasets; the oldest are pruned past CODEBOOK_ARCHIVE_MAX.
+CODEBOOK_ARCHIVE_PREFIX = '.codebook__'
+CODEBOOK_ARCHIVE_MAX = 50
+_SHA256_RE = re.compile(r'[0-9a-f]{64}')
+
+
+def _codebook_archive_path(sha256, identity=None):
+    if not isinstance(sha256, str) or not _SHA256_RE.fullmatch(sha256):
+        return None
+    return os.path.join(identity_root(identity),
+                        f'{CODEBOOK_ARCHIVE_PREFIX}{sha256}.json')
+
+
+def save_codebook_archive(sha256, payload, identity=None):
+    path = _codebook_archive_path(sha256, identity)
+    if path is None:
+        return
+    _write_json_atomic(path, payload)
+    root = os.path.dirname(path)
     try:
-        with open(path, encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
+        archived = [os.path.join(root, n) for n in os.listdir(root)
+                    if n.startswith(CODEBOOK_ARCHIVE_PREFIX)
+                    and n.endswith('.json')]
+        archived.sort(key=lambda p: os.stat(p).st_mtime, reverse=True)
+        for old in archived[CODEBOOK_ARCHIVE_MAX:]:
+            os.remove(old)
+    except OSError:
+        logger.warning("Could not prune the codebook archive", exc_info=True)
+
+
+def load_codebook_archive(sha256, identity=None):
+    path = _codebook_archive_path(sha256, identity)
+    return _read_json(path) if path else None
 
 
 # ---------------------------------------------------------------------------
