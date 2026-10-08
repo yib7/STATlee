@@ -434,7 +434,8 @@ class Config:
             if not self.public_base_url:
                 self._warn(
                     "ACCOUNTS_ENABLED with no PUBLIC_BASE_URL in production: "
-                    "password reset links are not sent, because the only other "
+                    "password reset and email verification links are not sent, "
+                    "because the only other "
                     "source for their host is the request's Host header, which "
                     "the requester controls. Set PUBLIC_BASE_URL=https://<your "
                     "domain>.")

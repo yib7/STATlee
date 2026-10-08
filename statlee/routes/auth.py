@@ -226,11 +226,29 @@ def register():
 
 
 def _send_verification_email(cfg, email, token):
-    """Send the confirmation link, or log it when SMTP isn't configured (dev)."""
-    link = url_for('auth.verify_email', token=token, _external=True)
+    """Send the confirmation link, or log it when SMTP isn't configured (dev).
+
+    D5-7 (as for reset links): the link's origin comes from PUBLIC_BASE_URL,
+    never from the request's Host header, and the token-bearing link is only
+    ever logged in development. In production a missing PUBLIC_BASE_URL or
+    SMTP_HOST raises, so /register reports that the email could not be sent
+    instead of telling the user to check an inbox that will stay empty."""
+    link = cfg.external_url(url_for('auth.verify_email', token=token))
+    if link is None:
+        if cfg.is_production:
+            logger.error("Verification email for %s not sent: PUBLIC_BASE_URL "
+                         "is not set.", email)
+            raise RuntimeError('PUBLIC_BASE_URL is not set')
+        link = url_for('auth.verify_email', token=token, _external=True)
     if not cfg.smtp_host:
-        logger.info("Email verification link for %s (no SMTP configured): %s",
-                    email, link)
+        if cfg.env == 'development':
+            logger.info("Email verification link for %s (no SMTP configured): "
+                        "%s", email, link)
+            return
+        logger.warning("Verification email for %s not sent: SMTP is not "
+                       "configured.", email)
+        if cfg.is_production:
+            raise RuntimeError('SMTP is not configured')
         return
     import smtplib
     from email.message import EmailMessage
