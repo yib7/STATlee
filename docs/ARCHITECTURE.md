@@ -105,7 +105,13 @@ backs the run-guard.
 2. **Feature selection** (`flash`): on wide datasets, pick the minimal columns.
 3. **Draft** (`draft`→pro): stream the first script, deltas shown live.
 4. **Validation** (`lite`): a second pass that replaces the draft client-side.
-5. **Save approved script**: the run-guard remembers exactly what was produced.
+5. **Code moderation** (`lite`, temp 0): the run-guard re-moderates the final
+   script itself; a `BLOCK` (or a moderation failure) ends the stream with an
+   error and nothing is approved.
+6. **Static check** (`codecheck.check_code`): the deterministic AST/regex
+   denylist runs as the last gate; a hit also ends the stream unapproved.
+7. **Save approved script**: only a script that passed both gates is remembered,
+   so `/run` executes exactly what was produced and checked.
 
 `POST /run` enforces the **run-guard** (roadmap 0.4): it only executes the
 server-approved script. If the submitted code differs (the editor allows
