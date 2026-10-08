@@ -146,8 +146,8 @@
             card.classList.add('mc-missing');
             body.appendChild(el('p', 'mc-empty', NOT_REPORTED));
             body.appendChild(el('p', 'mc-empty-sub',
-                'This script did not print the methods block, so its method, '
-                + 'assumption checks and effect sizes are not summarized here. '
+                'This script did not print a methods summary, so its test, '
+                + 'assumption checks and effect sizes are not listed here. '
                 + 'The terminal output below shows everything it printed.'));
             if (sum) sum.textContent = 'not reported';
         } else {

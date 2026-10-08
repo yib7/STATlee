@@ -273,3 +273,89 @@ def test_unicode_arrow_and_bracketed_verdicts():
            'cells: min 4 (warning)\n'
            '== END ==\n')
     assert [a['status'] for a in methods.parse(out)['assumptions']] == ['fail', 'pass', 'warn']
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1: negations, trailing notes, unfilled template lines
+# ---------------------------------------------------------------------------
+
+def _checks(*lines):
+    out = '== ASSUMPTIONS ==\n' + '\n'.join(lines) + '\n== END ==\n'
+    return [(a['name'], a['detail'], a['status'])
+            for a in methods.parse(out)['assumptions']]
+
+
+@pytest.mark.parametrize('line', [
+    'Normality: did not pass',
+    'Expected counts: not ok',
+    'Equal variances: does not pass',
+    "Linearity: doesn't pass",
+    'Homogeneity: no pass',
+    'Sphericity: never passed',
+    'Independence: failed to pass',
+    'Normality: fails to pass',
+    'Normality: p=0.01 -> not PASS',
+])
+def test_a_negated_verdict_is_never_a_pass(line):
+    (_name, _detail, status), = _checks(line)
+    assert status == 'unknown'
+
+
+def test_plain_word_verdicts_without_negation_still_count():
+    assert _checks('Normality: p=0.3 pass', 'VIF: max 2.1 OK.') == [
+        ('Normality', 'p=0.3', 'pass'), ('VIF', 'max 2.1', 'pass')]
+
+
+def test_arrow_verdict_with_a_short_trailing_note_keeps_the_note():
+    assert _checks(
+        'Equal variances (Levene): p=0.01 -> FAIL (use Welch)',
+        'Normality: p=0.02 -> FAIL; switched to Mann-Whitney',
+        'Outliers: 2 beyond 3 SD -> WARN - kept them',
+        'Cells: min 6 => PASS, all above 5',
+    ) == [
+        ('Equal variances (Levene)', 'p=0.01; use Welch', 'fail'),
+        ('Normality', 'p=0.02; switched to Mann-Whitney', 'fail'),
+        ('Outliers', '2 beyond 3 SD; kept them', 'warn'),
+        ('Cells', 'min 6; all above 5', 'pass'),
+    ]
+
+
+def test_a_note_without_a_detail_becomes_the_detail():
+    assert _checks('Linearity -> PASS (residual plot)') == [
+        ('Linearity', 'residual plot', 'pass')]
+
+
+def test_a_long_tail_after_an_arrow_is_not_a_verdict():
+    line = 'Check: x -> PASS ' + 'y' * 400
+    (_name, _detail, status), = _checks(line)
+    assert status == 'unknown'
+
+
+def test_unfilled_template_lines_are_skipped():
+    from statlee import prompts
+    card = methods.parse(prompts.METHODS_BLOCK)
+    assert card == methods.empty()
+    out = ('== METHOD ==\n'
+           'test: t-test; outcome: <var>; predictors: <vars>; n_used: <int>; '
+           'dropped: <int> (<reason>)\n'
+           '== ASSUMPTIONS ==\n'
+           '<check name>: <statistic/result> -> PASS|WARN|FAIL\n'
+           'Normality: p=0.4 -> PASS|WARN|FAIL\n'
+           'Levene: p=0.3 -> PASS\n'
+           '== EFFECT ==\n'
+           '<effect size name> = <value> [95% CI <lo>, <hi>]\n'
+           'd = 0.3 [95% CI 0.1, 0.5]\n'
+           '== END ==\n')
+    card = methods.parse(out)
+    assert card['method'] == {'test': 't-test', 'outcome': None, 'predictors': None,
+                              'n_used': None, 'dropped': None, 'dropped_reason': None}
+    assert card['assumptions'] == [{'name': 'Levene', 'detail': 'p=0.3', 'status': 'pass'}]
+    assert card['effects'] == [{'text': 'd = 0.3 [95% CI 0.1, 0.5]'}]
+
+
+def test_markup_like_values_are_not_mistaken_for_placeholders():
+    out = ('== METHOD ==\ntest: <b>t</b>\n== ASSUMPTIONS ==\n'
+           'n <5 cells: 0 of 4 -> PASS\n== END ==\n')
+    card = methods.parse(out)
+    assert card['method']['test'] == '<b>t</b>'
+    assert card['assumptions'][0]['status'] == 'pass'

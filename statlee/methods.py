@@ -40,6 +40,7 @@ EFFECT_MAX = 300           # one effect size line
 SECTION_LINES_MAX = 200    # lines kept per section
 HEADER_MAX = 80            # a longer line is never a header
 STATUS_TAIL = 64           # chars at the end of a check that hold its verdict
+NOTE_MAX = 120             # a note after "-> VERDICT"; longer is not a verdict
 SCAN_MAX = 2 * 1024 * 1024  # chars of output scanned (the block is at the end)
 
 STATUSES = ('pass', 'warn', 'fail', 'unknown')
@@ -56,9 +57,25 @@ _SEPARATOR_RE = re.compile(r'^[\s\-=_*#~.]*$')
 # The verdict closing a check line, searched in the line's last few chars
 # only, so a pathological long line cannot make the regex backtrack.
 _STATUS_RE = re.compile(
-    r'(?:\s*(?:-+>|=+>|\u2192)\s*|\s+)'
+    r'(?:\s*(?P<arrow>-+>|=+>|\u2192)\s*|\s+)'
     r'[\[(]?(?P<status>pass(?:ed)?|ok|warn(?:ing)?|fail(?:ed)?)[\])]?[.!]?$',
     re.I)
+# A bare-word verdict right after a negation ("did not pass", "not ok") is
+# not a verdict. Only checked when no arrow separates the verdict: with an
+# arrow ("Outliers: no -> PASS") the word before it is part of the result.
+_NEGATION_RE = re.compile(
+    r"(?:\bnot|\bno|n't|\bnever|\bfail(?:s|ed)?\s+to|\bunable\s+to)\s*$",
+    re.I)
+_ARROW_RE = re.compile(r'-+>|=+>|\u2192')
+# An arrow, its verdict, then a short note: "-> FAIL (use Welch)".
+_ARROW_NOTE_RE = re.compile(
+    r'\s*[\[(]?(?P<status>pass(?:ed)?|ok|warn(?:ing)?|fail(?:ed)?)\b[\])]?'
+    r'(?P<note>[\s;,:.\-(].*)$', re.I)
+# The contract's own placeholders: a line still holding them is an unfilled
+# echo of the template, not a result.
+_PLACEHOLDER_RE = re.compile(
+    r'<(?:name|vars?|int|reason|check name|statistic/result|effect size name|'
+    r'value|lo|hi)>|PASS\|WARN\|FAIL', re.I)
 _STATUS_MAP = {'pass': 'pass', 'passed': 'pass', 'ok': 'pass',
                'warn': 'warn', 'warning': 'warn',
                'fail': 'fail', 'failed': 'fail'}
@@ -161,8 +178,9 @@ def _parse_method(lines):
         key = re.sub(r'[\s\-]+', '_', key.strip().lower())
         name = _KEY_ALIASES.get(key)
         value = _clean(value, FIELD_MAX)
-        # Unknown key or empty value: skip. A key given twice: first wins.
-        if not name or not value or method[name] is not None:
+        # Unknown key, empty or unfilled value: skip. Given twice: first wins.
+        if (not name or not value or method[name] is not None
+                or _PLACEHOLDER_RE.search(value)):
             continue
         if name == 'n_used':
             method['n_used'] = _parse_int(value)
@@ -188,23 +206,45 @@ def _split_check(body):
     return name, detail
 
 
+def _verdict(line):
+    """``(body, status, note)`` of one check line. The verdict is the last
+    word (after an arrow, or a bare word that is not negated), or an arrow's
+    verdict followed by a short note. Anything else is ``unknown``."""
+    cut = max(0, len(line) - STATUS_TAIL)
+    m = _STATUS_RE.search(line, cut)
+    if m:
+        body = line[:m.start()]
+        if m.group('arrow') is None and _NEGATION_RE.search(body[-40:]):
+            return line, 'unknown', ''
+        return body, _STATUS_MAP[m.group('status').lower()], ''
+    arrows = list(_ARROW_RE.finditer(line))
+    for arrow in reversed(arrows[-3:]):
+        rest = line[arrow.end():]
+        if len(rest) > NOTE_MAX + 16:
+            continue
+        n = _ARROW_NOTE_RE.match(rest)
+        if n:
+            note = _clean(n.group('note'), NOTE_MAX).strip(' ;,:.-')
+            if len(note) > 1 and note[0] == '(' and note[-1] == ')':
+                note = note[1:-1].strip()
+            return (line[:arrow.start()],
+                    _STATUS_MAP[n.group('status').lower()], note)
+    return line, 'unknown', ''
+
+
 def _parse_assumptions(lines):
     out = []
     for line in lines:
         if len(out) >= MAX_ASSUMPTIONS:
             break
-        if _SEPARATOR_RE.match(line):
+        if _SEPARATOR_RE.match(line) or _PLACEHOLDER_RE.search(line):
             continue
-        cut = max(0, len(line) - STATUS_TAIL)
-        m = _STATUS_RE.search(line, cut)
-        if m:
-            body = line[:m.start()]
-            status = _STATUS_MAP[m.group('status').lower()]
-        else:
-            body, status = line, 'unknown'
+        body, status, note = _verdict(line)
         name, detail = _split_check(body)
         if not name:
             continue
+        if note:
+            detail = (f'{detail}; {note}' if detail else note)[:DETAIL_MAX]
         out.append({'name': name, 'detail': detail, 'status': status})
     return out
 
@@ -214,7 +254,7 @@ def _parse_effects(lines):
     for line in lines:
         if len(out) >= MAX_EFFECTS:
             break
-        if _SEPARATOR_RE.match(line):
+        if _SEPARATOR_RE.match(line) or _PLACEHOLDER_RE.search(line):
             continue
         text = _clean(line, EFFECT_MAX)
         if text:
@@ -325,8 +365,8 @@ def for_run(meta, output):
     return card if card is not None else parse(output)
 
 
-NOT_REPORTED = ('Assumptions not reported: the script did not print the '
-                'methods block, so no assumption checks, N used or effect '
+NOT_REPORTED = ('Assumptions not reported: the script did not print a '
+                'methods summary, so no assumption checks, N used or effect '
                 'sizes were reported in the standard form.')
 
 

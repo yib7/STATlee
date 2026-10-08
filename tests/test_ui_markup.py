@@ -784,3 +784,10 @@ def test_methods_card_styles_are_hand_written():
     assert '.mc-card.hidden' in css
     for state in ('pass', 'warn', 'fail', 'unknown'):
         assert f'.mc-chip.{state}' in css, state
+
+
+def test_methods_card_copy_is_plain_language():
+    js = _js_sources()['methods.js']
+    strings = ' '.join(re.findall(r"'([^'\n]*)'", js))
+    assert 'methods block' not in strings, 'internal jargon in user-facing copy'
+    assert 'did not print a methods summary' in strings
