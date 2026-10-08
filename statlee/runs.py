@@ -267,7 +267,9 @@ def _new_meta(run_id, created_ts=None, prompt=None, filename=None,
         'role': _clamp_str(role, RUN_FIELD_MAX),
         'name': None,
         'starred': False,
-        # SP3 (methods card) fills this; null until then.
+        # SP3: the parsed Methods card (statlee.methods.parse) /run passes
+        # in. Null for runs saved before SP3; readers parse those lazily
+        # from output.txt (statlee.methods.for_run).
         'methods': methods,
     }
 

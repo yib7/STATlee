@@ -6,6 +6,7 @@ import time
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
 from .. import billing, llm, prompts, storage
+from .. import methods as methods_card
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
@@ -181,6 +182,7 @@ def _join_material(*sections):
 
 REPORT_RUN_IDS_MAX = 200        # far above any identity's run cap
 REPORT_RUN_LABEL_MAX = 200      # chars of a run's question in its heading
+REPORT_METHODS_MAX = 12000      # chars of all the runs' Methods cards
 
 
 def _report_run_ids(data):
@@ -202,33 +204,51 @@ def _report_run_ids(data):
     return [r for r in storage.run_ids() if r in wanted], True
 
 
+def _run_card(run_id, output):
+    """The run's Methods card as prompt text (SP3): its stored card, or one
+    parsed from its output for a run saved before SP3."""
+    return methods_card.render_text(
+        methods_card.for_run(storage.run_meta(run_id), output))
+
+
 def _run_grounding(run_ids):
-    """``(output, interpretation)`` from the server's record of the selected
-    runs. One run reads exactly as before; several are each labelled with
-    their id and question (both server-side: the question passed /chat's
-    moderation; client-chosen run names are left out of the prompt) and
-    share the same ``FREE_TEXT_MAX`` budget evenly."""
+    """``(output, interpretation, methods)`` from the server's record of the
+    selected runs. One run reads exactly as before; several are each
+    labelled with their id and question (both server-side: the question
+    passed /chat's moderation; client-chosen run names are left out of the
+    prompt) and share the same ``FREE_TEXT_MAX`` budget evenly. ``methods``
+    is each run's Methods card (SP3), in its own ``REPORT_METHODS_MAX``
+    budget, labelled the same way."""
     if len(run_ids) == 1:
         output, _plots = storage.run_artifacts(run_ids[0])
         return (clamp(output, FREE_TEXT_MAX).strip(),
                 clamp(storage.run_interpretation(run_ids[0]),
-                      FREE_TEXT_MAX).strip())
+                      FREE_TEXT_MAX).strip(),
+                clamp(_run_card(run_ids[0], output),
+                      REPORT_METHODS_MAX).strip())
     share = FREE_TEXT_MAX // max(1, len(run_ids))
-    outputs, interps = [], []
+    card_share = REPORT_METHODS_MAX // max(1, len(run_ids))
+    outputs, interps, cards = [], [], []
     for run_id in run_ids:
         question = clamp((storage.run_meta(run_id) or {}).get('prompt'),
                          REPORT_RUN_LABEL_MAX).strip()
         heading = f'=== Run {run_id}: {question} ===' if question \
             else f'=== Run {run_id} ==='
         body_max = max(0, share - len(heading) - 2)
-        output = clamp(storage.run_artifacts(run_id)[0], body_max).strip()
+        raw_output = storage.run_artifacts(run_id)[0]
+        output = clamp(raw_output, body_max).strip()
         interp = clamp(storage.run_interpretation(run_id), body_max).strip()
+        card = clamp(_run_card(run_id, raw_output),
+                     max(0, card_share - len(heading) - 2)).strip()
         if output:
             outputs.append(f'{heading}\n{output}')
         if interp:
             interps.append(f'{heading}\n{interp}')
+        if card:
+            cards.append(f'{heading}\n{card}')
     return ('\n\n'.join(outputs)[:FREE_TEXT_MAX],
-            '\n\n'.join(interps)[:FREE_TEXT_MAX])
+            '\n\n'.join(interps)[:FREE_TEXT_MAX],
+            '\n\n'.join(cards)[:REPORT_METHODS_MAX])
 
 
 def _moderate_free_text(service, text, material=None):
@@ -286,10 +306,13 @@ def generate_report():
         # SP1: ``run_ids`` selects the runs (default: the latest). Named runs
         # are grounded on the server's record only; the client copies are a
         # fallback for the default path with no server run.
-        # (SP3 adds each run's methods card here.)
+        # SP3: each grounded run's Methods card goes in too, from the
+        # server's record only (never a client field).
         run_ids, explicit = _report_run_ids(data)
-        server_output, server_interp = (
-            _run_grounding(run_ids) if run_ids else ('', ''))
+        server_output, server_interp, cards = (
+            _run_grounding(run_ids) if run_ids else ('', '', ''))
+        if not (server_output or explicit):
+            cards = ''          # the client-copy fallback has no server run
         if server_output or explicit:
             output, output_trusted = server_output, True
         else:
@@ -335,7 +358,8 @@ def generate_report():
         # draft. Built BEFORE the debit (prompt construction is free) so no
         # exception here can ever strand a debited credit.
         draft_prompt = prompts.report_draft(
-            background, length, fmt, output, interpretation, history, converse)
+            background, length, fmt, output, interpretation, history, converse,
+            methods_card=cards or None)
 
         # P1-2: the draft pass runs on the priciest (pro_max) tier, so it must
         # clear the same billing chokepoint as Pro-mode /chat, in the settled
@@ -373,7 +397,7 @@ def generate_report():
                                             temperature=0.3)
             final_prompt = prompts.report(
                 background, length, tone, fmt, output, interpretation,
-                history, draft=draft_result.text)
+                history, draft=draft_result.text, methods_card=cards or None)
             stream_usage = {}
             for delta in service.stream('pro', final_prompt, temperature=0.4,
                                         usage_out=stream_usage):

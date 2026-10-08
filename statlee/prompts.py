@@ -18,24 +18,56 @@ PYTHON_STDLIB_HINT = ('math', 'statistics', 'itertools', 'collections', 're',
 # The CRAN packages runner.Dockerfile installs next to base R.
 R_PACKAGES = ('dplyr', 'ggplot2', 'MASS')
 
-# Rigor guidance for generated analyses (D6 quick win 3).
+# Rigor guidance for generated analyses (D6 quick win 3). The checks, effect
+# sizes and N it asks for are reported through the methods block below (SP3),
+# which statlee.methods parses into the run's Methods card.
 _RIGOR = """
-    STATISTICAL RIGOR (the script must print these, not just p-values):
-    - Check the assumptions the method relies on and print the checks (e.g.
-      normality of residuals or groups, equal variances via Levene's test,
-      multicollinearity via VIF, expected cell counts for chi-square); when an
-      assumption fails, use or add the robust alternative (Welch's t-test,
-      Mann-Whitney / Kruskal-Wallis, robust standard errors, Fisher's exact).
-    - Print an effect size with its 95% confidence interval (Cohen's d, r,
+    STATISTICAL RIGOR (reported in the METHODS BLOCK below, not just p-values):
+    - Check the assumptions the method relies on (e.g. normality of residuals
+      or groups, equal variances via Levene's test, multicollinearity via VIF,
+      expected cell counts for chi-square); when an assumption fails, use or
+      add the robust alternative (Welch's t-test, Mann-Whitney /
+      Kruskal-Wallis, robust standard errors, Fisher's exact).
+    - Compute an effect size with its 95% confidence interval (Cohen's d, r,
       eta-squared, odds ratio, or the coefficient with its interval).
     - When several hypothesis tests are run (pairwise comparisons, many
       outcomes), apply a multiple comparison correction (Holm or
       Benjamini-Hochberg) and print the adjusted p-values.
     - Handle missing values per analysis, using only the variables that
       analysis needs. NEVER call a global dropna() on the whole data frame
-      (it silently drops rows over unrelated columns). Print the N each
+      (it silently drops rows over unrelated columns). Count the N each
       analysis used and how many rows were dropped for missing data.
 """
+
+# SP3: the fixed block every script prints last (statlee/methods.py parses it).
+METHODS_BLOCK = """== METHOD ==
+test: <name>; outcome: <var>; predictors: <vars>; n_used: <int>; dropped: <int> (<reason>)
+== ASSUMPTIONS ==
+<check name>: <statistic/result> -> PASS|WARN|FAIL
+== EFFECT ==
+<effect size name> = <value> [95% CI <lo>, <hi>]
+== END =="""
+
+_METHODS_HOW = {
+    'python': 'print() each line',
+    'r': ('write each line with cat(..., "\\n"), not print(), so no [1] '
+          'prefix or quotes are added'),
+}
+
+
+def _methods_block(language):
+    how = _METHODS_HOW['r' if language.lower() == 'r' else 'python']
+    block = '\n'.join('      ' + line for line in METHODS_BLOCK.splitlines())
+    return f"""
+    METHODS BLOCK: at the very end of the output, after everything else,
+    report the main analysis in exactly this form ({how}):
+{block}
+    One line per assumption check, ending in PASS, WARN or FAIL; one line per
+    effect size. Fill every <...> with the real values the script computed,
+    never placeholders or made-up numbers ('none' when there are no
+    predictors, 'dropped: 0' when no rows were dropped). Print the block once.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Safety gates
@@ -225,7 +257,7 @@ def draft(filename, headers, codebook, language, metadata_summary,
             "install.packages() or library() on anything else (use p.adjust "
             "for corrections). print() or summary() models to stdout. Use "
             "ggsave('plot.png') or standard png('plot.png') for plots.\n")
-    system += _RIGOR
+    system += _RIGOR + _methods_block(language)
 
     if current_code:
         system += f"""
@@ -289,9 +321,11 @@ def validation(language, filename, draft_code, user_prompt=None,
        analysis uses. Never add a global dropna() (or na.omit() on the whole
        data frame); it silently drops rows over unrelated columns. Keep or add
        a print of the N each analysis used.
-    3. If there is no concrete defect, output the draft EXACTLY unchanged. Do
+    3. Keep the methods block the script prints at the end (the lines from
+       == METHOD == to == END ==); never remove it or change its format.
+    4. If there is no concrete defect, output the draft EXACTLY unchanged. Do
        not restyle, rename, reorder or "improve" working code.
-    4. Output ONLY the finalized, raw executable code. NO MARKDOWN (do not use ```). NO EXPLANATIONS.
+    5. Output ONLY the finalized, raw executable code. NO MARKDOWN (do not use ```). NO EXPLANATIONS.
     """
 
 
@@ -300,11 +334,12 @@ def validation(language, filename, draft_code, user_prompt=None,
 # ---------------------------------------------------------------------------
 
 def interpret(output, has_plot, failed=False, code=None, question=None,
-              column_context=None, n_rows=None):
+              column_context=None, n_rows=None, methods_card=None):
     """Interpretation / auto-debug prompt. ``question`` (the user's request),
     ``column_context`` (the analysed columns with measurement levels and
-    labels) and ``n_rows`` (rows in the dataset) come from the server's record
-    of the run (D6 quick win 5), never from the client."""
+    labels), ``n_rows`` (rows in the dataset) and ``methods_card`` (the run's
+    parsed Methods card as text, SP3) come from the server's record of the
+    run (D6 quick win 5), never from the client."""
     if failed:
         return f"""
     You are a debugging assistant for social scientists using an AI analysis
@@ -342,6 +377,16 @@ def interpret(output, has_plot, failed=False, code=None, question=None,
         grounding += ("\n    ANALYSED COLUMNS (measurement level, missingness, "
                       "codebook labels):\n    "
                       + untrusted('COLUMNS', column_context) + "\n")
+    if methods_card:
+        grounding += ("\n    METHODS CARD (parsed by the server from this run's own "
+                      "output: the method, the N used, each assumption check "
+                      "with its PASS/WARN/FAIL verdict, and the effect sizes):"
+                      "\n    " + untrusted('METHODS CARD', methods_card) + "\n"
+                      "    Cite this card: name the method and the N used, "
+                      "report each assumption check with its verdict (treat "
+                      "WARN and FAIL as caveats on the conclusion) and quote "
+                      "its effect sizes. If it says the assumptions were not "
+                      "reported, say so as a caveat.\n")
     prompt = f"""
     You are a data mentor. A user ran an analysis script and got the following terminal results.
     {grounding}
@@ -651,8 +696,22 @@ def _structure_block(fmt):
     """
 
 
+def _methods_cards(methods_card):
+    """The runs' parsed Methods cards for the report prompts (SP3)."""
+    if not methods_card:
+        return ''
+    return f"""
+    METHODS CARDS (parsed by the server from each run's own output: method,
+    N used, assumption checks with PASS/WARN/FAIL verdicts, effect sizes).
+    Cite them in the methods and results; report every WARN or FAIL check as
+    a limitation, and a run whose card reads "Assumptions not reported" as
+    one whose assumptions were not checked in the output:
+    {untrusted('METHODS CARD', methods_card)}
+    """
+
+
 def report_draft(background, length, fmt, terminal_output, interpretation,
-                 history, converse):
+                 history, converse, methods_card=None):
     """First pass (run on the bigger 3.1-pro model): compile every available
     piece of context, including the converse discussion of the findings, into a
     grounded working draft that the writing pass turns into a finished piece."""
@@ -684,6 +743,7 @@ def report_draft(background, length, fmt, terminal_output, interpretation,
 
     TERMINAL OUTPUT (the hard data):
     {terminal_output or '(none)'}
+    {_methods_cards(methods_card)}
 
     INTERPRETATION OF RESULTS:
     {interpretation or '(none)'}
@@ -696,7 +756,7 @@ def report_draft(background, length, fmt, terminal_output, interpretation,
 
 
 def report(background, length, tone, fmt, terminal_output, interpretation,
-           history, draft=None):
+           history, draft=None, methods_card=None):
     history_text = _format_turns(history)
     piece = 'essay' if _is_essay(fmt) else 'report'
     return f"""
@@ -725,7 +785,7 @@ def report(background, length, tone, fmt, terminal_output, interpretation,
 
     TERMINAL OUTPUT (the hard data — cite from this):
     {terminal_output or '(none)'}
-
+    {_methods_cards(methods_card)}
     AI INTERPRETATION OF RESULTS:
     {interpretation or '(none)'}
 

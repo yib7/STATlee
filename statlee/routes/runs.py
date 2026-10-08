@@ -10,6 +10,7 @@ import logging
 
 from flask import Blueprint, jsonify
 
+from .. import methods as methods_card
 from .. import storage
 from . import (
     RunNotFound,
@@ -63,7 +64,9 @@ def get_run(run_id):
         'model': _meta_str(meta, 'model'),
         'role': _meta_str(meta, 'role'),
         'starred': bool(meta.get('starred')),
-        'methods': meta.get('methods'),
+        # SP3: the stored card, or one parsed on the fly for a run saved
+        # before the methods card existed (``methods: null``).
+        'methods': methods_card.for_run(meta, run['output']),
         'output': run['output'],
         'code': script.get('code'),
         'language': script.get('language'),

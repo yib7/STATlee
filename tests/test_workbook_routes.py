@@ -76,7 +76,9 @@ def test_run_returns_run_id_and_records_provenance(app, client, fake_llm):
     assert meta['dataset_sha256'] == sha
     assert meta['role'] == 'draft'
     assert meta['model'] == cfg.model_pro
-    assert meta['methods'] is None
+    # SP3: /run stores the parsed card (this output has no methods block)
+    assert meta['methods'] == {'method': None, 'assumptions': [], 'effects': [],
+                               'reported': False}
 
 
 def test_run_pro_mode_records_pro_max_role(app, client, fake_llm):
@@ -138,7 +140,10 @@ def test_get_run_returns_full_run_with_plots(app, client):
     assert body['returncode'] == 0 and body['timed_out'] is False
     assert body['prompt'] == 'Q' and body['filename'] == 'test.csv'
     assert body['dataset_version'] == 2 and body['model'] == 'm'
-    assert body['role'] == 'draft' and body['methods'] is None
+    assert body['role'] == 'draft'
+    # SP3: a run saved with methods null is parsed on the fly (no block here)
+    assert body['methods'] == {'method': None, 'assumptions': [], 'effects': [],
+                               'reported': False}
     assert body['starred'] is False and body['is_latest'] is True
 
 

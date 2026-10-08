@@ -14,6 +14,7 @@ from flask import Blueprint, current_app, jsonify
 
 from .. import billing, codecheck, datatools, llm, prompts, sandbox, storage
 from .. import codebook as codebook_store
+from .. import methods as methods_card
 from ..extensions import limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
@@ -416,9 +417,13 @@ def run_code():
         output_limit=cfg.exec_output_limit, mode=cfg.sandbox_mode,
         runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
 
+    # SP3: the methods block the script printed, parsed once and kept with
+    # the run (the raw block stays in the output).
+    methods = methods_card.parse(result.output)
     run_id = storage.save_run(
         result.output, result.plots, script=code, language=language,
         returncode=result.returncode, timed_out=result.timed_out,
+        methods=methods,
         **_run_provenance(code, language, filename, dataset_path))
 
     # L9/S5: a timeout is an executed failure, not a server error. The script
@@ -433,6 +438,7 @@ def run_code():
         'timed_out': bool(result.timed_out),
         'language': language,
         'run_id': run_id,
+        'methods': methods,
     })
 
 
@@ -628,6 +634,7 @@ def _run_analysis_context(record, run_meta):
 
 
 NOTHING_TO_INTERPRET = 'No statistical output or plots generated to interpret.'
+METHODS_CONTEXT_MAX = 6000      # chars of the Methods card in /interpret
 
 
 def _looks_failed(output):
@@ -694,8 +701,13 @@ def interpret_results():
             failed = status['returncode'] != 0 or status['timed_out']
         else:
             failed = _looks_failed(final_output)
-        question, column_context, n_rows = _analysis_context(
-            record, storage.run_meta(run_id))
+        meta = storage.run_meta(run_id)
+        question, column_context, n_rows = _analysis_context(record, meta)
+        # SP3: the run's own Methods card (a run saved before SP3 is parsed
+        # from its stored output), never anything the client sent.
+        card = None if failed else clamp(
+            methods_card.render_text(methods_card.for_run(meta, server_output)),
+            METHODS_CONTEXT_MAX)
     else:
         # P1-7: cap the client-supplied text and plot payloads before they reach
         # the prompt. Client `code` is allowed here only because the moderation
@@ -710,7 +722,7 @@ def interpret_results():
             failed = not data.get('success')
         else:
             failed = _looks_failed(final_output)
-        question = column_context = n_rows = None
+        question = column_context = n_rows = card = None
 
     if not final_output.strip() and not plots:
         return jsonify({'interpretation': NOTHING_TO_INTERPRET})
@@ -728,7 +740,8 @@ def interpret_results():
     prompt = prompts.interpret(final_output, bool(plots), failed=failed,
                                code=code if failed else None,
                                question=question,
-                               column_context=column_context, n_rows=n_rows)
+                               column_context=column_context, n_rows=n_rows,
+                               methods_card=card or None)
 
     contents = [prompt]
     if plots and not failed:
