@@ -509,8 +509,13 @@
     /** After /login or a signed-in /register (201). The server has moved this
      *  browser session's anonymous datasets, history, last run and approvals
      *  into the account (S1-B contract 16, L2), so the stored filename stays
-     *  valid: keep the workspace instead of reloading it away. */
-    async function afterSignIn() {
+     *  valid: keep the workspace instead of reloading it away.
+     *
+     *  `workspace` is the server's report (S5): `{moved: [...], skipped:
+     *  [...]}`, stored dataset names. A skipped name already existed in the
+     *  account, whose copy wins; the user is told which ones. A server
+     *  without the report gets the generic notice. */
+    async function afterSignIn(workspace) {
         let user = null;
         try {
             const res = await fetch('/check_auth');
@@ -523,16 +528,39 @@
         setAccountUI(user);
         CC.modal.close('accountModal');
         document.getElementById('accPassword').value = '';
-        if (CC.state.filename) {
-            // Re-read the table under the account; an error here (the
-            // account already held a dataset of this name, which wins) shows
-            // up as the usual table error instead of silently stale rows.
-            CC.fetchDataPage(1);
-            CC.toast('Signed in as ' + user.email + '. ' + CC.datasetLabel()
+        const signedIn = 'Signed in as ' + user.email + '.';
+        const report = workspace && Array.isArray(workspace.skipped) ? workspace : null;
+        const skipped = report ? report.skipped.filter(n => typeof n === 'string') : [];
+        const current = CC.state.filename;
+        if (report && skipped.length) {
+            const others = skipped.filter(n => n !== current);
+            const parts = [signedIn];
+            if (current && skipped.indexOf(current) !== -1) {
+                parts.push(CC.datasetLabel() + ' was not moved: your account already has a dataset '
+                    + 'named ' + current + ', and the account copy is shown now. Upload the file '
+                    + 'again to replace it.');
+            }
+            if (others.length) {
+                parts.push((others.length === 1 ? 'One other dataset was' : others.length
+                    + ' other datasets were') + ' not moved because the account already has the '
+                    + 'same name: ' + others.join(', ') + '.');
+            }
+            CC.toast(parts.join(' '), 'info');
+        } else if (current && report) {
+            CC.toast(signedIn + ' ' + CC.datasetLabel() + ' moved into your account.', 'success');
+        } else if (current) {
+            CC.toast(signedIn + ' ' + CC.datasetLabel()
                 + ' moved into your account. If the account already had a dataset with that '
                 + 'name, the account copy is kept: upload the file again to replace it.', 'success');
         } else {
-            CC.toast('Signed in as ' + user.email + '.', 'success');
+            CC.toast(signedIn, 'success');
+        }
+        if (current) {
+            // Re-read the dataset under the account. When the account's own
+            // copy of this name was kept, its columns and history replace the
+            // anonymous ones on screen.
+            if (CC.reloadDatasetState) await CC.reloadDatasetState();
+            else CC.fetchDataPage(1);
         }
     }
 
@@ -575,7 +603,7 @@
         return accAction(async () => {
             accMessage('');
             const { ok, status, data } = await CC.post('/login', accCreds());
-            if (ok) { await afterSignIn(); return; }
+            if (ok) { await afterSignIn(data && data.workspace); return; }
             accMessage(CC.errorMessage(status, data, 'Sign-in failed'), 'error');
         });
     }
@@ -587,7 +615,7 @@
             // D4-12: only 201 {status:'success'} means "signed in". A 202
             // (verification required / email failed) carries a message the
             // user must read, so no reload.
-            if (ok && data && data.status === 'success') { await afterSignIn(); return; }
+            if (ok && data && data.status === 'success') { await afterSignIn(data.workspace); return; }
             if (ok) {
                 accMessage((data && data.message) ||
                     'Account created. Check your email to confirm it, then sign in.', 'info');

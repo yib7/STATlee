@@ -930,3 +930,47 @@ def test_wrangle_409_header_order_follows_the_server(page, fake):
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
     page.wait_for_timeout(500)
     assert page.evaluate('() => CC.state.headers') == ['aaa', 'age', 'income', 'group']
+
+
+def test_sign_in_names_a_dataset_the_account_copy_kept(browser, e2e_server, fake):
+    # The server now says which anonymous datasets moved and which were
+    # skipped because the account already had that name.
+    email = f'collide-{os.getpid()}@example.test'
+    owner = _new_page(browser, e2e_server['url'])
+    try:
+        owner.evaluate("""async (email) => {
+            await CC.post('/register', {email, password: 'e2e-test-pass-1'});
+        }""", email)
+        upload(owner, 'coll.csv', CSV_B)               # the account's coll.csv
+        owner.wait_for_function("() => CC.state.filename === 'coll.csv'")
+    finally:
+        owner.context.close()
+    anon = _new_page(browser, e2e_server['url'])
+    try:
+        upload(anon, 'coll.csv', CSV_A + '74,1,A\n')    # an anonymous coll.csv
+        skip_codebook(anon)
+        _open_account(anon)
+        anon.fill('#accEmail', email)
+        anon.fill('#accPassword', 'e2e-test-pass-1')
+        anon.click('#accLoginBtn')
+        anon.wait_for_function('() => CC.state.user && CC.state.user.email')
+        anon.wait_for_selector('.cc-toast >> text=not moved')
+        text = anon.inner_text('#toastArea')
+        assert 'coll.csv' in text and 'account' in text, text
+        # The table now shows the account's copy, with its own columns.
+        anon.wait_for_function("() => CC.state.headers[0] === 'score'")
+    finally:
+        anon.context.close()
+
+
+def test_sign_in_without_collisions_says_the_dataset_moved(page):
+    upload(page, 'moved.csv', CSV_A + '75,1,A\n')
+    skip_codebook(page)
+    _open_account(page)
+    page.fill('#accEmail', f'mover-{os.getpid()}@example.test')
+    page.fill('#accPassword', 'e2e-test-pass-1')
+    page.click('#accRegisterBtn')
+    page.wait_for_selector('.cc-toast.success')
+    text = page.inner_text('.cc-toast.success')
+    assert 'moved into your account' in text, text
+    assert 'account copy is kept' not in text, text

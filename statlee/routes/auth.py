@@ -78,16 +78,22 @@ def _sign_in(user):
     """``login_user`` plus adoption of this browser session's anonymous
     workspace (L2): the storage identity switches from ``anon_<sid>`` to
     ``user_<id>`` here, and without the move a "sign up to save my work"
-    lost the upload. Best-effort -- a failed move must never fail the login."""
+    lost the upload. Best-effort -- a failed move must never fail the login.
+
+    Returns ``{'moved': [...], 'skipped': [...]}`` (stored dataset names) for
+    the response, so the client can name a dataset the account's own copy
+    kept from moving (S5)."""
     sid = session.get('sid')
     login_user(user, remember=True)
+    report = {'moved': [], 'skipped': []}
     if not sid:
-        return
+        return report
     try:
         from .. import storage
-        storage.adopt_workspace(f'anon_{sid}', f'user_{user.id}')
+        report = storage.adopt_workspace(f'anon_{sid}', f'user_{user.id}')
     except Exception:
         logger.exception("Could not adopt the anonymous workspace at sign-in")
+    return report
 
 
 def is_authorized():
@@ -149,8 +155,9 @@ def login():
                 return json_error(
                     'Please confirm your email before logging in. Check your '
                     'inbox for the verification link.', 403)
-            _sign_in(user)
-            return jsonify({'status': 'success', 'user': {'email': user.email}}), 200
+            workspace = _sign_in(user)
+            return jsonify({'status': 'success', 'user': {'email': user.email},
+                            'workspace': workspace}), 200
         return json_error('Invalid email or password.', 401)
 
     # Legacy master-password mode
@@ -213,8 +220,9 @@ def register():
                        'logging in.',
         }), 202
 
-    _sign_in(user)
-    return jsonify({'status': 'success', 'user': {'email': user.email}}), 201
+    workspace = _sign_in(user)
+    return jsonify({'status': 'success', 'user': {'email': user.email},
+                    'workspace': workspace}), 201
 
 
 def _send_verification_email(cfg, email, token):

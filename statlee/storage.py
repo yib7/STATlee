@@ -848,11 +848,16 @@ def adopt_workspace(from_identity, to_identity):
     sidecar); a group is skipped when ANY of its names already exists in the
     account, so nothing the account holds is ever overwritten. The last run and
     the approved-script store move only when the account has none. Anything
-    skipped stays behind and expires with the anonymous workspace. Returns the
-    number of entries moved."""
+    skipped stays behind and expires with the anonymous workspace.
+
+    Returns ``{'moved': [...], 'skipped': [...]}``: the stored names of the
+    datasets that moved and of those left behind because the account already
+    had that name (S5), so the client can say so instead of a generic
+    warning."""
+    report = {'moved': [], 'skipped': []}
     src = os.path.join(storage_root(), from_identity)
     if from_identity == to_identity or not os.path.isdir(src):
-        return 0
+        return report
     dst = identity_root(to_identity)
     groups = {}
     singles = []
@@ -863,18 +868,20 @@ def adopt_workspace(from_identity, to_identity):
         stem = _adoption_group(name)
         if stem is not None and os.path.isfile(os.path.join(src, name)):
             groups.setdefault(stem, []).append(name)
-    moved = 0
-    for names in groups.values():
+    for _stem, names in sorted(groups.items()):
+        # The dataset's own file (not a sidecar or a version file) names it.
+        datasets = [n for n in names if not n.startswith('.')
+                    and not _VERSION_FILE_RE.match(n)]
         if any(os.path.exists(os.path.join(dst, n)) for n in names):
+            report['skipped'].extend(datasets)
             continue
         for n in names:
             os.replace(os.path.join(src, n), os.path.join(dst, n))
-            moved += 1
+        report['moved'].extend(datasets)
     for name in singles:
         if not os.path.exists(os.path.join(dst, name)):
             os.replace(os.path.join(src, name), os.path.join(dst, name))
-            moved += 1
-    return moved
+    return report
 
 
 def reset_identity(identity=None):
