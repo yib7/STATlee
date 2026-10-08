@@ -1,7 +1,8 @@
 """Unit + HTTP-level tests for the non-LLM static pre-check (P1-1a).
 
 ``statlee.codecheck.check_code`` is defense-in-depth ADDED to the LLM
-moderation gates: a deterministic AST (Python) / regex (R) denylist run before
+moderation gates: a deterministic AST import-allowlist + targeted rules (Python)
+/ regex denylist (R) run before
 every sandbox execution. These tests exercise the checker directly (fast, no
 HTTP) plus a couple of route-level regressions proving the static gate rejects
 code even when the LLM gate passes.
@@ -56,6 +57,52 @@ BLOCKED_PY = [
     "o = os\no.system('id')",
     "s = shutil\ns.rmtree('/tmp')",
     "a = os\nb = a\nb.popen('id')",
+    # --- deep-audit 2026-10-08 (D2-1..D2-4): allowlist-model regressions -------
+    # D2-1: the importable `builtins` module / from-import / name rebinding must
+    # not launder eval/exec past the bare-name rule.
+    'import builtins\nbuiltins.exec("print(1)")',
+    'from builtins import exec as run\nrun("x")',
+    'f = exec\nf("x")',
+    # D2-2: attribute chains reaching os/sys through another module.
+    'import os\nos.path.os.system("id")',
+    'import pandas as pd\npd.io.common.os.system("id")',
+    'import os\nos.__dict__["system"]("id")',
+    'import os\nvars(os)["system"]("id")',
+    'import os\nos.sys.modules["builtins"]',
+    # D2-3: low-level OS / loader modules outside the analysis allowlist.
+    'import nt\nnt.system("id")',
+    'import posix',
+    'import _socket',
+    'import runpy',
+    # D2-4: library file I/O / deserialization primitives.
+    'df.to_pickle("/tmp/x")',
+    'pd.read_pickle("x.pkl")',
+    'import pandas as pd\npd.read_csv("/app/.env")',
+    'import numpy as np\nnp.load("x.npy", allow_pickle=True)',
+    'from pathlib import Path\nPath("/etc/passwd").read_text()',
+    # reflection helpers and frame / bound-method escapes.
+    'import operator\nop = operator.attrgetter("system")',
+    'from os import *\nsystem("id")',
+    'print.__self__.exec("x")',
+    'import sys\nsys._getframe().f_globals',
+    'globals()["__builtins__"]',
+    'try:\n    1/0\nexcept Exception as e:\n    e.__traceback__.tb_frame.f_globals',
+    # host-module calls / remote targets / non-literal-but-prefixed paths.
+    'import shutil\nshutil.copy("/app/.env", "x.txt")',
+    'from shutil import copy\ncopy("/app/.env", "x.txt")',
+    'import os\nos.chdir("/app")',
+    'import glob\nglob.glob("/app/*")',
+    'from glob import glob\nglob("/app/*")',
+    'import shutil\nc = shutil.copy\nc("/app/.env", "x.txt")',
+    'import pandas as pd\npd.read_csv("https://example.com/x.csv")',
+    'import pandas as pd\npd.read_csv(f"/app/{name}")',
+    'open("/app/" + name)',
+    'import pandas as pd\npd.io.common.urlopen("http://x")',
+    'from os import sys as s\ns.modules',
+    'import typing\ntyping.get_type_hints(f)',
+    'import numpy as np\nnp.load("x.npy", allow_pickle=flag)',
+    "getattr(print, '__self__')",
+    'from . import x',
 ]
 
 
@@ -115,6 +162,79 @@ def test_python_allows_individual_safe_snippets(code):
     assert blocked is False, f'wrongly blocked {code!r}: {reason}'
 
 
+# Realistic analysis idioms the allowlist model must keep passing (guards
+# against over-blocking: every one of these is something the code-gen prompts
+# legitimately produce).
+SAFE_CORPUS = [
+    "import pandas as pd\ndf.groupby('g')['v'].mean()",
+    "import pandas as pd\nm = df.merge(other, on='id', how='left')",
+    "import pandas as pd\np = df.pivot_table(index='a', columns='b', values='v')",
+    'df.query("age > 30")',
+    'df.eval("a + b")',
+    'import statsmodels.formula.api as smf\nres = smf.ols("y ~ x", data=df).fit()',
+    'from scipy import stats\nprint(stats.ttest_ind(a, b))',
+    'from scipy import stats\nprint(stats.chi2_contingency(t))',
+    ("import seaborn as sns\nimport matplotlib.pyplot as plt\n"
+     "sns.histplot(df['age'])\nplt.savefig('plot.png', bbox_inches='tight')"),
+    "df.to_csv('cleaned.csv')",
+    "pd.read_csv('data.csv')",
+    "import os\nos.path.join('a', 'b')",
+    'import os\nprint(os.getcwd())',
+    'import sys\nprint(sys.version)',
+    "import warnings\nwarnings.filterwarnings('ignore')",
+    'import statsmodels.api as sm',
+    'from sklearn.linear_model import LogisticRegression',
+    'import pingouin as pg',
+    'df.code.value_counts()',
+    'df.time.mean()',
+    'df.signal.describe()',
+    'print(x.__class__.__name__)',
+    'print(type(x).__name__)',
+    "n = 3\nprint(f'{n} rows, mean={df.v.mean():.2f}')",
+    'sq = [i * i for i in range(10) if i % 2]',
+    "getattr(df, 'mean')",
+    "import os\ngetattr(os, 'getcwd')()",
+    'from collections import Counter',
+    "import numpy as np\nnp.save('arr.npy', a)",
+    "from pathlib import Path\nPath('data.csv').exists()",
+    "import os\nos.makedirs('out', exist_ok=True)",
+    "import glob\nprint(glob.glob('*.csv'))",
+    "from glob import glob\nprint(glob('*.csv'))",
+    "import os\nj = os.path.join\nprint(j('/a', 'b'))",
+    "import numpy as np\na = np.load('arr.npy')",
+    "import numpy as np\na = np.load('arr.npy', allow_pickle=False)",
+    "import pandas as pd\nd = pd.read_csv(f'{name}.csv')",
+    "import pandas as pd\nd = pd.to_datetime(df['d'], format='%Y/%m/%d')",
+    "rows = df.to_dict('records')",
+    "import re\npat = re.compile(r'\\d+')",
+    "import matplotlib\nmatplotlib.use('Agg')",
+    "from typing import List, Optional",
+]
+
+
+@pytest.mark.parametrize('code', SAFE_CORPUS)
+def test_python_safe_corpus_not_blocked(code):
+    blocked, reason = check_code(code, 'Python')
+    assert blocked is False, f'wrongly blocked {code!r}: {reason}'
+
+
+def test_python_disallowed_import_reason_names_module():
+    blocked, reason = check_code('import nt', 'Python')
+    assert blocked is True
+    assert reason == 'imports a module outside the analysis allowlist: nt'
+
+
+def test_python_relative_import_blocked():
+    assert check_code('from . import x', 'Python')[0] is True
+
+
+def test_allowed_modules_is_public_frozenset():
+    from statlee.codecheck import ALLOWED_PYTHON_MODULES
+    assert isinstance(ALLOWED_PYTHON_MODULES, frozenset)
+    assert {'pandas', 'numpy', 'scipy', 'os', 'sys'} <= ALLOWED_PYTHON_MODULES
+    assert not {'builtins', 'nt', 'posix', 'subprocess', 'socket'} & ALLOWED_PYTHON_MODULES
+
+
 def test_python_syntax_error_fails_open():
     # A script that cannot parse cannot execute anything harmful -> fail open.
     assert check_code('def (', 'Python') == (False, '')
@@ -132,6 +252,14 @@ def test_language_is_case_insensitive():
 @pytest.mark.parametrize('code', [
     "system('id')",
     'download.file(u, d)',
+    # D2-6: indirection + network libraries.
+    'do.call("system", list("id"))',
+    'get("system")("id")',
+    'eval(parse(text = "1"))',
+    'library(httr)',
+    'do.call(paste0("sys", "tem"), list("id"))',
+    'httr::GET("http://x")',
+    'res <- .Call("C_fn", x)',
 ])
 def test_r_blocks_dangerous(code):
     blocked, reason = check_code(code, 'R')
@@ -139,9 +267,18 @@ def test_r_blocks_dangerous(code):
     assert reason
 
 
-def test_r_allows_regression():
-    blocked, reason = check_code('summary(lm(y ~ x, data=df))', 'R')
-    assert blocked is False
+@pytest.mark.parametrize('code', [
+    'summary(lm(y ~ x, data=df))',
+    'library(dplyr)',
+    'library(ggplot2)',
+    'library(MASS)',
+    'all <- do.call(rbind, lst)',
+    'all <- do.call("cbind", lst)',
+    'f <- function(x) match.call()',
+])
+def test_r_allows_regression(code):
+    blocked, reason = check_code(code, 'R')
+    assert blocked is False, f'wrongly blocked R {code!r}: {reason}'
     assert reason == ''
 
 
