@@ -52,7 +52,18 @@ class Config:
     anthropic_max_tokens: int = 8192
     anthropic_stream_max_tokens: int = 16000
     openai_api_key: str = ''
-    openai_max_tokens: int = 8192
+    # OpenAI's max_completion_tokens also covers hidden reasoning tokens on the
+    # gpt-5.x defaults (D3-16), so the budgets sit well above the visible
+    # output a script needs. Streams (code drafts) get the larger one.
+    openai_max_tokens: int = 16000
+    openai_stream_max_tokens: int = 32000
+    # Per-call client timeouts and retries for every provider (D3-5). The SDK
+    # defaults were 600 s x 3 attempts for Anthropic/OpenAI (up to ~30 min on
+    # one worker thread) and a single attempt for Gemini. The Pro budget covers
+    # the 'pro_max' model (long Pro drafts and report drafts).
+    llm_timeout_seconds: int = 120
+    llm_pro_timeout_seconds: int = 300
+    llm_max_retries: int = 2
 
     # --- Server -------------------------------------------------------------
     port: int = 5000
@@ -261,7 +272,11 @@ class Config:
             anthropic_stream_max_tokens=_env_int(
                 'ANTHROPIC_STREAM_MAX_TOKENS', 16000),
             openai_api_key=os.environ.get('OPENAI_API_KEY', '').strip(),
-            openai_max_tokens=_env_int('OPENAI_MAX_TOKENS', 8192),
+            openai_max_tokens=_env_int('OPENAI_MAX_TOKENS', 16000),
+            openai_stream_max_tokens=_env_int('OPENAI_STREAM_MAX_TOKENS', 32000),
+            llm_timeout_seconds=_env_int('LLM_TIMEOUT_SECONDS', 120),
+            llm_pro_timeout_seconds=_env_int('LLM_PRO_TIMEOUT_SECONDS', 300),
+            llm_max_retries=_env_int('LLM_MAX_RETRIES', 2),
             port=_env_int('PORT', 5000),
             bind_host=os.environ.get('BIND_HOST', '127.0.0.1').strip() or '127.0.0.1',
             max_upload_mb=_env_int('MAX_UPLOAD_MB', 16),
@@ -451,6 +466,17 @@ class Config:
                 "TRUST_PROXY_HOPS to the number of trusted proxies in front of "
                 "the app (e.g. 1). Keep it 0 only if the app is exposed directly, "
                 "since a client could otherwise spoof X-Forwarded-For.")
+
+        # D3-5: a zero/negative timeout would mean "no timeout" in the SDKs,
+        # and unbounded retries would pin a worker thread.
+        if self.llm_timeout_seconds < 1:
+            self._warn("LLM_TIMEOUT_SECONDS must be >= 1; using 120.")
+            self.llm_timeout_seconds = 120
+        if self.llm_pro_timeout_seconds < self.llm_timeout_seconds:
+            self.llm_pro_timeout_seconds = self.llm_timeout_seconds
+        if not 0 <= self.llm_max_retries <= 5:
+            self._warn("LLM_MAX_RETRIES must be between 0 and 5; using 2.")
+            self.llm_max_retries = 2
 
         if self.converse_role not in ('pro', 'flash', 'lite'):
             self._warn(f"CONVERSE_ROLE {self.converse_role!r} unknown; using 'flash'.")

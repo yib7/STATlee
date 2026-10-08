@@ -146,7 +146,9 @@ def test_anthropic_generate_maps_text_and_usage():
     assert res.text == 'hi there'
     assert res.usage['input'] == 11 and res.usage['output'] == 4
     assert svc.usage_snapshot()[svc._resolve('lite')]['output'] == 4
-    assert 'temperature' not in captured   # Claude rejects sampling params
+    # D3-13: models that accept sampling params get the requested
+    # temperature (only the known-rejecting ones drop it).
+    assert captured['temperature'] == 0.0
 
 
 def test_anthropic_json_mode_sets_system():
@@ -231,17 +233,10 @@ def test_gemini_stream_yields_and_records_usage():
     assert usage['input'] == 9 and usage['output'] == 4
 
 
-def test_gemini_empty_stream_reports_zero_usage():
-    """An empty Gemini stream must report a clean zero usage, not None or stale."""
-    svc = llm.LLMService(Config(env='testing', gemini_api_key='k'))
-    svc._backend._client = types.SimpleNamespace(
-        models=types.SimpleNamespace(
-            generate_content_stream=lambda **k: iter([])))
-
-    usage = {}
-    out = list(svc.stream('draft', 'go', usage_out=usage))
-    assert out == []
-    assert usage == {'model': 'gemini-3.5-flash', 'input': 0, 'output': 0}
+# test_gemini_empty_stream_reports_zero_usage moved to
+# test_llm_reliability.test_empty_stream_raises_empty_but_reports_zero_usage:
+# an empty stream now raises EmptyGenerationError (D3-4) while still reporting
+# the clean zero usage baseline.
 
 
 def test_anthropic_client_auth_modes(monkeypatch):

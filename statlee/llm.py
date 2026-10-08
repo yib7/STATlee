@@ -12,6 +12,8 @@ accounting; the per-provider wire protocol lives in a backend
 ``config.llm_provider`` (default ``gemini``). Gemini stays the default; the
 other two let a self-hoster bring their own Claude or OpenAI key.
 """
+import contextlib
+import copy
 import hashlib
 import logging
 import threading
@@ -40,13 +42,64 @@ class MediaPart:
     mime_type: str   # e.g. 'image/png', 'application/pdf'
 
 
-class TruncatedGenerationError(RuntimeError):
+class LLMOutputError(RuntimeError):
+    """A provider returned no usable output. Subclasses carry a
+    ``user_message`` that routes show the user verbatim (it never contains
+    provider internals or secrets) and a short ``reason`` code for clients."""
+
+    reason = 'output_error'
+    default_message = 'The model returned no usable response. Please try again.'
+
+    def __init__(self, provider='', model='', detail=None, user_message=None):
+        self.provider = provider
+        self.model = model
+        self.detail = detail
+        self.user_message = user_message or self.default_message
+        self.usage = None   # billed usage, when the provider reported it
+        super().__init__(
+            f"{provider} model {model}: {self.reason}"
+            + (f" ({detail})" if detail else ''))
+
+
+class TruncatedGenerationError(LLMOutputError):
     """Raised when a provider stopped generating because it hit the output-token
     ceiling (P2-6). The partial text is unusable for code generation -- a script
     cut mid-line would flow into validation and /run as confusing syntax errors
     the auto-debugger then bills more tokens to explain -- so the backend fails
     loudly instead of returning silently-truncated output. /chat turns this into
     a clean SSE error like any other backend exception."""
+
+    reason = 'truncated'
+    default_message = ('The model stopped at its output-token limit, so the '
+                       'response is incomplete. Try a shorter request or '
+                       'narrow the scope of the analysis.')
+
+
+class BlockedGenerationError(LLMOutputError):
+    """The provider's safety system blocked the prompt or stopped the answer
+    (Gemini SAFETY/RECITATION/PROHIBITED_CONTENT/... or a blocked prompt,
+    Anthropic ``stop_reason='refusal'``, OpenAI ``content_filter`` or a
+    ``refusal`` message) (D3-4). Any partial text is unusable."""
+
+    reason = 'blocked'
+    default_message = ("The AI provider's safety filter declined this request, "
+                       'so no result was produced. Rephrase the request (or '
+                       'rename sensitive-looking columns) and try again.')
+
+
+class EmptyGenerationError(LLMOutputError):
+    """The provider answered with no text at all (no candidates, an empty
+    message, or a stream that produced no deltas) (D3-4)."""
+
+    reason = 'empty'
+    default_message = ('The model returned an empty response. Please try '
+                       'again.')
+
+
+def _reason_name(reason):
+    if reason is None:
+        return ''
+    return (getattr(reason, 'name', None) or str(reason)).strip().upper()
 
 
 def _truncated_by_token_limit(reason):
@@ -55,10 +108,16 @@ def _truncated_by_token_limit(reason):
     Anthropic ``'max_tokens'``, Gemini ``MAX_TOKENS`` (an enum whose ``.name``
     is used, or a plain string). Any other/absent reason is treated as a normal
     completion."""
-    if reason is None:
-        return False
-    name = getattr(reason, 'name', None) or str(reason)
-    return name.strip().lower() in ('length', 'max_tokens')
+    return _reason_name(reason) in ('LENGTH', 'MAX_TOKENS')
+
+
+# Finish/stop reasons that mean "a safety system stopped this" (D3-4):
+# Gemini FinishReason members, Anthropic 'refusal', OpenAI 'content_filter'.
+_BLOCKED_REASONS = frozenset({
+    'SAFETY', 'RECITATION', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII',
+    'LANGUAGE', 'IMAGE_SAFETY', 'IMAGE_PROHIBITED_CONTENT', 'IMAGE_RECITATION',
+    'REFUSAL', 'CONTENT_FILTER',
+})
 
 
 def _check_truncation(reason, provider, model):
@@ -66,19 +125,93 @@ def _check_truncation(reason, provider, model):
     cutoff; a no-op for a normal finish reason. One shared helper keeps the
     three backends consistent (P2-6)."""
     if _truncated_by_token_limit(reason):
-        raise TruncatedGenerationError(
-            f"{provider} model {model} stopped at its output-token limit, so "
-            "the response is incomplete. Try a shorter request or narrow the "
-            "scope of the analysis.")
+        raise TruncatedGenerationError(provider, model)
+
+
+def _check_finish(reason, provider, model):
+    """Raise the typed error a terminal finish/stop reason calls for: a safety
+    stop or refusal (D3-4), else a token-ceiling cutoff (P2-6)."""
+    name = _reason_name(reason)
+    if name in _BLOCKED_REASONS:
+        raise BlockedGenerationError(provider, model, detail=name)
+    _check_truncation(reason, provider, model)
+
+
+@contextlib.contextmanager
+def _billed(usage):
+    """Attach the call's billed ``usage`` to any output error raised inside,
+    so ``LLMService`` can still account for a blocked/empty/truncated call
+    the provider charged for (D3-11)."""
+    try:
+        yield
+    except LLMOutputError as exc:
+        exc.usage = usage
+        raise
+
+
+def _usage_dict(model, input_tokens, output_tokens, thinking=0, cached=0):
+    """Per-call usage. ``output`` is everything billed at the output rate
+    (visible text plus thinking/reasoning tokens); ``thinking`` and ``cached``
+    (prompt tokens served from the provider's cache, already inside ``input``)
+    are only present when non-zero (D3-3)."""
+    usage = {'model': model, 'input': int(input_tokens or 0),
+             'output': int(output_tokens or 0)}
+    if thinking:
+        usage['thinking'] = int(thinking)
+    if cached:
+        usage['cached'] = int(cached)
+    return usage
+
+
+def _status_code(exc):
+    code = getattr(exc, 'status_code', None)
+    if code is None:
+        code = getattr(getattr(exc, 'response', None), 'status_code', None)
+    return code
+
+
+def _rejects_temperature(exc):
+    """True for a provider 400 saying the model does not accept a custom
+    ``temperature`` (D3-12/D3-13). Anything else (context length, auth, 5xx)
+    is not a temperature problem and must not trigger the no-temperature
+    retry."""
+    code = _status_code(exc)
+    if code not in (None, 400):
+        return False
+    return 'temperature' in str(exc).lower()
+
+
+class _Timeouts:
+    """Per-model client timeout (D3-5): the Pro-mode model ('pro_max') gets the
+    longer budget, every other model the default one."""
+
+    def __init__(self, config):
+        self.config = config
+
+    def default(self):
+        return float(getattr(self.config, 'llm_timeout_seconds', 120) or 120)
+
+    def longest(self):
+        return max(self.default(), float(
+            getattr(self.config, 'llm_pro_timeout_seconds', 0) or 0))
+
+    def for_model(self, model):
+        if model and model == getattr(self.config, 'model_pro_max', None):
+            return self.longest()
+        return self.default()
 
 
 # ---------------------------------------------------------------------------
 # Gemini backend — owns only the wire protocol.
 # ---------------------------------------------------------------------------
 class GeminiBackend:
+    # Transient statuses retried with exponential backoff + jitter (D3-5).
+    RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504]
+
     def __init__(self, config):
         self.config = config
         self._client = None
+        self._timeouts = _Timeouts(config)
 
     def _client_(self):
         if self._client is None:
@@ -87,19 +220,44 @@ class GeminiBackend:
             if not self.config.gemini_api_key:
                 raise RuntimeError(
                     "GEMINI_API_KEY is not configured on the server.")
+            retries = int(getattr(self.config, 'llm_max_retries', 2))
             self._client = genai.Client(
                 api_key=self.config.gemini_api_key,
-                http_options=types.HttpOptions(timeout=120_000))  # ms
+                http_options=types.HttpOptions(
+                    timeout=int(self._timeouts.default() * 1000),   # ms
+                    # google-genai sends the client timeout as X-Server-Timeout
+                    # (a hard server-side deadline for the whole call, streams
+                    # included) unless the header is already set. Pin it to
+                    # the longest per-call budget so a long Pro draft is not
+                    # killed by the default client timeout; stalls are still
+                    # caught client-side by the read timeout.
+                    headers={'X-Server-Timeout':
+                             str(int(self._timeouts.longest()))},
+                    # Retries wrap the request, before any stream delta is
+                    # delivered; a stream that fails mid-way is not replayed.
+                    retry_options=types.HttpRetryOptions(
+                        attempts=retries + 1, initial_delay=1.0,
+                        max_delay=8.0, exp_base=2.0, jitter=1.0,
+                        http_status_codes=list(self.RETRY_STATUS_CODES))))
         return self._client
+
+    def _config(self, model, **kwargs):
+        from google.genai import types
+        timeout = self._timeouts.for_model(model)
+        if timeout != self._timeouts.default():
+            kwargs['http_options'] = types.HttpOptions(
+                timeout=int(timeout * 1000))
+        return types.GenerateContentConfig(**kwargs)
 
     @staticmethod
     def _usage(response, model):
         meta = getattr(response, 'usage_metadata', None)
-        return {
-            'model': model,
-            'input': getattr(meta, 'prompt_token_count', 0) or 0,
-            'output': getattr(meta, 'candidates_token_count', 0) or 0,
-        }
+        candidates = getattr(meta, 'candidates_token_count', 0) or 0
+        thoughts = getattr(meta, 'thoughts_token_count', 0) or 0
+        return _usage_dict(
+            model, getattr(meta, 'prompt_token_count', 0) or 0,
+            candidates + thoughts, thinking=thoughts,
+            cached=getattr(meta, 'cached_content_token_count', 0) or 0)
 
     @staticmethod
     def _finish_reason(response):
@@ -107,6 +265,16 @@ class GeminiBackend:
         cands = getattr(response, 'candidates', None) or []
         if cands:
             return getattr(cands[0], 'finish_reason', None)
+        return None
+
+    @staticmethod
+    def _prompt_block(response):
+        """The prompt-level block reason (``prompt_feedback.block_reason``),
+        or None. A blocked prompt comes back with no candidates at all."""
+        feedback = getattr(response, 'prompt_feedback', None)
+        name = _reason_name(getattr(feedback, 'block_reason', None))
+        if name and name != 'BLOCKED_REASON_UNSPECIFIED':
+            return name
         return None
 
     @staticmethod
@@ -125,46 +293,61 @@ class GeminiBackend:
         return out
 
     def generate(self, model, contents, *, temperature, json_mode):
-        from google.genai import types
         kwargs = {'temperature': temperature}
         if json_mode:
             kwargs['response_mime_type'] = 'application/json'
         response = self._client_().models.generate_content(
             model=model, contents=self._to_contents(contents),
-            config=types.GenerateContentConfig(**kwargs))
+            config=self._config(model, **kwargs))
         usage = self._usage(response, model)
         logger.info("llm call provider=gemini model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
-        _check_truncation(self._finish_reason(response), 'Gemini', model)
-        return LLMResult(text=(response.text or '').strip(), usage=usage)
+        with _billed(usage):
+            block = self._prompt_block(response)
+            if block:
+                raise BlockedGenerationError('Gemini', model, detail=block)
+            _check_finish(self._finish_reason(response), 'Gemini', model)
+            text = (getattr(response, 'text', None) or '').strip()
+            if not text:
+                raise EmptyGenerationError('Gemini', model)
+        return LLMResult(text=text, usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
-        from google.genai import types
         stream = self._client_().models.generate_content_stream(
             model=model, contents=self._to_contents(contents),
-            config=types.GenerateContentConfig(temperature=temperature))
+            config=self._config(model, temperature=temperature))
         # Make the usage contract explicit rather than relying on an implicit
         # "last chunk wins" assignment: seed a zero-usage baseline (so an empty
         # stream reports zero, not a stale/None value) and refresh it from every
         # chunk that carries usage_metadata. Gemini reports cumulative counts on
-        # its chunks, so the final refresh holds the totals for the whole stream.
-        usage = {'model': model, 'input': 0, 'output': 0}
+        # its chunks, so the latest refresh holds the totals so far, and
+        # usage_out is updated as they arrive: a stream cut short (client
+        # disconnect, safety stop) still accounts for what was billed (D3-11).
+        if usage_out is not None:
+            usage_out.update({'model': model, 'input': 0, 'output': 0})
         finish_reason = None
+        block = None
+        produced = False
         for chunk in stream:
             if getattr(chunk, 'usage_metadata', None) is not None:
-                usage = self._usage(chunk, model)
+                if usage_out is not None:
+                    usage_out.update(self._usage(chunk, model))
+            block = block or self._prompt_block(chunk)
             fr = self._finish_reason(chunk)
             if fr is not None:
                 finish_reason = fr
             delta = getattr(chunk, 'text', None)
             if delta:
+                produced = True
                 yield delta
-        if usage_out is not None:
-            usage_out.update(usage)
-        # After the deltas: if the stream ended because it hit the token ceiling,
-        # fail loudly so /chat emits a clean error instead of accepting a script
-        # cut mid-line (P2-6).
-        _check_truncation(finish_reason, 'Gemini', model)
+        # After the deltas: a safety stop or blocked prompt (D3-4) and a
+        # token-ceiling cutoff (P2-6) fail loudly so /chat emits a clean error
+        # instead of accepting a partial script.
+        if block:
+            raise BlockedGenerationError('Gemini', model, detail=block)
+        _check_finish(finish_reason, 'Gemini', model)
+        if not produced:
+            raise EmptyGenerationError('Gemini', model)
 
 
 # ---------------------------------------------------------------------------
@@ -178,20 +361,38 @@ class AnthropicBackend:
     JSON_SYSTEM = ("Output only a single valid JSON value — no markdown, "
                    "no code fences, no prose.")
 
+    # Models known to reject sampling parameters (D3-13). Every other model
+    # gets the requested temperature; an unknown model that rejects it is
+    # learned from its first 400 and remembered.
+    NO_TEMPERATURE_PREFIXES = ('claude-opus-4-7', 'claude-opus-4-8')
+
     def __init__(self, config):
         self.config = config
         self._client = None
+        self._timeouts = _Timeouts(config)
+        self._no_temperature = set()
+        self._lock = threading.Lock()
 
     def _client_(self):
         if self._client is None:
             import anthropic
+            common = {'timeout': self._timeouts.default(),
+                      'max_retries': int(getattr(self.config,
+                                                 'llm_max_retries', 2))}
             if self.config.anthropic_api_key:
                 self._client = anthropic.Anthropic(
-                    api_key=self.config.anthropic_api_key)
+                    api_key=self.config.anthropic_api_key, **common)
             else:
                 self._client = anthropic.Anthropic(
-                    default_headers={'anthropic-beta': 'oauth-2025-04-20'})
+                    default_headers={'anthropic-beta': 'oauth-2025-04-20'},
+                    **common)
         return self._client
+
+    def _accepts_temperature(self, model):
+        if any(str(model).startswith(p) for p in self.NO_TEMPERATURE_PREFIXES):
+            return False
+        with self._lock:
+            return model not in self._no_temperature
 
     @staticmethod
     def _content(contents):
@@ -222,47 +423,81 @@ class AnthropicBackend:
     @staticmethod
     def _usage(message, model):
         u = getattr(message, 'usage', None)
-        return {
-            'model': model,
-            'input': getattr(u, 'input_tokens', 0) or 0,
-            'output': getattr(u, 'output_tokens', 0) or 0,
-        }
+        cache_read = getattr(u, 'cache_read_input_tokens', 0) or 0
+        cache_write = getattr(u, 'cache_creation_input_tokens', 0) or 0
+        # input_tokens excludes cache reads/writes on Anthropic; fold them in
+        # so 'input' means "all prompt tokens" on every provider.
+        return _usage_dict(
+            model,
+            (getattr(u, 'input_tokens', 0) or 0) + cache_read + cache_write,
+            getattr(u, 'output_tokens', 0) or 0, cached=cache_read)
 
-    def generate(self, model, contents, *, temperature, json_mode):
-        # temperature is intentionally ignored — sampling params are rejected on
-        # current Claude models; determinism is handled by LLMService's cache.
+    def _kwargs(self, model, contents, temperature, max_tokens):
         kwargs = {
             'model': model,
-            'max_tokens': self.config.anthropic_max_tokens,
+            'max_tokens': max_tokens,
             'messages': [{'role': 'user', 'content': self._content(contents)}],
+            'timeout': self._timeouts.for_model(model),
         }
+        if temperature is not None and self._accepts_temperature(model):
+            kwargs['temperature'] = temperature
+        return kwargs
+
+    def _call(self, fn, kwargs):
+        """Call ``fn(**kwargs)``; on a 'temperature not supported' 400, retry
+        once without it and remember the model (D3-13)."""
+        try:
+            return fn(**kwargs)
+        except Exception as exc:
+            if 'temperature' in kwargs and _rejects_temperature(exc):
+                with self._lock:
+                    self._no_temperature.add(kwargs['model'])
+                kwargs = {k: v for k, v in kwargs.items() if k != 'temperature'}
+                return fn(**kwargs)
+            raise
+
+    def generate(self, model, contents, *, temperature, json_mode):
+        kwargs = self._kwargs(model, contents, temperature,
+                              self.config.anthropic_max_tokens)
         if json_mode:
             kwargs['system'] = self.JSON_SYSTEM
-        message = self._client_().messages.create(**kwargs)
-        text = next((b.text for b in message.content
+        message = self._call(self._client_().messages.create, kwargs)
+        text = next((b.text for b in (getattr(message, 'content', None) or [])
                      if getattr(b, 'type', None) == 'text'), '')
         usage = self._usage(message, model)
         logger.info("llm call provider=anthropic model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
-        _check_truncation(getattr(message, 'stop_reason', None),
+        with _billed(usage):
+            _check_finish(getattr(message, 'stop_reason', None),
                           'Anthropic', model)
-        return LLMResult(text=(text or '').strip(), usage=usage)
+            text = (text or '').strip()
+            if not text:
+                raise EmptyGenerationError('Anthropic', model)
+        return LLMResult(text=text, usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
-        with self._client_().messages.stream(
-                model=model,
-                max_tokens=self.config.anthropic_stream_max_tokens,
-                messages=[{'role': 'user',
-                           'content': self._content(contents)}]) as stream:
-            for delta in stream.text_stream:
-                if delta:
-                    yield delta
-            final = stream.get_final_message()
-        usage = self._usage(final, model)
-        if usage_out is not None:
-            usage_out.update(usage)
-        _check_truncation(getattr(final, 'stop_reason', None),
-                          'Anthropic', model)
+        kwargs = self._kwargs(model, contents, temperature,
+                              self.config.anthropic_stream_max_tokens)
+        manager = self._call(self._client_().messages.stream, kwargs)
+        produced = False
+        final = None
+        with manager as stream:
+            try:
+                for delta in stream.text_stream:
+                    if delta:
+                        produced = True
+                        yield delta
+                final = stream.get_final_message()
+            finally:
+                # D3-11: account for a stream cut short (client disconnect or
+                # an error) from the partial snapshot the SDK keeps.
+                snapshot = final if final is not None else getattr(
+                    stream, 'current_message_snapshot', None)
+                if usage_out is not None and snapshot is not None:
+                    usage_out.update(self._usage(snapshot, model))
+        _check_finish(getattr(final, 'stop_reason', None), 'Anthropic', model)
+        if not produced:
+            raise EmptyGenerationError('Anthropic', model)
 
 
 # ---------------------------------------------------------------------------
@@ -271,13 +506,17 @@ class AnthropicBackend:
 class OpenAIBackend:
     """OpenAI backend (Chat Completions). ``MediaPart`` maps to ``image_url``
     parts (images) and ``file`` parts (base64 PDFs). Some newer models (gpt-5,
-    o-series) reject non-default sampling params, so a ``temperature`` error
-    triggers one retry without it — determinism for cached temp-0 calls is
+    o-series) reject non-default sampling params, so a ``temperature`` 400
+    triggers one retry without it, and the model is remembered so later calls
+    skip the failing round-trip (D3-12). Determinism for cached temp-0 calls is
     preserved by ``LLMService``'s cache regardless."""
 
     def __init__(self, config):
         self.config = config
         self._client = None
+        self._timeouts = _Timeouts(config)
+        self._no_temperature = set()
+        self._lock = threading.Lock()
 
     def _client_(self):
         if self._client is None:
@@ -285,7 +524,10 @@ class OpenAIBackend:
             if not self.config.openai_api_key:
                 raise RuntimeError(
                     "OPENAI_API_KEY is not configured on the server.")
-            self._client = openai.OpenAI(api_key=self.config.openai_api_key)
+            self._client = openai.OpenAI(
+                api_key=self.config.openai_api_key,
+                timeout=self._timeouts.default(),
+                max_retries=int(getattr(self.config, 'llm_max_retries', 2)))
         return self._client
 
     @staticmethod
@@ -317,19 +559,31 @@ class OpenAIBackend:
     @staticmethod
     def _usage(response, model):
         u = getattr(response, 'usage', None)
-        return {
-            'model': model,
-            'input': getattr(u, 'prompt_tokens', 0) or 0,
-            'output': getattr(u, 'completion_tokens', 0) or 0,
-        }
+        # completion_tokens already includes reasoning tokens and prompt_tokens
+        # already includes cached ones; the details are reported alongside
+        # (D3-3).
+        return _usage_dict(
+            model, getattr(u, 'prompt_tokens', 0) or 0,
+            getattr(u, 'completion_tokens', 0) or 0,
+            thinking=getattr(getattr(u, 'completion_tokens_details', None),
+                             'reasoning_tokens', 0) or 0,
+            cached=getattr(getattr(u, 'prompt_tokens_details', None),
+                           'cached_tokens', 0) or 0)
 
     def _create(self, *, model, contents, temperature, json_mode, stream):
         kwargs = {
             'model': model,
             'messages': [{'role': 'user', 'content': self._content(contents)}],
-            'max_completion_tokens': self.config.openai_max_tokens,
+            # D3-16: on reasoning models this budget includes hidden reasoning
+            # tokens, so streams (code drafts) get the larger cap.
+            'max_completion_tokens': (
+                self.config.openai_stream_max_tokens if stream
+                else self.config.openai_max_tokens),
+            'timeout': self._timeouts.for_model(model),
         }
-        if temperature is not None:
+        with self._lock:
+            skip_temperature = model in self._no_temperature
+        if temperature is not None and not skip_temperature:
             kwargs['temperature'] = temperature
         if json_mode:
             kwargs['response_format'] = {'type': 'json_object'}
@@ -339,9 +593,11 @@ class OpenAIBackend:
         try:
             return self._client_().chat.completions.create(**kwargs)
         except Exception as exc:
-            # gpt-5 / o-series only accept the default temperature; drop it and
-            # retry once rather than failing the call.
-            if temperature is not None and 'temperature' in str(exc).lower():
+            # gpt-5 / o-series only accept the default temperature: drop it,
+            # remember the model, and retry once rather than failing the call.
+            if 'temperature' in kwargs and _rejects_temperature(exc):
+                with self._lock:
+                    self._no_temperature.add(model)
                 kwargs.pop('temperature', None)
                 return self._client_().chat.completions.create(**kwargs)
             raise
@@ -350,37 +606,55 @@ class OpenAIBackend:
         response = self._create(model=model, contents=contents,
                                 temperature=temperature, json_mode=json_mode,
                                 stream=False)
-        text = (response.choices[0].message.content or ''
-                if response.choices else '')
+        choices = getattr(response, 'choices', None) or []
+        choice = choices[0] if choices else None
+        message = getattr(choice, 'message', None)
         usage = self._usage(response, model)
         logger.info("llm call provider=openai model=%s in=%s out=%s",
                     model, usage['input'], usage['output'])
-        _check_truncation(
-            getattr(response.choices[0], 'finish_reason', None)
-            if response.choices else None,
-            'OpenAI', model)
-        return LLMResult(text=text.strip(), usage=usage)
+        with _billed(usage):
+            refusal = getattr(message, 'refusal', None)
+            if refusal:
+                raise BlockedGenerationError(
+                    'OpenAI', model, detail='refusal',
+                    user_message=('The model declined this request: '
+                                  f'{str(refusal)[:300]}'))
+            _check_finish(getattr(choice, 'finish_reason', None),
+                          'OpenAI', model)
+            text = (getattr(message, 'content', None) or '').strip()
+            if not text:
+                raise EmptyGenerationError('OpenAI', model)
+        return LLMResult(text=text, usage=usage)
 
     def stream(self, model, contents, *, temperature, usage_out):
         events = self._create(model=model, contents=contents,
                               temperature=temperature, json_mode=False,
                               stream=True)
-        usage = {'model': model, 'input': 0, 'output': 0}
         finish_reason = None
+        refused = False
+        produced = False
+        if usage_out is not None:
+            usage_out.update({'model': model, 'input': 0, 'output': 0})
         for chunk in events:
-            if getattr(chunk, 'usage', None):
-                usage = self._usage(chunk, model)
+            if getattr(chunk, 'usage', None) and usage_out is not None:
+                usage_out.update(self._usage(chunk, model))
             if getattr(chunk, 'choices', None):
                 choice = chunk.choices[0]
                 fr = getattr(choice, 'finish_reason', None)
                 if fr is not None:
                     finish_reason = fr
-                delta = choice.delta.content
-                if delta:
-                    yield delta
-        if usage_out is not None:
-            usage_out.update(usage)
-        _check_truncation(finish_reason, 'OpenAI', model)
+                delta = getattr(choice, 'delta', None)
+                if getattr(delta, 'refusal', None):
+                    refused = True
+                text = getattr(delta, 'content', None)
+                if text:
+                    produced = True
+                    yield text
+        if refused:
+            raise BlockedGenerationError('OpenAI', model, detail='refusal')
+        _check_finish(finish_reason, 'OpenAI', model)
+        if not produced:
+            raise EmptyGenerationError('OpenAI', model)
 
 
 def _make_backend(config):
@@ -473,27 +747,49 @@ class LLMService:
             cache_key = self._cache_key(model, contents, json_mode)
             cached = self._cache_get(cache_key)
             if cached is not None:
-                return cached
-        result = self._backend.generate(
-            model, contents, temperature=temperature, json_mode=json_mode)
+                # D3-11: a cache hit costs nothing, so report zero usage
+                # (flagged) instead of re-showing the original call's tokens.
+                return LLMResult(text=cached.text, usage={
+                    'model': model, 'input': 0, 'output': 0,
+                    'cache_hit': True})
+        try:
+            result = self._backend.generate(
+                model, contents, temperature=temperature, json_mode=json_mode)
+        except LLMOutputError as exc:
+            if exc.usage:
+                self._record(model, exc.usage.get('input', 0),
+                             exc.usage.get('output', 0))
+            raise
         self._record(model, result.usage.get('input', 0),
                      result.usage.get('output', 0))
         if cache_key is not None:
-            self._cache_put(cache_key, result)
+            self._cache_put(cache_key, copy.deepcopy(result))
         return result
 
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------
     def stream(self, role, contents, *, temperature=0.2, usage_out=None):
-        """Yield text deltas; fill ``usage_out`` (if given) when finished."""
+        """Yield text deltas; fill ``usage_out`` (if given) when finished.
+
+        Usage is recorded in a ``finally`` (D3-11), so a stream that ends in a
+        truncation/safety error or is closed by a client disconnect
+        (``GeneratorExit``) is still counted in ``/metrics`` and reported to
+        the caller. The backends keep ``local`` current as usage arrives."""
         model = self._resolve(role)
         local = {}
-        yield from self._backend.stream(
-            model, contents, temperature=temperature, usage_out=local)
-        self._record(model, local.get('input', 0), local.get('output', 0))
-        if usage_out is not None:
-            usage_out.update(local)
+        started = False
+        try:
+            for delta in self._backend.stream(
+                    model, contents, temperature=temperature, usage_out=local):
+                started = True
+                yield delta
+        finally:
+            if started or local.get('input') or local.get('output'):
+                self._record(model, local.get('input', 0),
+                             local.get('output', 0))
+            if usage_out is not None:
+                usage_out.update(local)
 
 
 # ---------------------------------------------------------------------------
