@@ -105,8 +105,12 @@ token usage is surfaced live in the UI.
 
 ```bash
 cp .env.example .env          # add your GEMINI_API_KEY
-docker-compose up --build     # then open http://localhost:5000
+docker compose up --build     # then open http://localhost:5000
 ```
+
+Every setting in `.env` reaches the container (`env_file`); the file itself is
+masked inside it. The SQLite DB and uploads live in the `statlee-instance`
+volume.
 
 Or run locally without Docker (dev only, generated code runs on your host):
 

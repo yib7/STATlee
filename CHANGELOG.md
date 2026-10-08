@@ -24,8 +24,10 @@ legitimate analysis scripts run.
   PDF uploads; the bump clears them.
 
 ### Internal
-- Test suite grew from 400 to 411 passing (plus 4 skip-marked Docker/POSIX tests
-  that run in CI); the README badge reflects the new count.
+- Test suite grew from 400 to 411 passing (plus 4 skip-marked tests: the 2
+  POSIX-only ones run on CI's Linux runners, but the 2 real-Docker ones skipped
+  everywhere, CI included, because no job built the runner image); the README
+  badge reflects the new count.
 
 ## [1.4.0] - 2026-07-20
 
@@ -82,8 +84,9 @@ fix, and correctness/perf fixes from a full code audit. No breaking changes.
   README to prevent misconfiguration.
 
 ### Internal
-- Test suite grew from 334 to 400 passing (plus 4 skip-marked Docker/POSIX tests
-  that run in CI); the README badge reflects the new count.
+- Test suite grew from 334 to 400 passing (plus 4 skip-marked tests: 2 POSIX-only
+  ones that run in CI and 2 real-Docker ones that always skipped, CI included);
+  the README badge reflects the new count.
 
 ## [1.3.2] - 2026-07-16
 
@@ -134,8 +137,8 @@ User-interface rebuild on a shared design-token system. No breaking changes.
 - Four UI bugs surfaced while rebuilding the run lifecycle and empty states.
 
 ### Internal
-- Test suite grew from 311 to 331 passing (plus 4 skip-marked Docker/POSIX
-  tests that run in CI).
+- Test suite grew from 311 to 331 passing (plus 4 skip-marked tests: 2
+  POSIX-only ones that run in CI and 2 real-Docker ones that always skipped).
 
 ## [1.3.0] - 2026-07-11
 
@@ -143,7 +146,8 @@ Third audit-pass cycle: 21 findings closed (7 P1, 14 P2) across billing
 ordering, prompt-material caps, database migrations, account recovery, the
 execution sandbox, storage integrity, and browser-side hardening. No breaking
 changes for end users. The test suite grew from 229 to 311 passing (plus 4
-skip-marked Docker/POSIX tests that run in CI).
+skip-marked tests: 2 POSIX-only ones that run in CI and 2 real-Docker ones that
+always skipped).
 
 ### Security
 - All client-supplied prompt material is now length-capped server-side before
@@ -343,6 +347,10 @@ dataset into generated, moderated, sandboxed, and explained statistics.
 - 178 tests covering the full HTTP surface with an injected fake LLM, so the
   suite runs offline with no API key.
 
+[1.4.1]: https://github.com/yib7/STATlee/releases/tag/v1.4.1
+[1.4.0]: https://github.com/yib7/STATlee/releases/tag/v1.4.0
+[1.3.2]: https://github.com/yib7/STATlee/releases/tag/v1.3.2
+[1.3.1]: https://github.com/yib7/STATlee/releases/tag/v1.3.1
 [1.3.0]: https://github.com/yib7/STATlee/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yib7/STATlee/releases/tag/v1.2.0
 [1.1.0]: https://github.com/yib7/STATlee/releases/tag/v1.1.0

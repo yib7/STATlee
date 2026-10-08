@@ -155,7 +155,14 @@ host network and filesystem, so run it only where the host holds nothing
 sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
 
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
-  read-only, resource-capped sibling container built from `runner.Dockerfile`.
+  read-only, resource-capped sibling container built from `runner.Dockerfile`
+  (whose analysis-library pins come from `requirements-runner.txt` and must
+  match `requirements.txt`; a test enforces it). The shipped app image has **no
+  `docker` CLI**, so docker mode needs the app on a host (or a derived image)
+  with the CLI and daemon access; from the stock image every run fails with
+  "Interpreter not available". The two real-Docker integration tests in
+  `tests/test_sandbox.py` skip unless the runner image is built; the CI
+  `sandbox-docker` job builds it and runs them.
   When the app itself is containerized with the host docker socket mounted,
   `docker run -v` is resolved by the host daemon against the host filesystem, so
   set `SANDBOX_WORK_ROOT` to a directory bind-mounted at the SAME absolute path

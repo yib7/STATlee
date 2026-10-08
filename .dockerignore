@@ -1,0 +1,46 @@
+# Keep secrets, local data, VCS metadata and dev clutter out of the Docker build
+# context (D5-5). Without this, `COPY . .` baked the untracked .env (real
+# provider keys) and instance/*.db (accounts, password hashes) into an image
+# layer, and the app then loaded that .env at runtime.
+
+# Secrets: every .env variant except the committed template.
+.env
+.env.*
+!.env.example
+
+# Local databases, uploads and other instance data.
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# VCS, CI and assistant/tooling scaffolding.
+.git
+.gitignore
+.gitattributes
+.github/
+.autopilot/
+.claude/
+.superpowers/
+CLAUDE.md
+docs/DEPLOYMENT_PLAYBOOK.md
+_repo-backup/
+_logo-work/
+.pre-commit-config.yaml
+
+# Caches and virtual environments.
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+node_modules/
+
+# Not needed at runtime.
+tests/
