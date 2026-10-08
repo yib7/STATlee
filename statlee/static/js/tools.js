@@ -41,7 +41,9 @@
             document.body.appendChild(a);
             a.click();
             a.remove();
-            URL.revokeObjectURL(a.href);
+            // D4-31: revoking synchronously can cancel the download in some
+            // browsers before it has started reading the blob.
+            setTimeout(() => URL.revokeObjectURL(a.href), 60000);
             CC.toast('Project archive downloaded.', 'success');
         } catch (e) {
             CC.toast('Network error during export.', 'error');
@@ -77,8 +79,8 @@
             });
             const ct = res.headers.get('Content-Type') || '';
             if (!ct.includes('text/event-stream')) {
-                const data = await res.json();
-                CC.toast(data.error || 'Report generation failed.', 'error');
+                const data = await CC.readJSON(res);
+                CC.toast(CC.errorMessage(res.status, data, 'Report generation failed'), 'error');
                 return;
             }
             editor.value = '';
@@ -122,8 +124,8 @@
             });
             const ct = res.headers.get('Content-Type') || '';
             if (!ct.includes('text/event-stream')) {
-                const data = await res.json();
-                CC.toast(data.error || 'Revision failed.', 'error');
+                const data = await CC.readJSON(res);
+                CC.toast(CC.errorMessage(res.status, data, 'Revision failed'), 'error');
                 return;
             }
             let revised = '';
@@ -170,41 +172,92 @@
         a.href = URL.createObjectURL(blob);
         a.download = 'report.md';
         a.click();
-        URL.revokeObjectURL(a.href);
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);   // D4-31
     }
 
     // =====================================================================
     // Analysis history (5.7) — localStorage always; server when logged in
     // =====================================================================
     const HISTORY_KEY = 'cc_history';
+    const HISTORY_MAX = 30;
+    // D4-11: terminal output can be 256KB; thirty of those overflow the
+    // ~5MB localStorage quota and the old catch swallowed it, so history
+    // silently stopped saving. Keep the tail of the output, and evict the
+    // oldest entries until the write fits.
+    const HISTORY_OUTPUT_CHARS = 4000;
+
+    function readLocalHistory() {
+        try {
+            const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            return Array.isArray(list) ? list : [];
+        } catch (e) { return []; }
+    }
+
+    function writeLocalHistory(list) {
+        let items = list.slice(0, HISTORY_MAX);
+        while (items.length) {
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+                return true;
+            } catch (e) {
+                items = items.slice(0, items.length - 1);   // drop the oldest
+            }
+        }
+        return false;
+    }
 
     CC.recordHistory = function (entry) {
         entry.ts = Date.now();
-        try {
-            const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-            list.unshift(entry);
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 30)));
-        } catch (e) { /* storage full/disabled */ }
+        const local = Object.assign({}, entry);
+        const out = local.output || '';
+        if (out.length > HISTORY_OUTPUT_CHARS) {
+            local.output = '[... earlier output trimmed ...]\n' + out.slice(-HISTORY_OUTPUT_CHARS);
+        }
+        const list = readLocalHistory();
+        list.unshift(local);
+        writeLocalHistory(list);
         CC.state.report = CC.state.report || '';
         CC.post('/history', entry).catch(() => { /* anonymous: not persisted */ });
     };
+
+    /** Server timestamps are naive UTC ("2026-10-08T12:00:00"); Date.parse
+     *  would read them as local time (D4-28). */
+    function parseServerTime(value) {
+        if (!value) return 0;
+        const s = String(value);
+        const zoned = /[zZ]$|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z';
+        const t = Date.parse(zoned);
+        return isNaN(t) ? 0 : t;
+    }
+
+    function clearHistory() {
+        if (!window.confirm('Clear the analysis history saved in this browser? '
+            + 'Runs saved to your account are not affected.')) return;
+        try { localStorage.removeItem(HISTORY_KEY); } catch (e) { /* storage disabled */ }
+        CC.toast('Browser history cleared.', 'success');
+        openHistory();
+    }
 
     async function openHistory() {
         const list = document.getElementById('historyList');
         list.innerHTML = `<div class="p-4 text-sm text-slate-500 flex items-center gap-2">${CC.spinner('h-4 w-4')} Loading…</div>`;
         CC.modal.open('historyModal');
 
-        let entries = [];
-        try { entries = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) { /* ignore */ }
+        const entries = readLocalHistory();
         let serverNote = '';
         try {
-            const { ok, data } = await fetch('/history', { headers: { 'X-CSRF-Token': CC.csrfToken } })
-                .then(r => r.json().then(d => ({ ok: r.ok, data: d })));
-            if (ok && data.persisted && data.runs.length) {
-                const seen = new Set(entries.map(e => (e.code || '') + (e.ts || '')));
+            const res = await fetch('/history', { headers: { 'X-CSRF-Token': CC.csrfToken } });
+            const data = await CC.readJSON(res);
+            if (res.ok && data.persisted && Array.isArray(data.runs) && data.runs.length) {
+                // The server's created_at is stamped after the client's ts, so
+                // an exact (code + ts) key never matched and every synced run
+                // showed twice. Same script and prompt within 10 minutes is
+                // the same run (D4-28).
+                const near = (a, b) => Math.abs(a - b) < 10 * 60 * 1000;
                 data.runs.forEach(r => {
-                    const ts = r.created_at ? Date.parse(r.created_at) : 0;
-                    if (seen.has((r.code || '') + ts)) return;
+                    const ts = parseServerTime(r.created_at);
+                    if (entries.some(e => !e.server && (e.code || '') === (r.code || '') &&
+                        (e.prompt || '') === (r.prompt || '') && near(e.ts || 0, ts))) return;
                     entries.push({
                         prompt: r.prompt, code: r.code, language: r.language,
                         dataset_name: r.dataset_name, output: r.output,
@@ -245,15 +298,32 @@
             document.getElementById('languageSelect').value = entry.language;
             document.getElementById('languageSelect').dispatchEvent(new Event('change'));
         }
-        if (entry.prompt) document.getElementById('promptInput').value = entry.prompt;
-        if (entry.output) document.getElementById('runOutput').innerText = entry.output;
+        if (entry.prompt) {
+            document.getElementById('promptInput').value = entry.prompt;
+            CC.state.lastPrompt = entry.prompt;
+        }
+        if (entry.output) {
+            document.getElementById('runOutput').innerText = entry.output;
+            // D4-10: the report builder and Converse read lastRun; without
+            // it the restored results looked present but "Run an analysis
+            // first" blocked the report.
+            CC.state.lastRun = { output: entry.output, plots: [], success: true,
+                code: entry.code || '', restored: true };
+            document.body.classList.remove('cc-no-run');
+        }
         if (entry.interpretation) {
             CC.state.latestInterpretation = entry.interpretation;
             document.getElementById('interpretationOutput').innerHTML =
                 CC.renderMarkdown(entry.interpretation);
         }
         CC.switchTab('generate');
-        CC.toast('Past analysis restored. Re-upload the dataset to re-run it.', 'info');
+        const same = entry.dataset_name && entry.dataset_name === CC.state.filename;
+        CC.toast(same
+            ? 'Past analysis restored. Click Run in sandbox to re-run it on the loaded dataset.'
+            : 'Past analysis restored. To re-run it, load ' +
+              (entry.dataset_name || 'its dataset') + ' first: the server only runs scripts '
+              + 'it generated or re-checked, so a restored script is re-checked when you run it.',
+            'info');
     }
 
     // =====================================================================
@@ -385,47 +455,160 @@
         const label = document.getElementById('accountLabel');
         const loginItem = document.getElementById('accountLoginItem');
         const logoutItem = document.getElementById('accountLogoutItem');
+        const credits = document.getElementById('accountCredits');
         if (user) {
             label.textContent = user.email;
             label.classList.remove('hidden');
             loginItem.classList.add('hidden');
             logoutItem.classList.remove('hidden');
+            // D4-19: show the balance /check_auth already returns, but only
+            // when billing is switched on (otherwise credits mean nothing).
+            const billing = window.CC_BOOT && window.CC_BOOT.billing;
+            if (credits && billing && typeof user.credits === 'number') {
+                credits.textContent = user.credits + ' credits';
+                credits.classList.remove('hidden');
+            }
         } else {
             label.classList.add('hidden');
             loginItem.classList.remove('hidden');
             logoutItem.classList.add('hidden');
+            if (credits) credits.classList.add('hidden');
+        }
+        if (CC.session) CC.session.armExpiry();
+    }
+
+    /** Status line in the account dialog. kind 'error' (red) or 'info'. */
+    function accMessage(text, kind) {
+        const el = document.getElementById('accError');
+        if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+        el.textContent = text;
+        el.classList.toggle('acc-info', kind === 'info');
+        el.setAttribute('role', kind === 'info' ? 'status' : 'alert');
+        el.classList.remove('hidden');
+    }
+
+    let accBusy = false;
+    /** One account request at a time; every button in the form is disabled
+     *  while it runs, so a double-click is not a double registration. */
+    async function accAction(fn) {
+        if (accBusy) return;
+        accBusy = true;
+        const ids = ['accLoginBtn', 'accRegisterBtn', 'accForgotBtn'];
+        ids.forEach((id) => { const b = document.getElementById(id); if (b) b.disabled = true; });
+        try {
+            await fn();
+        } catch (e) {
+            accMessage('Network error: could not reach the server.', 'error');
+        } finally {
+            accBusy = false;
+            ids.forEach((id) => { const b = document.getElementById(id); if (b) b.disabled = false; });
         }
     }
 
-    async function doLogin() {
-        const email = document.getElementById('accEmail').value.trim();
-        const password = document.getElementById('accPassword').value;
-        const err = document.getElementById('accError');
-        err.classList.add('hidden');
-        const { ok, data } = await CC.post('/login', { email, password });
-        if (ok) { window.location.reload(); }
-        else { err.textContent = data.error || 'Login failed.'; err.classList.remove('hidden'); }
+    function accCreds() {
+        return {
+            email: document.getElementById('accEmail').value.trim(),
+            password: document.getElementById('accPassword').value,
+        };
     }
 
-    async function doRegister() {
-        const email = document.getElementById('accEmail').value.trim();
-        const password = document.getElementById('accPassword').value;
-        const err = document.getElementById('accError');
-        err.classList.add('hidden');
-        const { ok, data } = await CC.post('/register', { email, password });
-        if (ok) { window.location.reload(); }
-        else { err.textContent = data.error || 'Registration failed.'; err.classList.remove('hidden'); }
+    function doLogin() {
+        return accAction(async () => {
+            accMessage('');
+            const { ok, status, data } = await CC.post('/login', accCreds());
+            if (ok) { window.location.reload(); return; }
+            accMessage(CC.errorMessage(status, data, 'Sign-in failed'), 'error');
+        });
+    }
+
+    function doRegister() {
+        return accAction(async () => {
+            accMessage('');
+            const { ok, status, data } = await CC.post('/register', accCreds());
+            // D4-12: only 201 {status:'success'} means "signed in". A 202
+            // (verification required / email failed) carries a message the
+            // user must read, so no reload.
+            if (ok && data && data.status === 'success') { window.location.reload(); return; }
+            if (ok) {
+                accMessage((data && data.message) ||
+                    'Account created. Check your email to confirm it, then sign in.', 'info');
+                return;
+            }
+            accMessage(CC.errorMessage(status, data, 'Registration failed'), 'error');
+        });
+    }
+
+    function doForgot() {
+        return accAction(async () => {
+            accMessage('');
+            const email = document.getElementById('accEmail').value.trim();
+            if (!email) {
+                accMessage('Enter your email above, then choose "Forgot password?".', 'error');
+                document.getElementById('accEmail').focus();
+                return;
+            }
+            const { ok, status, data } = await CC.post('/request_password_reset', { email });
+            if (ok) {
+                accMessage((data && data.message) ||
+                    'If that email is registered, a reset link has been sent. Check your inbox.', 'info');
+                return;
+            }
+            accMessage(CC.errorMessage(status, data, 'Could not request a reset'), 'error');
+        });
     }
 
     async function doLogout() {
-        await CC.post('/logout', {});
+        try {
+            await CC.post('/logout', {});
+        } catch (e) {
+            CC.toast('Network error: could not sign out.', 'error');
+            return;
+        }
         window.location.reload();
     }
+
+    // =====================================================================
+    // Anonymous session expiry (D4-20)
+    // =====================================================================
+    // Anonymous uploads are deleted by the TTL reaper (file_ttl from config).
+    // Say when, before it happens, instead of letting the next click fail
+    // with "Invalid filename".
+    let expiryTimers = [];
+    CC.session = {
+        armExpiry() {
+            expiryTimers.forEach(clearTimeout);
+            expiryTimers = [];
+            const el = document.getElementById('sessionExpiry');
+            const ttl = Number(window.CC_BOOT && window.CC_BOOT.file_ttl) || 0;
+            if (!el) return;
+            if (CC.state.user || !CC.state.filename || !CC.state.uploadedAt || ttl <= 0) {
+                el.classList.add('hidden');
+                return;
+            }
+            const deadline = CC.state.uploadedAt + ttl * 1000;
+            const at = new Date(deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            el.textContent = 'Anonymous upload: deleted around ' + at;
+            el.classList.remove('hidden');
+            const warnIn = deadline - Date.now() - 10 * 60 * 1000;
+            if (warnIn > 0) {
+                expiryTimers.push(setTimeout(() => {
+                    CC.toast('Your anonymous upload will be deleted in about 10 minutes. ' +
+                        'Export the project or sign in to keep your work.', 'info');
+                }, warnIn));
+            }
+            const goneIn = deadline - Date.now();
+            if (goneIn > 0) {
+                expiryTimers.push(setTimeout(() => {
+                    el.textContent = 'Anonymous upload expired: upload the dataset again';
+                }, goneIn));
+            }
+        },
+    };
 
     async function checkAuth() {
         try {
             const res = await fetch('/check_auth');
-            const data = await res.json();
+            const data = await CC.readJSON(res);
             if (res.ok) {
                 setAccountUI(data.user);
                 return;
@@ -484,6 +667,8 @@
 
         document.getElementById('exportBtn').addEventListener('click', exportProject);
         document.getElementById('historyBtn').addEventListener('click', openHistory);
+        const clearBtn = document.getElementById('historyClearBtn');
+        if (clearBtn) clearBtn.addEventListener('click', clearHistory);
         document.getElementById('catalogBtn').addEventListener('click', () => CC.modal.open('catalogModal'));
         document.getElementById('issueBtn').addEventListener('click', () => CC.modal.open('issueModal'));
         document.getElementById('issueSubmitBtn').addEventListener('click', submitIssue);
@@ -498,8 +683,16 @@
 
         if (window.CC_BOOT && window.CC_BOOT.accounts) {
             document.getElementById('accountBtn').addEventListener('click', () => CC.modal.open('accountModal'));
-            document.getElementById('accLoginBtn').addEventListener('click', doLogin);
+            // D4-12: a real <form>, so Enter in either field signs in.
+            const form = document.getElementById('accForm');
+            if (form) {
+                form.addEventListener('submit', (e) => { e.preventDefault(); doLogin(); });
+            } else {
+                document.getElementById('accLoginBtn').addEventListener('click', doLogin);
+            }
             document.getElementById('accRegisterBtn').addEventListener('click', doRegister);
+            const forgot = document.getElementById('accForgotBtn');
+            if (forgot) forgot.addEventListener('click', doForgot);
             document.getElementById('accLogoutBtn').addEventListener('click', doLogout);
         } else {
             const accountBtn = document.getElementById('accountBtn');
