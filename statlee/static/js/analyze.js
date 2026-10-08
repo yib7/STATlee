@@ -389,6 +389,7 @@
         const copyBtn = byId('copyBtn');
         if (copyBtn) copyBtn.style.display = 'none';
         setTermState(null);
+        setInterpretationTitle(false);
         ['runOutput', 'interpretationOutput', 'plotOutput'].forEach((id) => {
             const el = byId(id);
             if (el) el.innerHTML = '';
@@ -576,6 +577,31 @@
         if (gen && gen.code === code && gen.language) return gen.language;
         return languageSelect().value;
     }
+    // Approval is keyed on (language, code) (D1-7): /export must name the
+    // same language, or it will not recognise the reviewed editor script.
+    CC.runLanguage = runLanguage;
+
+    /** The sandbox's timeout message (sandbox.py). /run answers a timeout
+     *  with HTTP 500 and this text as `error` (L9), but the script DID run
+     *  and its outcome was recorded, so it is a failed run, not a refusal. */
+    const TIMEOUT_RE = /^Execution timed out after/;
+
+    /** Wording for a run that never reached the sandbox. Since S1-B, any
+     *  script /chat did not approve in this session (a restored history
+     *  entry, a paste, an edit) gets a safety re-check first: 403 when the
+     *  check rejects it, 503 when the check itself is unavailable. */
+    function notRunMessage(status, data) {
+        const server = CC.errorMessage(status, data, 'The script was not run');
+        if (status === 503) {
+            return 'The safety re-check that runs before a new or edited script could not '
+                + 'be completed right now, so the script was not run. Your script is '
+                + 'unchanged; press Retry in a moment. (' + server + ')';
+        }
+        if (status === 403) {
+            return server + ' The script was not run. Edit it, or generate a new one.';
+        }
+        return server;
+    }
 
     async function runScript() {
         if (running) return;               // D4-6: one run at a time
@@ -604,11 +630,23 @@
             const { ok, status, data } = await CC.post('/run', {
                 code, language, filename: CC.state.filename,
             });
+            if (!ok && status === 500 && data && TIMEOUT_RE.test(String(data.error || ''))) {
+                // L9: it ran and was stopped. The server recorded the outcome
+                // (returncode / timed_out), so /interpret diagnoses it.
+                const out = String(data.error);
+                CC.state.lastRun = { output: out, plots: [], success: false, timedOut: true, code };
+                renderTerminal(out, true);
+                execFinished(true, null, 'timed out', { noFix: true });
+                interpretationOutput.innerHTML =
+                    `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Diagnosing the failure...</span>`;
+                await interpret({ output: out, plots: [], success: false }, code, language);
+                return;
+            }
             if (!ok) {
-                // Never reached the sandbox (run-guard refusal, timeout, 5xx):
-                // there is no exit code and no traceback, so "Fix with AI"
-                // would pay for a regeneration against nothing (D4-8).
-                const msg = CC.errorMessage(status, data, 'The script was not run');
+                // Never reached the sandbox (run-guard refusal, re-check
+                // outage, 5xx): there is no exit code and no traceback, so
+                // "Fix with AI" would pay for a regeneration against nothing (D4-8).
+                const msg = notRunMessage(status, data);
                 runOutput.innerText = msg;
                 CC.state.lastRun = { output: msg, plots: [], success: false, notExecuted: true, code };
                 execFinished(true, null, 'not executed', { noFix: true });
@@ -643,9 +681,20 @@
         }
     }
 
+    /** "Interpretation" for a successful run, "Diagnosis" for a failed one.
+     *  The server decides from the run's real exit code / timeout (D1-2) and
+     *  says so in `done.debug`; until then the client's own verdict is used. */
+    function setInterpretationTitle(diagnosis) {
+        const el = byId('interpretationTitle');
+        if (el) el.textContent = diagnosis ? 'Diagnosis' : 'Interpretation';
+    }
+    CC.setInterpretationTitle = setInterpretationTitle;
+
     async function interpret(runData, code, language) {
         const interpretationOutput = document.getElementById('interpretationOutput');
         interpretationOutput.setAttribute('aria-busy', 'true');
+        let debug = !runData.success;
+        setInterpretationTitle(debug);
         try {
             const response = await CC.postStream('/interpret', {
                 output: runData.output || '',
@@ -679,6 +728,13 @@
                 onDone: (data) => {
                     CC.state.latestInterpretation = accumulated;
                     if (data.usage) CC.addUsage(data.usage);
+                    if (typeof data.debug === 'boolean') {
+                        debug = data.debug;
+                        setInterpretationTitle(debug);
+                        // An R error or a timeout used to read as success;
+                        // the server's verdict is the recorded exit code.
+                        if (CC.state.lastRun && debug) CC.state.lastRun.success = false;
+                    }
                 },
                 onError: (msg) => { streamError = msg; },
             });
@@ -691,9 +747,11 @@
                     prompt: CC.state.lastPrompt,
                     code,
                     language,
-                    dataset_name: CC.state.filename,
+                    dataset_name: CC.state.filename,      // stored name: what a re-run needs
+                    dataset_label: CC.datasetLabel(),     // the user's name for it (D1-1)
                     output: runData.output || '',
                     interpretation: CC.state.latestInterpretation,
+                    success: !debug,      // restore it as a failed run, not a success
                 });
             }
         } catch (err) {

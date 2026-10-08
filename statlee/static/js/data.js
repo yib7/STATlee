@@ -85,7 +85,14 @@
             rows.forEach(row => {
                 html += '<tr class="border-b border-slate-100/50 dark:border-slate-800/30 hover:bg-slate-50/50 dark:hover:bg-indigo-900/10 transition-colors">';
                 headers.forEach(h => {
-                    const cell = CC.escapeHtml(row[h]);
+                    // D1-9: missing, NaN and +/-inf cells arrive as null. Mark
+                    // them, so "missing" never looks like an empty string.
+                    const value = row[h];
+                    if (value === null || value === undefined) {
+                        html += '<td class="cell-missing px-4 py-3 whitespace-nowrap" title="Missing value">NA</td>';
+                        return;
+                    }
+                    const cell = CC.escapeHtml(value);
                     html += `<td class="px-4 py-3 whitespace-nowrap max-w-xs truncate" title="${cell}">${cell}</td>`;
                 });
                 html += '</tr>';
@@ -160,6 +167,21 @@
     }
     CC.fetchCodebook = fetchCodebook;
 
+    /** /suggest accepts at most 10 `previous` ideas of 500 chars each (S1-B
+     *  contract 9). The ideas on screen come first, so a reroll never repeats
+     *  them; older ones fill the rest. */
+    const PREVIOUS_MAX = 10;
+    const PREVIOUS_CHARS = 500;
+    function previousSuggestions(current) {
+        const out = [];
+        (current || []).concat(CC.state.seenSuggestions || []).forEach((s) => {
+            if (typeof s !== 'string' || !s.trim()) return;
+            const clipped = s.slice(0, PREVIOUS_CHARS);
+            if (out.length < PREVIOUS_MAX && out.indexOf(clipped) === -1) out.push(clipped);
+        });
+        return out;
+    }
+
     CC.fetchSuggestions = async function (filename, previous) {
         const container = document.getElementById('suggestionsContainer');
         const list = document.getElementById('suggestionsList');
@@ -173,7 +195,7 @@
                 filename,
                 codebook: CC.state.codebook,
                 pdf_mapping: CC.state.pdfMapping,
-                previous: previous || [],
+                previous: previous ? previousSuggestions(previous) : [],
             });
             // D4-21: the model's JSON shape is not guaranteed. Accept a list or
             // {suggestions: [...]}, keep strings only, at most three; anything
@@ -184,6 +206,7 @@
             const suggestions = raw ? raw.filter(s => typeof s === 'string' && s.trim()).slice(0, 3) : [];
             if (ok && suggestions.length) {
                 CC.state.suggestions = suggestions;
+                CC.state.seenSuggestions = previousSuggestions(suggestions);
                 if (data.usage) CC.addUsage(data.usage);
                 list.innerHTML = '';
                 suggestions.forEach(suggestion => {
@@ -247,12 +270,42 @@
     function resetDatasetChrome() {
         CC.state.pdfMapping = {};
         CC.state.codebook = {};
+        CC.state.suggestions = [];
+        CC.state.seenSuggestions = [];
         CC.dockCodebook();
         document.getElementById('codebookContainer').classList.add('hidden');
         document.getElementById('codebookList').innerHTML = '';
         if (CC.dockWrangle) CC.dockWrangle();   // dock any floating cleaning panel before hiding
         document.getElementById('changelogPanel').classList.add('hidden');
         resetCodebookViewer();   // clear any prior codebook doc, back to empty state
+    }
+
+    /** The sidebar's "Loaded <name>" line (D1-1) plus upload warnings, e.g.
+     *  "This workbook has 3 sheets. Imported 'Data'..." (D1-13). Quiet, in
+     *  place, and kept until the next upload: nothing to dismiss. */
+    function showDatasetInfo(data) {
+        const box = document.getElementById('datasetInfo');
+        if (!box) return;
+        document.getElementById('datasetName').textContent = CC.datasetLabel();
+        const stored = document.getElementById('datasetStored');
+        if (stored) {
+            const differs = CC.state.originalName && CC.state.originalName !== CC.state.filename;
+            stored.textContent = differs ? `Stored as ${CC.state.filename}: scripts read this name.` : '';
+            stored.classList.toggle('hidden', !differs);
+        }
+        const list = document.getElementById('datasetWarnings');
+        if (list) {
+            const warnings = Array.isArray(data.warnings)
+                ? data.warnings.filter(w => typeof w === 'string' && w.trim()) : [];
+            list.innerHTML = '';
+            warnings.forEach((w) => {
+                const li = document.createElement('li');
+                li.textContent = w;
+                list.appendChild(li);
+            });
+            list.classList.toggle('hidden', warnings.length === 0);
+        }
+        box.classList.remove('hidden');
     }
 
     /** Is there analysis work tied to the current dataset that a new upload
@@ -279,6 +332,7 @@
             formData.append('file', file);
 
             const previous = CC.state.filename;
+            const previousLabel = CC.datasetLabel();
             const box = document.getElementById('pipelineChecklist');
             const statusEl = document.getElementById('pipelineStatus');
             const snapshot = { html: box ? box.innerHTML : '', status: statusEl ? statusEl.textContent : '' };
@@ -301,7 +355,7 @@
                     // Keep working on the dataset that is still loaded.
                     restorePipeline();
                     releaseComposer();
-                    CC.toast(`${message} Still using ${previous}.`, 'error');
+                    CC.toast(`${message} Still using ${previousLabel}.`, 'error');
                 } else {
                     CC.pipeline.set('load', 'failed', message);
                     promptInput.placeholder = placeholder;
@@ -314,7 +368,18 @@
                 if (ok && data.filename) {
                     resetDatasetChrome();
                     if (CC.resetAnalysisState) CC.resetAnalysisState();
+                    // D1-1: the stored name may differ from the picked file
+                    // (`<ascii>_<8hex>.csv`, `upload_<8hex>.csv`). Every
+                    // request uses the stored one; the user sees their own.
                     CC.state.filename = data.filename;
+                    CC.state.originalName = data.original_name || file.name;
+                    const label = CC.datasetLabel();
+                    showDatasetInfo(data);
+                    if (previous && previous === data.filename) {
+                        // D1-14: same stored name = the server replaced the
+                        // dataset and restarted its cleaning history at v1.
+                        CC.toast(`Replaced ${label}. Its cleaning history starts again at v1.`, 'info');
+                    }
                     CC.state.uploadedAt = Date.now();
                     if (CC.session) CC.session.armExpiry();
                     // Real data exists now: retire the dropzone-era empty states
@@ -326,19 +391,29 @@
                     if (data.labels && Object.keys(data.labels).length > 0) {
                         // Native .sav/.dta variable labels seed the codebook (5.1)
                         CC.state.pdfMapping = Object.assign({}, data.labels);
-                        CC.toast(`Loaded ${Object.keys(data.labels).length} native variable labels.`, 'success');
+                        // D1-13: value labels are merged into the column label,
+                        // e.g. "Sex (1=Male, 2=Female)".
+                        const n = Object.keys(data.labels).length;
+                        const coded = Object.values(data.labels)
+                            .filter(v => String(v).indexOf('=') !== -1).length;
+                        CC.toast(`Loaded ${n} native variable labels` +
+                            (coded ? `, ${coded} with value labels.` : '.'), 'success');
                     }
                     CC.renderTableHeaders(CC.state.headers);
-                    CC.pipeline.set('load', 'done');
+                    CC.pipeline.set('load', 'done', label);
                     // The table preview is its own request: a /data_page hiccup
                     // must not mark an accepted upload as failed (D4-23).
                     CC.fetchDataPage(1);
                     renderChangelog(data.changelog);   // reveal the cleaning chat with v1
                     pendingFilename = data.filename;
                     showCodebookStep('ask');
-                    CC.announce(`Dataset ${data.filename} loaded.`);
+                    CC.announce(`Dataset ${label} loaded.`);
                 } else {
-                    failed((data && data.error) || `Upload failed (HTTP ${status}).`);
+                    // 422: empty, header-only or ragged file, or a profile
+                    // failure; 413: too large. The server says which; name
+                    // the file it is about.
+                    const reason = (data && data.error) || `Upload failed (HTTP ${status}).`;
+                    failed(`Could not load ${file.name}. ${reason}`);
                 }
             } catch (err) {
                 failed('Network error: the upload did not reach the server.');
@@ -387,9 +462,7 @@
                 if (ok && data.filename) {
                     // D4-30: show the document only once the server accepted it,
                     // so a rejected PDF never reads as "attached".
-                    if (codebookURL) URL.revokeObjectURL(codebookURL);
-                    codebookURL = URL.createObjectURL(file);
-                    showCodebookDocument(codebookURL);   // swap empty state -> the document
+                    await showCodebookDocument(file, data.filename);   // swap empty state -> the document
                     CC.switchTab('pdf');
                     const ext = await CC.post('/extract_pdf_codebook', {
                         filename: data.filename,
@@ -499,6 +572,41 @@
         }
     }
 
+    /** Re-read the dataset after a 409 (L1): the cleaning history from
+     *  /dataset_versions, then the table. Neither route returns a profile, so
+     *  the columns are taken from a one-row /data_page probe (its keys are
+     *  the active version's columns); known columns keep their order and new
+     *  ones are appended. Returns the fresh changelog, or null. */
+    async function reloadDatasetState() {
+        const filename = CC.state.filename;
+        if (!filename) return null;
+        let changelog = null;
+        try {
+            const { ok, data } = await CC.post('/dataset_versions', { filename });
+            if (ok && data.changelog && filename === CC.state.filename) {
+                changelog = data.changelog;
+                renderChangelog(changelog);
+            }
+            const probe = await CC.post('/data_page', { filename, page: 1, per_page: 1, filters: {} });
+            const row = probe.ok && probe.data && Array.isArray(probe.data.data) ? probe.data.data[0] : null;
+            if (row && filename === CC.state.filename) {
+                const cols = Object.keys(row);
+                const known = CC.state.headers.filter(h => cols.indexOf(h) !== -1);
+                const added = cols.filter(c => CC.state.headers.indexOf(c) === -1);
+                const next = known.concat(added);
+                const changed = next.length !== CC.state.headers.length
+                    || next.some((h, i) => h !== CC.state.headers[i]);
+                if (changed) {
+                    CC.state.headers = next;
+                    CC.renderTableHeaders(next);
+                    fetchCodebook(filename, true);   // background, like afterVersionChange
+                }
+            }
+        } catch (e) { /* the toast below still tells the user to reload */ }
+        await CC.fetchDataPage(1);
+        return changelog;
+    }
+
     function initWrangle() {
         const applyBtn = document.getElementById('wrangleApplyBtn');
         const input = document.getElementById('wrangleInput');
@@ -544,19 +652,40 @@
             input.value = '';
             const pending = appendPending(instruction);   // optimistic chat echo
             let changelog = null;
+            const forUpload = CC.state.uploadedAt;
             try {
                 const { ok, status, data } = await CC.post('/wrangle', {
                     filename: CC.state.filename, instruction,
                 });
+                if (forUpload !== CC.state.uploadedAt) {
+                    // A new dataset (or a re-upload of this one) was loaded
+                    // while the edit ran: its reply describes the old data.
+                    return;
+                }
                 if (ok && data.status === 'success') {
                     if (data.usage) CC.addUsage(data.usage);
                     CC.toast(`Applied: ${data.summary}`, 'success');
                     changelog = data.changelog;
                     await afterVersionChange(data.profile, data.changelog);
+                } else if (status === 409) {
+                    // L1: another tab's wrangle / undo / revert moved the
+                    // active version while this one ran; nothing was saved.
+                    // Show the data as it now is before the user retries.
+                    pending.remove();
+                    if (!input.value) input.value = instruction;
+                    changelog = await reloadDatasetState();
+                    CC.toast('Your edit was not applied: the dataset changed in the meantime '
+                        + '(another tab or window). The data and the cleaning history have been '
+                        + 'reloaded. Check them, then press Apply to try your edit again.', 'error');
                 } else {
                     pending.remove();
                     if (!input.value) input.value = instruction;   // restore for an easy retry
-                    CC.toast(CC.errorMessage(status, data, 'Transformation failed'), 'error');
+                    let msg = CC.errorMessage(status, data, 'Transformation failed');
+                    if (status === 502) {
+                        // A malformed plan from the model: worth a rephrase.
+                        msg += ' The model returned an unusable plan; try rephrasing the instruction.';
+                    }
+                    CC.toast(msg, 'error');
                 }
             } catch (e) {
                 pending.remove();
@@ -566,7 +695,9 @@
                 pending.remove();
                 setVersionBusy(false);
                 applyBtn.innerHTML = 'Apply';
-                if (changelog) renderChangelog(changelog);     // re-derive undo/redo state
+                if (forUpload !== CC.state.uploadedAt) {
+                    // The new upload already rendered its own v1 changelog.
+                } else if (changelog) renderChangelog(changelog);     // re-derive undo/redo state
                 else restoreVersionButtons();
             }
         }
@@ -624,19 +755,53 @@
     }
 
     // --- codebook viewer tab (empty state <-> loaded document) --------------------------
-    function showCodebookDocument(url) {
+    /** Decode a local text file like the server does (D1-8/D1-10): UTF-8
+     *  first, then Windows-1252, so a cp1252 codebook does not preview as
+     *  replacement characters. */
+    async function readText(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, ''); }
+        catch (e) { return new TextDecoder('windows-1252').decode(bytes); }
+    }
+
+    /** Show the attached document. The server keeps a .txt codebook as text
+     *  (S1-B contract 6), so it is decided by the STORED name: a PDF goes in
+     *  the frame as a typed blob, a TXT is rendered as plain text. A text
+     *  blob in the frame would be sniffed and run at the app's origin. */
+    async function showCodebookDocument(file, storedName) {
         const frame = document.getElementById('pdfViewerFrame');
+        const text = document.getElementById('codebookTextView');
         const empty = document.getElementById('codebookEmptyState');
         const replace = document.getElementById('codebookReplaceBtn');
-        if (frame) { frame.src = url; frame.classList.remove('hidden'); }
+        if (codebookURL) { URL.revokeObjectURL(codebookURL); codebookURL = null; }
+        const isText = /\.txt$/i.test(storedName || file.name || '');
+        if (isText) {
+            if (frame) { frame.src = 'about:blank'; frame.classList.add('hidden'); }
+            if (text) {
+                try { text.textContent = await readText(file); }
+                catch (e) { text.textContent = 'Could not preview this text file.'; }
+                text.classList.remove('hidden');
+            }
+        } else {
+            codebookURL = URL.createObjectURL(new Blob([file], { type: 'application/pdf' }));
+            if (text) { text.textContent = ''; text.classList.add('hidden'); }
+            if (frame) { frame.src = codebookURL; frame.classList.remove('hidden'); }
+        }
+        // The user's own document name (upload_pdf `original_name`), not
+        // the stored ASCII one.
+        const label = 'Uploaded codebook: ' + (file.name || storedName || 'document');
+        if (frame) frame.title = label;
+        if (text) text.setAttribute('aria-label', label);
         if (empty) empty.classList.add('hidden');
         if (replace) replace.classList.remove('hidden');
     }
     function resetCodebookViewer() {
         const frame = document.getElementById('pdfViewerFrame');
+        const text = document.getElementById('codebookTextView');
         const empty = document.getElementById('codebookEmptyState');
         const replace = document.getElementById('codebookReplaceBtn');
         if (frame) { frame.src = 'about:blank'; frame.classList.add('hidden'); }
+        if (text) { text.textContent = ''; text.classList.add('hidden'); }
         if (empty) empty.classList.remove('hidden');
         if (replace) replace.classList.add('hidden');
         if (codebookURL) { URL.revokeObjectURL(codebookURL); codebookURL = null; }

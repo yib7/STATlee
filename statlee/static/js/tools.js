@@ -14,14 +14,19 @@
         }
         const btn = document.getElementById('exportBtn');
         btn.disabled = true;
+        const code = CC.getCode();
         try {
             const res = await fetch('/export', {
                 method: 'POST',
                 headers: CC.headers(),
                 body: JSON.stringify({
                     filename: CC.state.filename,
-                    code: CC.getCode(),
-                    language: document.getElementById('languageSelect').value,
+                    code,
+                    // D1-7: approval is per (language, code). The generated
+                    // script is exported in the language it was approved in,
+                    // even if the selector moved since (as Run does, D4-29).
+                    language: CC.runLanguage ? CC.runLanguage(code)
+                        : document.getElementById('languageSelect').value,
                     history: CC.state.chatHistory,
                     interpretation: CC.state.latestInterpretation,
                     report: CC.state.report,
@@ -34,17 +39,25 @@
                 return;
             }
             const blob = await res.blob();
+            // The server names the archive; fall back to the stored stem.
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const named = /filename="?([^";]+)"?/i.exec(disposition);
             const stem = (CC.state.filename || 'project').replace(/\.[^.]+$/, '');
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `Project_${stem}.zip`;
+            a.download = named ? named[1] : `Project_${stem}.zip`;
             document.body.appendChild(a);
             a.click();
             a.remove();
             // D4-31: revoking synchronously can cancel the download in some
             // browsers before it has started reading the blob.
             setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-            CC.toast('Project archive downloaded.', 'success');
+            // S1-B contract 15: the zip runs as unzipped. The current data
+            // sits next to the script under the name it reads, the original
+            // upload is in data/, cleaning.py replays the cleaning steps.
+            CC.toast('Project archive downloaded. Unzip it and run the script in that folder: '
+                + 'README.txt lists the files, including the original upload in data/ and, '
+                + 'when you cleaned the data, cleaning.py to replay those steps.', 'success');
         } catch (e) {
             CC.toast('Network error during export.', 'error');
         } finally {
@@ -281,7 +294,7 @@
             const when = entry.ts ? new Date(entry.ts).toLocaleString() : '';
             item.innerHTML =
                 `<div class="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">${CC.escapeHtml(entry.prompt || '(no prompt)')}</div>` +
-                `<div class="text-[11px] font-mono text-slate-500 mt-0.5">${CC.escapeHtml(entry.dataset_name || '')} · ${CC.escapeHtml(entry.language || '')} · ${when}${entry.server ? ' · account' : ''}</div>`;
+                `<div class="text-[11px] font-mono text-slate-500 mt-0.5">${CC.escapeHtml(entry.dataset_label || entry.dataset_name || '')} ·${CC.escapeHtml(entry.language || '')} · ${when}${entry.server ? ' · account' : ''}</div>`;
             item.addEventListener('click', () => restoreHistory(entry));
             list.appendChild(item);
         });
@@ -307,7 +320,9 @@
             // D4-10: the report builder and Converse read lastRun; without
             // it the restored results looked present but "Run an analysis
             // first" blocked the report.
-            CC.state.lastRun = { output: entry.output, plots: [], success: true,
+            // Entries recorded since S4 carry the server's verdict (/interpret
+            // `debug`, from the real exit code); older ones are assumed fine.
+            CC.state.lastRun = { output: entry.output, plots: [], success: entry.success !== false,
                 code: entry.code || '', restored: true };
             document.body.classList.remove('cc-no-run');
         }
@@ -315,14 +330,20 @@
             CC.state.latestInterpretation = entry.interpretation;
             document.getElementById('interpretationOutput').innerHTML =
                 CC.renderMarkdown(entry.interpretation);
+            if (CC.setInterpretationTitle) CC.setInterpretationTitle(entry.success === false);
         }
         CC.switchTab('generate');
+        // S1-B contract 11: a script this session did not generate is no
+        // longer refused outright. /run gives it a safety re-check first, so a
+        // restored script runs in a fresh session too (or is refused with a
+        // reason, 403, or "could not check", 503).
         const same = entry.dataset_name && entry.dataset_name === CC.state.filename;
+        const label = entry.dataset_label || entry.dataset_name || 'its dataset';
         CC.toast(same
-            ? 'Past analysis restored. Click Run in sandbox to re-run it on the loaded dataset.'
-            : 'Past analysis restored. To re-run it, load ' +
-              (entry.dataset_name || 'its dataset') + ' first: the server only runs scripts '
-              + 'it generated or re-checked, so a restored script is re-checked when you run it.',
+            ? 'Past analysis restored. Click Run in sandbox to re-run it on the loaded dataset; '
+              + 'a restored script gets a quick safety re-check before it runs.'
+            : 'Past analysis restored. To re-run it, load ' + label + ' first. A restored '
+              + 'script gets a quick safety re-check before it runs.',
             'info');
     }
 
@@ -450,31 +471,69 @@
     // =====================================================================
     // Accounts (7.1) + auth boot
     // =====================================================================
+    /** D4-19: the balance, shown only when billing is switched on (otherwise
+     *  credits mean nothing). Called at sign-in with /check_auth's value and
+     *  by CC.noteCredits whenever a reply carries `credits_remaining`. */
+    CC.showCredits = function () {
+        const credits = document.getElementById('accountCredits');
+        if (!credits) return;
+        const user = CC.state.user;
+        const billing = window.CC_BOOT && window.CC_BOOT.billing;
+        if (user && billing && typeof user.credits === 'number') {
+            credits.textContent = user.credits + ' credits';
+            credits.classList.remove('hidden');
+        } else {
+            credits.classList.add('hidden');
+        }
+    };
+
     function setAccountUI(user) {
         CC.state.user = user;
         const label = document.getElementById('accountLabel');
         const loginItem = document.getElementById('accountLoginItem');
         const logoutItem = document.getElementById('accountLogoutItem');
-        const credits = document.getElementById('accountCredits');
         if (user) {
             label.textContent = user.email;
             label.classList.remove('hidden');
             loginItem.classList.add('hidden');
             logoutItem.classList.remove('hidden');
-            // D4-19: show the balance /check_auth already returns, but only
-            // when billing is switched on (otherwise credits mean nothing).
-            const billing = window.CC_BOOT && window.CC_BOOT.billing;
-            if (credits && billing && typeof user.credits === 'number') {
-                credits.textContent = user.credits + ' credits';
-                credits.classList.remove('hidden');
-            }
         } else {
             label.classList.add('hidden');
             loginItem.classList.remove('hidden');
             logoutItem.classList.add('hidden');
-            if (credits) credits.classList.add('hidden');
         }
+        CC.showCredits();
         if (CC.session) CC.session.armExpiry();
+    }
+
+    /** After /login or a signed-in /register (201). The server has moved this
+     *  browser session's anonymous datasets, history, last run and approvals
+     *  into the account (S1-B contract 16, L2), so the stored filename stays
+     *  valid: keep the workspace instead of reloading it away. */
+    async function afterSignIn() {
+        let user = null;
+        try {
+            const res = await fetch('/check_auth');
+            const data = await CC.readJSON(res);
+            if (res.ok) user = data.user || null;
+        } catch (e) { /* fall back to a reload below */ }
+        if (!user) { window.location.reload(); return; }
+        const modal = document.getElementById('accountModal');
+        if (modal) delete modal.dataset.forced;   // REQUIRE_LOGIN's undismissable gate
+        setAccountUI(user);
+        CC.modal.close('accountModal');
+        document.getElementById('accPassword').value = '';
+        if (CC.state.filename) {
+            // Re-read the table under the account; an error here (the
+            // account already held a dataset of this name, which wins) shows
+            // up as the usual table error instead of silently stale rows.
+            CC.fetchDataPage(1);
+            CC.toast('Signed in as ' + user.email + '. ' + CC.datasetLabel()
+                + ' moved into your account. If the account already had a dataset with that '
+                + 'name, the account copy is kept: upload the file again to replace it.', 'success');
+        } else {
+            CC.toast('Signed in as ' + user.email + '.', 'success');
+        }
     }
 
     /** Status line in the account dialog. kind 'error' (red) or 'info'. */
@@ -516,7 +575,7 @@
         return accAction(async () => {
             accMessage('');
             const { ok, status, data } = await CC.post('/login', accCreds());
-            if (ok) { window.location.reload(); return; }
+            if (ok) { await afterSignIn(); return; }
             accMessage(CC.errorMessage(status, data, 'Sign-in failed'), 'error');
         });
     }
@@ -528,7 +587,7 @@
             // D4-12: only 201 {status:'success'} means "signed in". A 202
             // (verification required / email failed) carries a message the
             // user must read, so no reload.
-            if (ok && data && data.status === 'success') { window.location.reload(); return; }
+            if (ok && data && data.status === 'success') { await afterSignIn(); return; }
             if (ok) {
                 accMessage((data && data.message) ||
                     'Account created. Check your email to confirm it, then sign in.', 'info');

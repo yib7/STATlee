@@ -15,6 +15,7 @@ Set ``STATLEE_SHOTS_DIR`` to also write review screenshots of the workspace
 """
 import json
 import os
+import re
 import threading
 
 import pytest
@@ -565,3 +566,301 @@ def test_workspace_screenshots(browser, e2e_server, fake, scheme, width, height)
         p.screenshot(path=os.path.join(out, f'workspace-results-{tag}.png'), full_page=True)
     finally:
         p.context.close()
+
+
+# ---------------------------------------------------------------------------
+# S4: the frontend against the S1-B backend contract (FIX-S1B.md, 17 changes)
+# ---------------------------------------------------------------------------
+
+def _capture_bodies(page, path):
+    """Record the JSON body of every request to `path`."""
+    bodies = []
+
+    def _on_request(req):
+        if req.url.endswith(path) and req.method == 'POST':
+            try:
+                bodies.append(json.loads(req.post_data or '{}'))
+            except ValueError:
+                pass
+    page.on('request', _on_request)
+    return bodies
+
+
+def test_non_ascii_upload_shows_original_name_and_uses_stored_name(page):
+    # Contract 3: a non-Latin name is stored as upload_<8hex>.csv; the UI must
+    # show the user's name and send the stored one on every later call.
+    pages = _capture_bodies(page, '/data_page')
+    classify = _capture_bodies(page, '/classify_variables')
+    suggest = _capture_bodies(page, '/suggest')
+    upload(page, 'Опрос.csv', CSV_A + '45,50000,B\n')
+    skip_codebook(page)
+    page.wait_for_selector('#suggestionsList button')
+    stored = page.evaluate('() => CC.state.filename')
+    assert re.fullmatch(r'upload_[0-9a-f]{8}\.csv', stored), stored
+    assert page.evaluate('() => CC.state.originalName') == 'Опрос.csv'
+    info = page.locator('#datasetInfo')
+    assert info.is_visible()
+    assert 'Опрос.csv' in info.inner_text()
+    note = page.inner_text('#pipelineChecklist [data-step="load"] .step-note')
+    assert 'Опрос.csv' in note
+    sent = [b.get('filename') for b in pages + classify + suggest]
+    assert sent and all(f == stored for f in sent), sent
+
+
+def test_upload_warnings_are_surfaced(page):
+    # Contract 3: `warnings` (e.g. "only the largest sheet was read").
+    import io
+
+    import pandas as pd
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
+        pd.DataFrame({'note': ['readme']}).to_excel(xw, sheet_name='Notes', index=False)
+        pd.DataFrame({'x': [1, 2, 3], 'y': [4, 5, 6]}).to_excel(xw, sheet_name='Data', index=False)
+    page.set_input_files('#fileInput', files=[{
+        'name': 'book.xlsx',
+        'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'buffer': buf.getvalue()}])
+    wait_codebook_prompt(page)
+    warn = page.locator('#datasetWarnings')
+    assert warn.is_visible()
+    assert '2 sheets' in warn.inner_text()
+
+
+def test_empty_csv_upload_shows_the_422_reason(page):
+    # Contract 4: an empty / ragged CSV is a 422 with a specific message.
+    statuses = []
+    page.on('response', lambda r: statuses.append(r.status) if r.url.endswith('/upload') else None)
+    upload(page, 'empty.csv', '')
+    page.wait_for_selector('.cc-toast.error')
+    text = page.inner_text('.cc-toast.error')
+    assert 422 in statuses
+    assert 'empty.csv' in text and 'empty' in text.lower(), text
+    assert page.get_attribute('#pipelineChecklist [data-step="load"]', 'data-state') == 'failed'
+    assert page.evaluate('() => CC.state.filename') == ''
+
+
+def test_reupload_same_name_says_history_was_reset(page):
+    # Contract 5: re-uploading under the same name replaces it and resets v1.
+    upload(page, 'same.csv', CSV_A + '50,1,A\n')
+    skip_codebook(page)
+    page.fill('#wrangleInput', 'drop missing rows')
+    page.press('#wrangleInput', 'Enter')
+    page.wait_for_selector('#changelogList .wrangle-turn:not(.pending)')
+    upload(page, 'same.csv', CSV_A + '51,2,B\n')
+    page.wait_for_selector('.cc-toast.info >> text=history')
+    skip_codebook(page)
+    assert page.locator('#changelogList .wrangle-turn').count() == 0
+
+
+def test_null_cells_render_a_missing_marker(page):
+    # Contract 8: /data_page sends null for missing / NaN / inf cells.
+    upload(page, 'gaps.csv', 'a,b\n1,\n,2\n3,4\n')
+    skip_codebook(page)
+    page.click('#tabData')
+    page.wait_for_selector('#dataTableBody td')
+    assert page.locator('#dataTableBody td.cell-missing').count() == 2
+    assert 'null' not in page.inner_text('#dataTableBody')
+
+
+def test_txt_codebook_previews_as_text_not_in_the_pdf_frame(page):
+    # Contract 6: a .txt codebook stays .txt; it is shown as text.
+    upload(page, 'cb.csv', CSV_A + '62,1,A\n')
+    wait_codebook_prompt(page)
+    page.set_input_files('#pdfInput', files=[{
+        'name': 'codebook.txt', 'mimeType': 'text/plain',
+        'buffer': 'age: Age in years\nincome: Возраст <b>bold</b>\n'.encode()}])
+    page.wait_for_selector('#codebookTextView:not(.hidden)')
+    assert 'Возраст <b>bold</b>' in page.inner_text('#codebookTextView')
+    assert not page.is_visible('#pdfViewerFrame')
+    src = page.evaluate("() => document.getElementById('pdfViewerFrame').getAttribute('src')")
+    assert src in ('', 'about:blank', None), src
+
+
+def test_suggest_previous_is_capped_at_ten(page):
+    # Contract 9: `previous` is limited to 10 items.
+    bodies = _capture_bodies(page, '/suggest')
+    upload(page, 'sg.csv', CSV_A + '63,1,A\n')
+    skip_codebook(page)
+    page.wait_for_selector('#suggestionsList button')
+    page.evaluate(
+        "() => { CC.state.seenSuggestions = Array.from({length: 15}, (_, i) => 'idea ' + i); }")
+    page.click('#rerollBtn')
+    page.wait_for_function('() => (window.__fetchCalls["/suggest"] || 0) >= 2')
+    page.wait_for_selector('#suggestionsList button')
+    prev = bodies[-1]['previous']
+    assert 0 < len(prev) <= 10, prev
+    assert 'Suggestion 1' in prev            # the ideas on screen are always excluded
+
+
+def test_wrangle_502_malformed_plan_is_explained(page, fake):
+    # Contract 10: a malformed model plan is a 502.
+    upload(page, 'w502.csv', CSV_A + '64,1,A\n')
+    skip_codebook(page)
+    fake.set('wrangle', json.dumps(['not', 'a', 'plan']))
+    page.fill('#wrangleInput', 'drop missing rows')
+    page.press('#wrangleInput', 'Enter')
+    page.wait_for_selector('.cc-toast.error')
+    text = page.inner_text('.cc-toast.error')
+    assert 'rephras' in text.lower(), text
+    assert page.input_value('#wrangleInput') == 'drop missing rows'
+
+
+def test_wrangle_409_reloads_the_changelog_and_tells_the_user(page):
+    # Contract 10: another tab's edit landed first -> 409; reload, then say so.
+    upload(page, 'w409.csv', CSV_A + '65,1,A\n')
+    skip_codebook(page)
+    # Another tab applies a cleaning step this page does not know about.
+    page.evaluate("""async () => {
+        await CC.post('/wrangle', {filename: CC.state.filename, instruction: 'other tab edit'});
+    }""")
+    assert page.locator('#changelogList .wrangle-turn').count() == 0
+    page.context.route('**/wrangle', lambda route: route.fulfill(
+        status=409, content_type='application/json',
+        body=json.dumps({'error': 'The dataset changed while this transformation was '
+                                  'running (another edit, undo or revert landed first). '
+                                  'Reload the data and try again.'})))
+    before = calls(page, '/data_page')
+    page.fill('#wrangleInput', 'my edit')
+    page.press('#wrangleInput', 'Enter')
+    page.wait_for_selector('.cc-toast.error')
+    page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
+    page.wait_for_selector('#changelogList .wrangle-turn')
+    assert 'Dropped rows with missing values' in page.inner_text('#changelogList')
+    page.wait_for_function(f'() => (window.__fetchCalls["/data_page"] || 0) > {before}')
+    assert 'reloaded' in page.inner_text('.cc-toast.error').lower()
+    assert page.input_value('#wrangleInput') == 'my edit'
+
+
+def test_restored_history_runs_in_a_fresh_session(page):
+    # Contract 11: a script restored from history into a new session is
+    # re-checked and runs (no more "Generate code before running" 403).
+    upload(page, 'hist.csv', CSV_A + '66,1,A\n')
+    skip_codebook(page)
+    stored = page.evaluate('() => CC.state.filename')
+    page.evaluate("""(name) => localStorage.setItem('cc_history', JSON.stringify([{
+        prompt: 'old prompt', code: "print('restored run')", language: 'Python',
+        dataset_name: name, output: 'old output', interpretation: 'old interpretation',
+        ts: Date.now() - 1000}]))""", stored)
+    page.click('#historyBtn')
+    page.wait_for_selector('#historyList button')
+    page.click('#historyList button')
+    toast = page.locator('.cc-toast.info').last.inner_text()
+    assert 'safety re-check' in toast, toast
+    assert 'only runs scripts it generated' not in toast
+    page.click('#runBtn')
+    page.wait_for_function(
+        "() => CC.state.lastRun && !CC.state.lastRun.restored"
+        " && !document.getElementById('runBtn').disabled")
+    assert page.evaluate('() => CC.state.lastRun.success') is True
+    assert 'restored run' in page.inner_text('#runOutput')
+    assert page.get_attribute('#pipelineChecklist [data-step="execute"]', 'data-state') == 'done'
+
+
+def test_restored_script_recheck_outage_is_explained(page):
+    # Contract 11: 503 when moderation is unavailable for an unknown script.
+    upload(page, 'hist503.csv', CSV_A + '67,1,A\n')
+    skip_codebook(page)
+    page.evaluate("() => CC.setCode(\"print('pasted')\")")
+    page.locator('#runSection').evaluate("el => el.classList.remove('hidden')")
+    page.context.route('**/run', lambda route: route.fulfill(
+        status=503, content_type='application/json',
+        body=json.dumps({'error': 'Could not verify the edited script. Please try again.'})))
+    page.click('#runBtn')
+    page.wait_for_selector('#pipelineChecklist [data-step="execute"][data-state="failed"]')
+    text = page.inner_text('#runOutput')
+    assert 'safety re-check' in text and 'unchanged' in text, text
+    assert page.locator('#pipelineChecklist .step-retry').count() == 1
+    assert page.locator('#pipelineChecklist .step-fix').count() == 0
+
+
+def test_failed_run_interpretation_is_labelled_a_diagnosis(page, fake):
+    # Contract 13: /interpret's `debug` follows the real exit code.
+    upload(page, 'fail.csv', CSV_A + '68,1,A\n')
+    skip_codebook(page)
+    fake.set('draft', "raise ValueError('boom')")
+    fake.set('validation', "raise ValueError('boom')")
+    generate(page)
+    run_script(page)
+    assert page.inner_text('#interpretationTitle').strip().lower() == 'diagnosis'
+    entry = page.evaluate("() => JSON.parse(localStorage.getItem('cc_history'))[0]")
+    assert entry['success'] is False
+
+
+def test_run_timeout_is_an_executed_failure(page):
+    # L9: a /run timeout is a 500 carrying the sandbox's timeout message. The
+    # script DID run and the outcome is persisted, so it is interpreted.
+    upload(page, 'slow.csv', CSV_A + '69,1,A\n')
+    skip_codebook(page)
+    generate(page)
+    page.context.route('**/run', lambda route: route.fulfill(
+        status=500, content_type='application/json',
+        body=json.dumps({'error': 'Execution timed out after 30 seconds. '
+                                  'Simplify the analysis or reduce the data size.'})))
+    page.click('#runBtn')
+    page.wait_for_selector('#pipelineChecklist [data-step="execute"][data-state="failed"]')
+    assert 'timed out' in page.inner_text('#pipelineChecklist [data-step="execute"] .step-note')
+    page.wait_for_function('() => (window.__fetchCalls["/interpret"] || 0) >= 1')
+    assert page.evaluate('() => !CC.state.lastRun.notExecuted') is True
+
+
+def test_export_sends_the_generated_language_and_describes_the_zip(page):
+    # Contracts 12 + 15: export under the language the script was approved in,
+    # and describe the new zip layout.
+    bodies = _capture_bodies(page, '/export')
+    upload(page, 'exp.csv', CSV_A + '70,1,A\n')
+    skip_codebook(page)
+    generate(page)
+    page.select_option('#languageSelect', 'R')
+    with page.expect_download():
+        page.click('#exportBtn')
+    assert bodies[-1]['language'] == 'Python'
+    page.wait_for_selector('.cc-toast.success')
+    assert 'README.txt' in page.inner_text('.cc-toast.success')
+    title = page.get_attribute('#exportBtn', 'title')
+    assert 'README' in title and 'original' in title
+
+
+def test_sign_in_keeps_the_loaded_dataset(page):
+    # Contract 16: the server adopts the anonymous workspace at sign-in, so the
+    # page keeps its dataset instead of reloading into an empty workspace.
+    upload(page, 'keep.csv', CSV_A + '71,1,A\n')
+    skip_codebook(page)
+    stored = page.evaluate('() => CC.state.filename')
+    page.evaluate('() => { window.__noReload = 1; }')
+    before = calls(page, '/data_page')
+    page.click('#accountBtn')
+    page.wait_for_selector('#accountModal:not(.hidden)')
+    page.fill('#accEmail', f'keeper-{os.getpid()}@example.test')
+    page.fill('#accPassword', 'e2e-test-pass-1')
+    page.click('#accRegisterBtn')
+    page.wait_for_function('() => CC.state.user && CC.state.user.email')
+    page.wait_for_selector('#accountModal', state='hidden')
+    assert page.evaluate('() => window.__noReload') == 1, 'the page reloaded and lost the workspace'
+    assert page.evaluate('() => CC.state.filename') == stored
+    page.wait_for_function(f'() => (window.__fetchCalls["/data_page"] || 0) > {before}')
+    page.wait_for_timeout(300)
+    assert page.locator('.cc-toast.error').count() == 0
+    assert page.locator('#dataTableBody td').count() > 0
+
+
+def test_credits_remaining_refreshes_the_balance(page):
+    # Upcoming LLM-layer field: credit-spending replies may carry
+    # `credits_remaining`; when present it is the balance to show.
+    page.evaluate("""() => { CC_BOOT.billing = true;
+        CC.state.user = {email: 'x@example.test', credits: 50}; }""")
+    page.context.route('**/method_prompt', lambda route: route.fulfill(
+        status=200, content_type='application/json',
+        body=json.dumps({'status': 'success', 'prompt': 'p', 'rationale': 'r',
+                         'credits_remaining': 41})))
+    page.evaluate("() => CC.post('/method_prompt', {})")
+    page.wait_for_function("() => CC.state.user.credits === 41")
+    assert page.text_content('#accountCredits').strip() == '41 credits'
+    page.context.route('**/converse', lambda route: route.fulfill(
+        status=200, content_type='text/event-stream',
+        body='data: {"type": "delta", "text": "hi"}\n\n'
+             'data: {"type": "done", "credits_remaining": 40}\n\n'))
+    page.click('#tabConverse')
+    page.fill('#chatInput', 'question')
+    page.press('#chatInput', 'Enter')
+    page.wait_for_function("() => CC.state.user.credits === 40")
+    assert page.text_content('#accountCredits').strip() == '40 credits'
