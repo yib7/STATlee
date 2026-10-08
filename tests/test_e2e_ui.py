@@ -889,3 +889,44 @@ def test_run_timeout_flag_is_an_executed_failure(page):
     page.wait_for_function('() => (window.__fetchCalls["/interpret"] || 0) >= 1')
     assert page.evaluate('() => CC.state.lastRun.timedOut') is True
     assert page.locator('#pipelineChecklist .step-fix').count() == 0
+
+
+def test_wrangle_409_takes_headers_from_dataset_versions(page):
+    # /dataset_versions now returns the active version's headers, in frame
+    # order, so the 409 recovery needs no one-row /data_page probe.
+    probes = _capture_bodies(page, '/data_page')
+    upload(page, 'w409h.csv', CSV_A + '72,1,A\n')
+    skip_codebook(page)
+    page.evaluate("""async () => {
+        await CC.post('/wrangle', {filename: CC.state.filename, instruction: 'other tab edit'});
+    }""")
+    page.context.route('**/wrangle', lambda route: route.fulfill(
+        status=409, content_type='application/json',
+        body=json.dumps({'error': 'The dataset changed while this transformation was '
+                                  'running. Reload the data and try again.'})))
+    page.fill('#wrangleInput', 'my edit')
+    page.press('#wrangleInput', 'Enter')
+    page.wait_for_selector('.cc-toast.error')
+    page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
+    page.wait_for_selector('#changelogList .wrangle-turn')
+    page.wait_for_timeout(300)
+    assert not any(b.get('per_page') == 1 for b in probes), probes
+
+
+def test_wrangle_409_header_order_follows_the_server(page, fake):
+    upload(page, 'w409o.csv', CSV_A + '73,1,A\n')
+    skip_codebook(page)
+    fake.set('wrangle', json.dumps({'code': "df.insert(0, 'aaa', 1)",
+                                    'summary': 'Added aaa first', 'error': None}))
+    page.evaluate("""async () => {
+        await CC.post('/wrangle', {filename: CC.state.filename, instruction: 'other tab edit'});
+    }""")
+    page.context.route('**/wrangle', lambda route: route.fulfill(
+        status=409, content_type='application/json',
+        body=json.dumps({'error': 'The dataset changed. Reload the data and try again.'})))
+    page.fill('#wrangleInput', 'my edit')
+    page.press('#wrangleInput', 'Enter')
+    page.wait_for_selector('.cc-toast.error')
+    page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
+    page.wait_for_timeout(500)
+    assert page.evaluate('() => CC.state.headers') == ['aaa', 'age', 'income', 'group']

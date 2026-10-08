@@ -797,7 +797,17 @@ def dataset_versions():
     changelog = storage.dataset_changelog(filename)
     if changelog is None:
         return json_error('Unknown dataset.', 404)
-    return jsonify({'status': 'success', 'changelog': changelog})
+    # S5: the active version's columns too, so a client recovering from a
+    # /wrangle 409 learns the current headers without a /data_page probe.
+    try:
+        df, _ = _read_active(filename)
+        profile = datatools.profile_dataframe(df) if df is not None else None
+    except Exception:
+        logger.exception("dataset_versions profile failure")
+        profile = None
+    return jsonify({'status': 'success', 'changelog': changelog,
+                    'headers': profile['headers'] if profile else None,
+                    'profile': profile})
 
 
 @bp.route('/version_control', methods=['POST'])

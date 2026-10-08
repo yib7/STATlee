@@ -572,11 +572,24 @@
         }
     }
 
-    /** Re-read the dataset after a 409 (L1): the cleaning history from
-     *  /dataset_versions, then the table. Neither route returns a profile, so
-     *  the columns are taken from a one-row /data_page probe (its keys are
-     *  the active version's columns); known columns keep their order and new
-     *  ones are appended. Returns the fresh changelog, or null. */
+    /** Adopt `cols` as the table's columns when they differ from the
+     *  current ones, then re-classify in the background. */
+    function adoptHeaders(filename, cols) {
+        const changed = cols.length !== CC.state.headers.length
+            || cols.some((h, i) => h !== CC.state.headers[i]);
+        if (!changed) return;
+        CC.state.headers = cols;
+        CC.renderTableHeaders(cols);
+        fetchCodebook(filename, true);   // background, like afterVersionChange
+    }
+
+    /** Re-read the dataset after a 409 (L1), or after sign-in kept the
+     *  account's copy of this name: the cleaning history and the active
+     *  version's columns from /dataset_versions (S5: it returns `headers` in
+     *  the frame's own order), then the table. A server without `headers`
+     *  gets the old one-row /data_page probe as a fallback: known columns
+     *  keep their order and new ones are appended. Returns the fresh
+     *  changelog, or null. */
     async function reloadDatasetState() {
         const filename = CC.state.filename;
         if (!filename) return null;
@@ -587,25 +600,23 @@
                 changelog = data.changelog;
                 renderChangelog(changelog);
             }
-            const probe = await CC.post('/data_page', { filename, page: 1, per_page: 1, filters: {} });
-            const row = probe.ok && probe.data && Array.isArray(probe.data.data) ? probe.data.data[0] : null;
-            if (row && filename === CC.state.filename) {
-                const cols = Object.keys(row);
-                const known = CC.state.headers.filter(h => cols.indexOf(h) !== -1);
-                const added = cols.filter(c => CC.state.headers.indexOf(c) === -1);
-                const next = known.concat(added);
-                const changed = next.length !== CC.state.headers.length
-                    || next.some((h, i) => h !== CC.state.headers[i]);
-                if (changed) {
-                    CC.state.headers = next;
-                    CC.renderTableHeaders(next);
-                    fetchCodebook(filename, true);   // background, like afterVersionChange
+            if (ok && Array.isArray(data.headers)) {
+                if (filename === CC.state.filename) adoptHeaders(filename, data.headers);
+            } else {
+                const probe = await CC.post('/data_page', { filename, page: 1, per_page: 1, filters: {} });
+                const row = probe.ok && probe.data && Array.isArray(probe.data.data) ? probe.data.data[0] : null;
+                if (row && filename === CC.state.filename) {
+                    const cols = Object.keys(row);
+                    const known = CC.state.headers.filter(h => cols.indexOf(h) !== -1);
+                    const added = cols.filter(c => CC.state.headers.indexOf(c) === -1);
+                    adoptHeaders(filename, known.concat(added));
                 }
             }
-        } catch (e) { /* the toast below still tells the user to reload */ }
+        } catch (e) { /* the caller's toast still tells the user to reload */ }
         await CC.fetchDataPage(1);
         return changelog;
     }
+    CC.reloadDatasetState = reloadDatasetState;
 
     function initWrangle() {
         const applyBtn = document.getElementById('wrangleApplyBtn');
