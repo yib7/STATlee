@@ -23,11 +23,35 @@ from werkzeug.utils import secure_filename
 from .. import codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..usage import usage_breakdown
-from . import json_error, moderation_blocked
+from . import (
+    BACKGROUND_MAX,
+    FILENAME_MAX,
+    HEADER_FIELD_MAX,
+    HEADERS_MAX_COUNT,
+    PREVIOUS_FIELD_MAX,
+    PREVIOUS_MAX_COUNT,
+    clamp,
+    clamp_history,
+    clamp_mapping,
+    clamp_str_list,
+    dict_field,
+    json_error,
+    language_field,
+    list_field,
+    moderation_blocked,
+    register_field_errors,
+    request_json,
+    str_field,
+)
 
 logger = logging.getLogger('statlee.datasets')
 
 bp = Blueprint('datasets', __name__)
+register_field_errors(bp)
+
+
+def _filename(data):
+    return str_field(data, 'filename', FILENAME_MAX)
 
 
 def _cfg():
@@ -320,9 +344,12 @@ def extract_pdf_codebook():
     mode='codebook' (default): formal codebook extraction.
     mode='survey' (5.13): infer a codebook from the questionnaire itself.
     """
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
-    mode = data.get('mode', 'codebook')
+    data = request_json()
+    filename = _filename(data)
+    mode = str_field(data, 'mode', 32, default='codebook')
+    # D1-6: the survey header list is client text going into a paid prompt.
+    headers = clamp_str_list(list_field(data, 'headers'),
+                             HEADERS_MAX_COUNT, HEADER_FIELD_MAX)
     if not filename:
         return json_error('Missing filename')
     filepath = storage.resolve_path(filename)
@@ -333,7 +360,7 @@ def extract_pdf_codebook():
         with open(filepath, 'rb') as f:
             pdf_bytes = f.read()
         if mode == 'survey':
-            prompt = prompts.survey_extract(data.get('headers') or [])
+            prompt = prompts.survey_extract(headers)
         else:
             prompt = prompts.pdf_extract()
 
@@ -358,8 +385,8 @@ def extract_pdf_codebook():
 @bp.route('/data_page', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_data_page)
 def data_page():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
+    data = request_json()
+    filename = _filename(data)
     try:
         page = int(data.get('page', 1))
         per_page = max(1, min(int(data.get('per_page', 100)), 500))
@@ -428,8 +455,8 @@ def data_page():
 @bp.route('/classify_variables', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def classify_variables():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
+    data = request_json()
+    filename = _filename(data)
     if not filename:
         return json_error('Missing filename')
     try:
@@ -461,11 +488,13 @@ def classify_variables():
 @bp.route('/suggest', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def suggest_analysis():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
-    codebook = data.get('codebook', {}) or {}
-    pdf_mapping = data.get('pdf_mapping', {}) or {}
-    previous = data.get('previous') or []   # 4.5 reroll: avoid repeats
+    data = request_json()
+    filename = _filename(data)
+    # D1-6: every field below reaches the paid suggest prompt.
+    codebook = clamp_mapping(dict_field(data, 'codebook'))
+    pdf_mapping = clamp_mapping(dict_field(data, 'pdf_mapping'))
+    previous = clamp_str_list(list_field(data, 'previous'),    # 4.5 reroll
+                              PREVIOUS_MAX_COUNT, PREVIOUS_FIELD_MAX)
 
     if not filename:
         return json_error('Missing filename')
@@ -521,9 +550,11 @@ WRANGLE_HARNESS = textwrap.dedent("""\
 @bp.route('/wrangle', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_run)
 def wrangle():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
-    instruction = (data.get('instruction') or '').strip()
+    data = request_json()
+    filename = _filename(data)
+    # D1-6/D3-1: the instruction is billed twice (moderation + plan) and is
+    # stored in the version manifest, so cap it like the /chat prompt.
+    instruction = str_field(data, 'instruction', BACKGROUND_MAX).strip()
     if not filename or not instruction:
         return json_error('Missing filename or instruction')
 
@@ -557,6 +588,9 @@ def wrangle():
         logger.exception("Wrangle plan generation failed")
         return json_error('Could not generate the transformation.', 500)
 
+    if not isinstance(plan, dict) or not isinstance(plan.get('code') or '', str):
+        logger.warning("Wrangle plan had an unexpected shape: %r", type(plan))
+        return json_error('Could not generate the transformation.', 502)
     if plan.get('error') or not plan.get('code'):
         return json_error(plan.get('error')
                           or 'Could not translate that instruction.', 422)
@@ -631,8 +665,8 @@ def wrangle():
 
 @bp.route('/dataset_versions', methods=['POST'])
 def dataset_versions():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
+    data = request_json()
+    filename = _filename(data)
     if not filename:
         return json_error('Missing filename')
     changelog = storage.dataset_changelog(filename)
@@ -644,8 +678,8 @@ def dataset_versions():
 @bp.route('/version_control', methods=['POST'])
 def version_control():
     """Undo/redo by moving the active-version pointer (5.16)."""
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
+    data = request_json()
+    filename = _filename(data)
     direction = data.get('direction')
     if not filename or direction not in ('undo', 'redo'):
         return json_error("Missing filename or direction ('undo'|'redo')")
@@ -669,8 +703,8 @@ def version_control():
 def revert_dataset():
     """Restore the dataset to its original upload as a new, undo-able version
     (4.6). Distinct from /reset, which wipes the whole workspace."""
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
+    data = request_json()
+    filename = _filename(data)
     if not filename:
         return json_error('Missing filename')
     manifest = storage.revert_to_original(filename)
@@ -695,12 +729,16 @@ def revert_dataset():
 
 @bp.route('/export', methods=['POST'])
 def export_project():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
-    language = data.get('language', 'Python')
-    history = data.get('history') or []
-    interpretation = data.get('interpretation') or ''
-    report_md = data.get('report') or ''
+    data = request_json()
+    filename = _filename(data)
+    language = language_field(data)
+    # Not a prompt (only written into report.md), so the bounds are generous;
+    # clamp_history also drops non-dict turns that used to 500 here.
+    history = clamp_history(data.get('history'), max_turns=1000,
+                            field_max=20_000)
+    interpretation = clamp(data.get('interpretation'), 200_000)
+    report_md = clamp(data.get('report'), 400_000)
+    client_code = str_field(data, 'code')
 
     # Prefer the script that produced the last run over the "most recent
     # approved" one: a /wrangle after an analysis saves its bare transform into
@@ -708,8 +746,10 @@ def export_project():
     # the transform snippet instead of the analysis script (P2-1). Both sources
     # are server-side/trusted; the client `code` is only a last-resort fallback.
     record = storage.last_run_script() or storage.load_approved_script()
-    code = (record or {}).get('code') or data.get('code') or ''
+    code = (record or {}).get('code') or client_code or ''
     language = (record or {}).get('language') or language
+    if not isinstance(language, str):   # legacy store entry from pre-D1-12
+        language = 'Python'
     last_output, plot_paths = storage.last_run_artifacts()
 
     buf = io.BytesIO()
@@ -729,8 +769,8 @@ def export_project():
                  f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']
         if history:
             lines.append('## Analysis requests')
-            lines.extend(f"- {msg.get('text', '')}" for msg in history
-                         if isinstance(msg, dict) and (msg.get('role') or '') == 'user')
+            lines.extend(f"- {msg['text']}" for msg in history
+                         if msg['role'] == 'user')
             lines.append('')
         if last_output:
             lines += ['## Terminal output', '```', last_output, '```', '']

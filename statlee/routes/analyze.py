@@ -11,29 +11,38 @@ import logging
 import os
 
 import pandas as pd
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify
 
 from .. import billing, codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
 from . import (
+    BACKGROUND_MAX,
+    FILENAME_MAX,
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
     clamp,
     clamp_codebook,
     clamp_history,
+    clamp_mapping,
     clamp_plots,
+    dict_field,
     json_error,
+    language_field,
     moderation_blocked,
+    register_field_errors,
+    request_json,
     sse_event,
     sse_stream,
+    str_field,
     strip_code_fences,
 )
 
 logger = logging.getLogger('statlee.analyze')
 
 bp = Blueprint('analyze', __name__)
+register_field_errors(bp)
 
 
 def _cfg():
@@ -53,16 +62,15 @@ def _sum_usage(*usages):
 @bp.route('/chat', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def chat():
-    data = request.get_json(silent=True) or {}
+    data = request_json()
     # P1-7: clamp everything that flows into prompts before any LLM call --
     # unbounded client text here is unmetered input-token spend on the
     # operator's key.
     user_prompt = clamp(data.get('prompt'), FREE_TEXT_MAX)
-    filename = data.get('filename')
-    # 'language' is an enum-ish UI value but still client text interpolated
-    # into the draft and validation prompts; clamp (and stringify) it so a
-    # non-string payload cannot raise inside prompt construction.
-    target_language = clamp(data.get('language'), STYLE_FIELD_MAX) or 'Python'
+    filename = str_field(data, 'filename', FILENAME_MAX)
+    # 'language' selects the interpreter, the static check and the approval
+    # key, so it is validated as an enum (D1-12), not free text.
+    target_language = language_field(data)
     history = clamp_history(data.get('history', []))
     codebook = clamp_codebook(data.get('codebook', {}) or {})
     current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
@@ -273,10 +281,12 @@ def chat():
 @bp.route('/run', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_run)
 def run_code():
-    data = request.get_json(silent=True) or {}
-    code = data.get('code')
-    language = data.get('language') or 'Python'
-    filename = data.get('filename')
+    data = request_json()
+    # D1-12: validate every field BEFORE anything is persisted, so a bad
+    # language can no longer be saved into the approved store and break /export.
+    code = str_field(data, 'code')
+    language = language_field(data)
+    filename = str_field(data, 'filename', FILENAME_MAX)
 
     if not code:
         return json_error('No code provided.')
@@ -351,7 +361,7 @@ def run_code():
 @bp.route('/interpret', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def interpret_results():
-    data = request.get_json(silent=True) or {}
+    data = request_json()
     service = llm.get_service()
 
     # P2-7: prefer the server-persisted last-run artifacts over the client's
@@ -459,12 +469,15 @@ def interpret_results():
 @bp.route('/method_prompt', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def method_prompt():
-    data = request.get_json(silent=True) or {}
-    filename = data.get('filename')
-    method = data.get('method') or {}
-    codebook = data.get('codebook', {}) or {}
-    pdf_mapping = data.get('pdf_mapping', {}) or {}
-    if not filename or not method.get('name'):
+    data = request_json()
+    filename = str_field(data, 'filename', FILENAME_MAX)
+    method = dict_field(data, 'method')
+    # D1-6: every field below reaches the paid method_prompt call.
+    method_name = clamp(method.get('name'), STYLE_FIELD_MAX).strip()
+    method_desc = clamp(method.get('description'), BACKGROUND_MAX)
+    codebook = clamp_mapping(dict_field(data, 'codebook'))
+    pdf_mapping = clamp_mapping(dict_field(data, 'pdf_mapping'))
+    if not filename or not method_name:
         return json_error('Missing filename or method')
 
     filepath = storage.active_dataset_path(filename)
@@ -475,10 +488,11 @@ def method_prompt():
         context = datatools.build_column_context(df, codebook, pdf_mapping)
         result = llm.get_service().generate(
             'flash',
-            prompts.method_prompt(method['name'],
-                                  method.get('description', ''), context),
+            prompts.method_prompt(method_name, method_desc, context),
             temperature=0.4, json_mode=True)
         payload = json.loads(result.text)
+        if not isinstance(payload, dict):
+            raise ValueError('method_prompt reply is not an object')
         return jsonify({'status': 'success',
                         'prompt': payload.get('prompt', ''),
                         'rationale': payload.get('rationale', ''),

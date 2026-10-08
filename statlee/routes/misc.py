@@ -16,13 +16,17 @@ from . import (
     clamp_history,
     json_error,
     moderation_blocked,
+    register_field_errors,
+    request_json,
     sse_event,
     sse_stream,
+    str_field,
 )
 
 logger = logging.getLogger('statlee.misc')
 
 bp = Blueprint('misc', __name__)
+register_field_errors(bp)
 
 _START_TIME = time.time()
 
@@ -78,8 +82,9 @@ def metrics():
 @bp.route('/report_issue', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def report_issue():
-    data = request.get_json(silent=True) or {}
-    description = (data.get('description') or '').strip()
+    data = request_json()
+    # D1-12: non-string fields are a 400, not a 500 from slicing a dict.
+    description = str_field(data, 'description', 10000).strip()
     if not description:
         return json_error('Please describe the issue.')
 
@@ -87,10 +92,10 @@ def report_issue():
     u = current_user_or_none()
     report = IssueReport(
         user_id=(u.id if u else None),
-        description=description[:10000],
-        code=(data.get('code') or '')[:20000],
-        output=(data.get('output') or '')[:20000],
-        console_errors=(data.get('console_errors') or '')[:10000],
+        description=description,
+        code=str_field(data, 'code', 20000),
+        output=str_field(data, 'output', 20000),
+        console_errors=str_field(data, 'console_errors', 10000),
         user_agent=(request.headers.get('User-Agent') or '')[:512],
     )
     db.session.add(report)
@@ -152,7 +157,7 @@ def _moderate_free_text(service, text):
 @bp.route('/generate_report', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def generate_report():
-    data = request.get_json(silent=True) or {}
+    data = request_json()
     revision = data.get('revision')
     if revision is not None and not isinstance(revision, dict):
         return json_error("'revision' must be an object.")

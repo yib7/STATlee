@@ -116,6 +116,114 @@ def clamp_codebook(codebook, limit=CODEBOOK_MAX):
     return kept
 
 
+MAPPING_KEY_MAX = 200       # column-name keys in codebook / pdf_mapping
+MAPPING_VALUE_MAX = 2000    # one column's classification / description
+FILENAME_MAX = 255
+HEADERS_MAX_COUNT = 2000    # survey-mode header list (wide survey files)
+HEADER_FIELD_MAX = 200
+PREVIOUS_MAX_COUNT = 10     # /suggest reroll: suggestions already shown
+PREVIOUS_FIELD_MAX = 500
+
+
+def clamp_mapping(mapping, limit=CODEBOOK_MAX, key_max=MAPPING_KEY_MAX,
+                  value_max=MAPPING_VALUE_MAX):
+    """Bound a {column: text} mapping per entry AND in total.
+
+    ``clamp_codebook`` alone drops an oversized entry but lets a merely large
+    value through whole; this clamps each key/value first (values become
+    strings), then applies the total budget."""
+    if not isinstance(mapping, dict):
+        return {}
+    per_entry = {clamp(k, key_max): clamp(v, value_max)
+                 for k, v in mapping.items()}
+    return clamp_codebook(per_entry, limit)
+
+
+def clamp_str_list(items, max_count, field_max):
+    """Keep at most ``max_count`` scalar entries, each clamped to ``field_max``
+    characters. Non-scalar entries are dropped."""
+    if not isinstance(items, list):
+        return []
+    kept = []
+    for item in items:
+        if isinstance(item, (str, int, float)) and not isinstance(item, bool):
+            kept.append(clamp(item, field_max))
+            if len(kept) >= max_count:
+                break
+    return kept
+
+
+# ---------------------------------------------------------------------------
+# D1-12: request-shape validation. A wrong JSON type is a 400, not a 500 from
+# deep inside a route.
+# ---------------------------------------------------------------------------
+
+class FieldError(ValueError):
+    """A request field has the wrong JSON type. Blueprints render it as 400
+    through ``register_field_errors``."""
+
+
+def register_field_errors(bp):
+    bp.register_error_handler(FieldError, lambda e: json_error(str(e), 400))
+
+
+def request_json():
+    """The JSON body as a dict; a missing, malformed or non-object body (a JSON
+    array or scalar) is treated as an empty object."""
+    from flask import request
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
+def str_field(data, key, limit=None, default=''):
+    """A string field. Missing/null -> ``default``; any other non-string is a
+    ``FieldError``. Clamped to ``limit`` characters when given."""
+    value = data.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise FieldError(f"'{key}' must be a string.")
+    return value[:limit] if limit else value
+
+
+def dict_field(data, key):
+    """An object field. Falsy (null, '', [], {}) -> ``{}``; any other non-dict
+    is a ``FieldError``."""
+    value = data.get(key)
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise FieldError(f"'{key}' must be an object.")
+    return value
+
+
+def list_field(data, key):
+    """A list field. Falsy -> ``[]``; any other non-list is a ``FieldError``."""
+    value = data.get(key)
+    if not value:
+        return []
+    if not isinstance(value, list):
+        raise FieldError(f"'{key}' must be a list.")
+    return value
+
+
+LANGUAGES = {'python': 'Python', 'r': 'R'}
+
+
+def language_field(data, key='language', default='Python'):
+    """The analysis language, canonicalised to ``'Python'`` or ``'R'``.
+
+    Missing/empty -> ``default``. Anything else is a ``FieldError``: the value
+    selects the interpreter, the static check and the approval key, so it is an
+    enum, not free text (D1-7/D1-12)."""
+    value = data.get(key)
+    if value is None or value == '':
+        return default
+    if not isinstance(value, str) or value.strip().lower() not in LANGUAGES:
+        raise FieldError(f"'{key}' must be 'Python' or 'R'.")
+    return LANGUAGES[value.strip().lower()]
+
+
 def clamp_plots(plots, max_count=PLOTS_MAX_COUNT, max_chars=PLOT_B64_MAX):
     """Cap plot attachments: at most ``max_count`` base64 strings, each within
     ``max_chars``. Oversized or non-string entries are dropped, not truncated,

@@ -699,7 +699,8 @@ def test_generate_report_prompt_failure_keeps_credits(client, app, fake_llm,
 def test_chat_nonstring_language_debits_exactly_once(client, app, fake_llm):
     """Same class as the report repro: a non-string 'language' used to raise
     in prompts.draft (language.lower()) AFTER the /chat debit, outside the
-    refund path. Clamping stringifies it, so the request just works."""
+    refund path. 'language' is now validated as an enum up front (D1-12), so
+    the request is a 400 before any debit and no credit moves."""
     from conftest import sse_events
 
     from statlee.extensions import db
@@ -715,13 +716,12 @@ def test_chat_nonstring_language_debits_exactly_once(client, app, fake_llm):
         resp = post_json(client, '/chat',
                          {'filename': 'test.csv', 'prompt': 'summarize',
                           'pro': True, 'language': 5})
-        assert resp.status_code == 200
-        events = sse_events(resp)
-        assert any(e.get('type') == 'done' for e in events)
+        assert resp.status_code == 400
+        assert not sse_events(resp)
 
         with app.app_context():
             reloaded = db.session.get(User, user_id)
-            assert reloaded.credits == 4   # one real debit, nothing leaked
+            assert reloaded.credits == 5   # rejected before the debit
     finally:
         cfg.billing_enabled = False
         billing.reset_spend()

@@ -6,7 +6,7 @@ formatting rules inlined — the old second "formatting" LLM call is gone.
 """
 import logging
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, current_app
 
 from .. import llm, prompts
 from ..extensions import limiter
@@ -17,6 +17,7 @@ from . import (
     clamp_history,
     json_error,
     moderation_blocked,
+    request_json,
     sse_event,
     sse_stream,
 )
@@ -33,7 +34,7 @@ def _cfg():
 @bp.route('/converse', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def converse():
-    data = request.get_json(silent=True) or {}
+    data = request_json()
     # P1-7: clamp every client field that flows into the prompt (including
     # the moderated message) so a single request cannot smuggle megabytes of
     # input tokens onto the operator's key.
