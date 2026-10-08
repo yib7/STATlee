@@ -112,6 +112,9 @@ def test_legacy_create_all_db_is_stamped_and_data_survives(
         for col in ('credits_month', 'token_issued_at',
                     'password_reset_token', 'reset_token_issued_at'):
             db.session.execute(text(f'ALTER TABLE users DROP COLUMN {col}'))
+        for col in ('run_id', 'dataset_version', 'model'):   # SP1 workbook link
+            db.session.execute(
+                text(f'ALTER TABLE analysis_runs DROP COLUMN {col}'))
         db.session.commit()
         assert 'alembic_version' not in sa_inspect(db.engine).get_table_names()
         db.engine.dispose()

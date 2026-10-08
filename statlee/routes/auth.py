@@ -25,6 +25,7 @@ from flask_login import login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .. import storage
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..models import AnalysisRun, User
@@ -453,7 +454,41 @@ def history_list():
         .filter_by(user_id=u.id)
         .order_by(AnalysisRun.created_at.desc())
         .limit(50)).scalars().all()
-    return jsonify({'runs': [r.to_dict() for r in runs], 'persisted': True})
+    run_times = _workbook_times(runs)
+    return jsonify({'runs': [_history_row(r, run_times) for r in runs],
+                    'persisted': True})
+
+
+# A history entry is posted after its run; a run created later than that
+# (allowed slack for clock rounding) is a different run that reused the id
+# after a workspace reset, not the one this entry describes.
+_RUN_LINK_SLACK_SECONDS = 5
+
+
+def _workbook_times(rows):
+    """``{run_id: created epoch}`` for the caller's runs the rows link to."""
+    linked = {r.run_id for r in rows if r.run_id}
+    if not linked:
+        return {}
+    present = set(storage.run_ids()) & linked
+    return {rid: storage.run_time(rid) for rid in present}
+
+
+def _history_row(row, run_times):
+    """``to_dict`` plus ``run_available`` (SP1): True while the linked run
+    is still in the caller's workbook, so the client can restore its output,
+    plots and methods from ``GET /runs/<run_id>``; otherwise the restore is
+    text-only from this row."""
+    out = row.to_dict()
+    available = False
+    run_ts = run_times.get(row.run_id) if row.run_id else None
+    if run_ts is not None and row.created_at is not None:
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        available = run_ts <= created.timestamp() + _RUN_LINK_SLACK_SECONDS
+    out['run_available'] = available
+    return out
 
 
 @bp.route('/history', methods=['POST'])
@@ -463,7 +498,21 @@ def history_save():
         # Anonymous sessions keep history client-side only ("data not stored").
         return jsonify({'saved': False})
     data = request.get_json(silent=True) or {}
+    # SP1: link the entry to a workbook run. Only the id comes from the
+    # client, and only one of the caller's own runs is accepted; the dataset
+    # version and model are read from the server's run record.
+    run_id = data.get('run_id')
+    meta = storage.run_meta(run_id) if storage.valid_run_id(run_id) else None
+    if meta is None:
+        run_id = None
+        meta = {}
+    version = meta.get('dataset_version')
+    model = meta.get('model')
     run = AnalysisRun(
+        run_id=run_id,
+        dataset_version=(version if isinstance(version, int)
+                         and not isinstance(version, bool) else None),
+        model=model[:64] if isinstance(model, str) else None,
         user_id=u.id,
         dataset_name=(data.get('dataset_name') or '')[:255],
         language=(data.get('language') or 'Python')[:16],

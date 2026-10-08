@@ -86,9 +86,18 @@ class AnalysisRun(db.Model):
     output = db.Column(db.Text)
     interpretation = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    # Session workbook link (SP1): the run this entry came from, filled by the
+    # history writer from the server's run record. While the run dir still
+    # exists, a restore can bring back its output, plots and methods.
+    run_id = db.Column(db.String(16), nullable=True)
+    dataset_version = db.Column(db.Integer, nullable=True)
+    model = db.Column(db.String(64), nullable=True)
 
     def to_dict(self):
         return {
+            'run_id': self.run_id,
+            'dataset_version': self.dataset_version,
+            'model': self.model,
             'id': self.id,
             'dataset_name': self.dataset_name,
             'language': self.language,
