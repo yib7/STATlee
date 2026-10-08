@@ -9,7 +9,7 @@
 import json
 
 import pandas as pd
-from conftest import post_json, sse_events, upload_csv
+from conftest import csrf_token, post_json, sse_events, upload_csv
 
 from statlee import datatools
 
@@ -73,10 +73,13 @@ def test_wrangle_metadata_sees_full_frame(client, fake_llm):
 
 def test_feature_selection_sees_columns_past_80_with_codebook(client, fake_llm):
     upload_csv(client, _wide_csv())
-    codebook = {f'c{i}': 'Continuous' for i in range(80)}
+    token = csrf_token(client)
+    assert client.put('/codebook', json={
+        'filename': 'test.csv',
+        'codebook': {f'c{i}': {'type': 'continuous'} for i in range(80)}},
+        headers={'X-CSRF-Token': token}).status_code == 200
     sse_events(post_json(client, '/chat', {'filename': 'test.csv',
-                                           'prompt': 'model the last column',
-                                           'codebook': codebook}))
+                                           'prompt': 'model the last column'}))
     ctx = _prompt(fake_llm, 'feature_selection')[0]
     assert 'c95' in ctx
     assert 'c3' in ctx and 'Continuous' in ctx

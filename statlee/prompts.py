@@ -140,6 +140,38 @@ def feature_selection(column_context, user_prompt):
     """
 
 
+_CODEBOOK_RULES = """Codebook fields: `type` is the measurement level;
+    `label` says what the column measures; `value_labels` map codes to
+    category names (use them to label tables and plots); `missing_codes` are
+    codes that mean "no answer": treat them as missing (NaN in pandas, NA in
+    R) before any analysis; a column with role `id` or `ignore` must never be
+    used as a model variable; role `weight` marks the survey weight column
+    (name it in the output, and apply it when the request asks for weighted
+    estimates); columns sharing a `scale_group` are items of one multi-item
+    scale."""
+
+
+def _codebook_roles(codebook):
+    """The codebook's weight column(s), columns excluded from modelling and
+    scale groups, as a delimited block (column names are data)."""
+    from .codebook import role_summary
+    summary = role_summary(codebook if isinstance(codebook, dict) else {})
+    lines = []
+    if summary['weight']:
+        lines.append('weight: ' + ', '.join(summary['weight']))
+    if summary['exclude']:
+        lines.append('exclude from modelling: '
+                     + ', '.join(summary['exclude']))
+    if summary['scale_groups']:
+        lines.append('scale groups:')
+        lines.extend(f'  {group}: {", ".join(cols)}'
+                     for group, cols in summary['scale_groups'].items())
+    if not lines:
+        return ''
+    return ('\n    CODEBOOK ROLES:\n    '
+            + untrusted('CODEBOOK ROLES', '\n'.join(lines)))
+
+
 def draft(filename, headers, codebook, language, metadata_summary,
           history, user_prompt, current_code=None):
     """Draft-stage prompt. When ``current_code`` is given, the model is
@@ -154,9 +186,10 @@ def draft(filename, headers, codebook, language, metadata_summary,
     COLUMNS:
     {untrusted('COLUMNS', ', '.join(map(str, headers)))}
 
-    INTELLIGENT CODEBOOK CLASSIFICATION:
+    CODEBOOK (the researcher's variable definitions):
     {untrusted('CODEBOOK', json.dumps(codebook))}
     *CRITICAL*: Use this codebook to ensure statistical validity. Do not run continuous models (like OLS) on Nominal data. Select the appropriate tests based on variable type.
+    {_CODEBOOK_RULES}{_codebook_roles(codebook)}
 
     COLUMN METADATA (dtype, uniques, missingness, numeric ranges — use this to
     handle missing values and choose sensible encodings):

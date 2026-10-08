@@ -13,6 +13,7 @@ import re
 from flask import Blueprint, current_app, jsonify
 
 from .. import billing, codecheck, datatools, llm, prompts, sandbox, storage
+from .. import codebook as codebook_store
 from ..extensions import limiter
 from ..identity import current_user_or_none
 from ..usage import usage_breakdown
@@ -44,7 +45,12 @@ from . import (
     str_field,
     strip_code_fences,
 )
-from .datasets import read_active_frame, read_version_frame
+from .datasets import (
+    ignore_client_codebook,
+    read_active_frame,
+    read_version_frame,
+    server_codebook_context,
+)
 
 logger = logging.getLogger('statlee.analyze')
 
@@ -91,7 +97,10 @@ def chat():
     # key, so it is validated as an enum (D1-12), not free text.
     target_language = language_field(data)
     history = clamp_history(data.get('history', []))
-    codebook = clamp_codebook(data.get('codebook', {}) or {})
+    # SP2: the codebook comes from the server (below); a client-sent one is
+    # accepted for old clients but never reaches a prompt.
+    if data.get('codebook'):
+        logger.debug("/chat: ignoring the client-sent 'codebook' field")
     current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
     pro_mode = bool(data.get('pro'))  # "Pro mode": code-gen on the bigger model
     draft_role = 'pro_max' if pro_mode else 'draft'
@@ -123,6 +132,8 @@ def chat():
     if df is None:
         return json_error('Invalid filename')
     headers = df.columns.tolist()
+    entries = codebook_store.merged(filename, [str(h) for h in headers]) or {}
+    codebook = clamp_codebook(codebook_store.prompt_dict(entries))
 
     # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
     # request is allowed for this user. No-op unless billing is enabled. Runs
@@ -146,8 +157,10 @@ def chat():
         # D1-5/D3-6: list EVERY column, annotated by its codebook entry where
         # one exists. Sending only the codebook (when present) hid every column
         # the user had not classified, so selection could never pick them.
+        summaries = {h: codebook_store.summary_line(entries[h])
+                     for h in map(str, headers) if h in entries}
         column_context = '\n'.join(
-            f'- {h}: {clamp(codebook[h], 200)}' if h in codebook else f'- {h}'
+            f'- {h}: {summaries[h]}' if summaries.get(h) else f'- {h}'
             for h in map(str, headers))
         try:
             sel = service.generate(
@@ -488,34 +501,40 @@ INTERPRET_CONTEXT_MAX = 12000   # chars of column context in that prompt
 
 
 def _codebook_parts(codebook):
-    """Split a /chat codebook (``{col: 'Nominal'}`` or the client's merged
-    ``{col: {type, description}}``) into levels and descriptions."""
+    """Split an approval's stored codebook (``{col: 'Nominal'}``, an older
+    client's ``{col: {type, description}}`` or the server's compact
+    ``{col: {type, label, ...}}``) into levels and descriptions."""
     levels, descriptions = {}, {}
     for col, value in (codebook or {}).items():
         if isinstance(value, dict):
             if isinstance(value.get('type'), str):
                 levels[col] = value['type']
-            if isinstance(value.get('description'), str):
-                descriptions[col] = value['description']
+            text = value.get('description') or value.get('label')
+            if isinstance(text, str) and text:
+                descriptions[col] = text
         elif isinstance(value, str):
             levels[col] = value
     return levels, descriptions
 
 
 def _column_context(df, filename, columns, codebook):
-    """The analysed columns described for the interpreter: measurement level
-    and description from the generation's codebook, native value labels from
-    the dataset's metadata sidecar."""
+    """The analysed columns described for the interpreter: measurement level,
+    labels, value labels, missing codes, roles and scale groups from the
+    dataset's server codebook (SP2, so a correction made after the run is
+    used). Only a dataset with no server codebook falls back to the codebook
+    stored with the generation's approval."""
     columns = [c for c in (columns or []) if c in df.columns]
     if not columns:
         return None
-    levels, descriptions = _codebook_parts(codebook)
-    meta = storage.load_dataset_meta(filename) or {}
-    labels = meta.get('labels') if isinstance(meta.get('labels'), dict) else {}
-    merged = {**{str(k): str(v) for k, v in labels.items() if v},
-              **descriptions}
+    shown = columns[:INTERPRET_COLUMNS_MAX]
+    layers = codebook_store.load_layers(filename)
+    if codebook_store.has_entries(layers):
+        levels, descriptions = codebook_store.prompt_levels_and_descriptions(
+            codebook_store.merge(layers, [str(c) for c in shown]))
+    else:
+        levels, descriptions = _codebook_parts(codebook)
     return clamp(datatools.build_column_context(
-        df[columns[:INTERPRET_COLUMNS_MAX]], levels, merged),
+        df[shown], clamp_mapping(levels), clamp_mapping(descriptions)),
         INTERPRET_CONTEXT_MAX)
 
 
@@ -757,8 +776,7 @@ def method_prompt():
     # D1-6: every field below reaches the paid method_prompt call.
     method_name = clamp(method.get('name'), STYLE_FIELD_MAX).strip()
     method_desc = clamp(method.get('description'), BACKGROUND_MAX)
-    codebook = clamp_mapping(dict_field(data, 'codebook'))
-    pdf_mapping = clamp_mapping(dict_field(data, 'pdf_mapping'))
+    ignore_client_codebook(data, '/method_prompt')
     if not filename or not method_name:
         return json_error('Missing filename or method')
 
@@ -770,7 +788,8 @@ def method_prompt():
     if df is None:
         return json_error('Invalid filename')
     try:
-        context = datatools.build_column_context(df, codebook, pdf_mapping)
+        codebook, descriptions = server_codebook_context(filename, df)
+        context = datatools.build_column_context(df, codebook, descriptions)
         result = llm.get_service().generate(
             'flash',
             prompts.method_prompt(method_name, method_desc, context),

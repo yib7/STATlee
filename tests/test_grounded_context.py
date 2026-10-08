@@ -143,14 +143,16 @@ def test_interpret_prompt_has_question_columns_labels_and_n(
         app, client, fake_llm):
     upload_csv(client, SAMPLE_CSV)
     ident = _identity(client)
-    with app.app_context():
-        meta = storage.load_dataset_meta('test.csv', identity=ident) or {}
-        meta['labels'] = {'group': 'Treatment arm (A=control, B=drug)'}
-        storage.save_dataset_meta('test.csv', meta, identity=ident)
+    token = csrf_token(client)
+    # SP2: labels come from the server codebook (here: user edits).
+    assert client.put('/codebook', json={'filename': 'test.csv', 'codebook': {
+        'income': {'type': 'continuous'},
+        'group': {'type': 'nominal',
+                  'label': 'Treatment arm (A=control, B=drug)'}}},
+        headers={'X-CSRF-Token': token}).status_code == 200
     fake_llm.set('validation', "print('GROUNDED')")
     events = sse_events(post_json(client, '/chat', {
-        'filename': 'test.csv', 'prompt': 'Does income differ by group?',
-        'codebook': {'income': 'Continuous', 'group': 'Nominal'}}))
+        'filename': 'test.csv', 'prompt': 'Does income differ by group?'}))
     code = next(e for e in events if e.get('type') == 'done')['code']
     with app.app_context():
         storage.save_last_run('t = 2.1, p = 0.04', [], script=code,
