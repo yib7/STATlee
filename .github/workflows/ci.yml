@@ -82,6 +82,7 @@ jobs:
         env:
           APP_ENV: testing
         run: |
+          set -o pipefail
           pytest -rs tests/test_sandbox.py | tee sandbox.log
           if grep -q "Docker daemon unreachable" sandbox.log; then
             echo "::error::the real-Docker sandbox tests were skipped"
@@ -131,6 +132,7 @@ jobs:
           APP_ENV: testing
           STATLEE_TEST_POSTGRES_URL: postgresql+psycopg://statlee:statlee-ci@localhost:5432/statlee
         run: |
+          set -o pipefail
           pytest -rs tests/test_postgres_migrations.py | tee pg.log
           if grep -q "STATLEE_TEST_POSTGRES_URL not set" pg.log; then
             echo "::error::the PostgreSQL migration test was skipped"
