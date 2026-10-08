@@ -722,8 +722,12 @@ def wrangle():
 
     try:
         new_df = pd.read_csv(io.BytesIO(run.files['__wrangled.csv']))
+        # D6: keep the transform on the version entry (export replays it).
+        # L1: refuse to commit when a concurrent wrangle/undo moved the active
+        # version while this one ran, rather than discarding that edit.
         storage.add_dataset_version(
-            filename, new_df, instruction, summary=plan.get('summary'))
+            filename, new_df, instruction, summary=plan.get('summary'),
+            code=plan['code'], base_file=dataset_basename)
         clear_caches()
         return jsonify({
             'status': 'success',
@@ -733,6 +737,11 @@ def wrangle():
             'usage': usage_breakdown(mod.usage, result.usage,
                                      code_verdict.usage),
         })
+    except storage.VersionConflict:
+        return json_error(
+            'The dataset changed while this transformation was running '
+            '(another edit, undo or revert landed first). Reload the data '
+            'and try again.', 409)
     except Exception:
         logger.exception("Failed to persist wrangled version")
         return json_error('Could not save the transformed dataset.', 500)
@@ -802,6 +811,137 @@ def revert_dataset():
 # Project export (5.3) and reset (4.6)
 # ---------------------------------------------------------------------------
 
+def _export_script(client_code, client_language):
+    """Pick the analysis script to bundle (D4-9).
+
+    Returns ``(code, language, source, editor_differs)``. Order:
+
+    1. the editor's code, when it was reviewed in this session as an analysis
+       script (/chat or /run approved it) -- it is what the user is looking at;
+    2. otherwise the NEWER of the script that produced the last run and the
+       last generated analysis script, so a script generated after a run is not
+       shadowed by the older run (and vice versa);
+    3. only with neither on record, the editor text as-is.
+
+    A /wrangle transform is never bundled as the analysis script: it is a
+    fragment that expects a ``df`` in scope (P2-1); cleaning.py replays those.
+    """
+    if client_code:
+        entry = storage.approved_entry(client_code, client_language)
+        if entry and entry.get('source') != 'wrangle':
+            return client_code, client_language, 'reviewed editor script', False
+
+    candidates = []
+    run = storage.last_run_script()
+    if run:
+        candidates.append((storage.last_run_time() or 0, run, 'last run'))
+    generated = storage.load_approved_script(exclude_sources=('wrangle',))
+    if generated:
+        candidates.append((generated.get('ts') or 0, generated,
+                           'last generated script'))
+    if candidates:
+        _, record, source = max(candidates, key=lambda c: c[0])
+        language = record.get('language')
+        if not isinstance(language, str):   # legacy store entry (pre-D1-12)
+            language = 'Python'
+        code = record['code']
+        differs = bool(client_code) and client_code.strip() != code.strip()
+        return code, language, source, differs
+
+    if client_code:
+        entry = storage.approved_entry(client_code, client_language)
+        if not (entry and entry.get('source') == 'wrangle'):
+            return (client_code, client_language,
+                    'editor (not run or reviewed in this session)', False)
+    return '', client_language, None, False
+
+
+def _comment(text):
+    return ' '.join(str(text or '').split())[:300]
+
+
+def _cleaning_script(lineage, data_name):
+    """cleaning.py (D6): rebuild the analysed dataset from the original upload
+    by replaying each recorded /wrangle transform in order, the same way the
+    in-app harness ran them."""
+    lines = [
+        '"""Rebuilds the dataset the analysis used from the original upload by',
+        'replaying the data-cleaning steps recorded in STATlee, in order.',
+        '',
+        f'Run from this folder:  python cleaning.py   (writes {data_name})',
+        '"""',
+        'import numpy as np  # noqa: F401  (available to every step, as in-app)',
+        'import pandas as pd',
+        '',
+        f'df = pd.read_csv({("data/original_" + data_name)!r})',
+        '',
+    ]
+    for n, step in enumerate(lineage['steps'], start=1):
+        lines.append(f'# Step {n} (version {step["v"]}): '
+                     f'{_comment(step.get("summary") or step.get("instruction"))}')
+        lines.append(step['code'].rstrip())
+        lines.append("if not isinstance(df, pd.DataFrame):")
+        lines.append(f"    raise TypeError('Step {n} must leave a DataFrame in df.')")
+        lines.append('')
+    lines.append(f'df.to_csv({data_name!r}, index=False)')
+    lines.append(f'print(f"Wrote {data_name}: {{len(df)}} rows, '
+                 f'{{len(df.columns)}} columns")')
+    return '\n'.join(lines) + '\n'
+
+
+def _export_readme(stem, script_name, script_source, editor_differs,
+                   data_name, lineage, has_plots, has_report):
+    out = [f'STATlee project export: {stem}',
+           f'Exported {time.strftime("%Y-%m-%d %H:%M")}', '',
+           'HOW TO RUN', '']
+    if script_name and data_name:
+        runner = ('python script.py' if script_name.endswith('.py')
+                  else 'Rscript script.R')
+        out += ['1. Unzip this archive and open a terminal inside the unzipped '
+                'folder.',
+                '2. Install the packages the script imports (for example '
+                'pandas, numpy, statsmodels, matplotlib).',
+                f'3. Run:  {runner}',
+                '',
+                f'The script reads {data_name}, which sits next to it in this '
+                'folder.']
+    elif script_name:
+        out.append(f'Run {script_name} from this folder.')
+    else:
+        out.append('No analysis script was generated or run in this session, '
+                   'so none is included.')
+    out += ['', 'FILES', '']
+    if script_name:
+        out.append(f'- {script_name}: the analysis script ({script_source}).')
+    if data_name:
+        if lineage and lineage['active_v'] != 1:
+            out.append(f'- {data_name}: the dataset version the analysis used '
+                       f'(version {lineage["active_v"]}).')
+        else:
+            out.append(f'- {data_name}: the dataset the analysis used.')
+        out.append(f'- data/original_{data_name}: the dataset as first uploaded '
+                   '(after conversion to CSV).')
+        if lineage and lineage['steps']:
+            if lineage['replayable']:
+                out.append(f'- cleaning.py: replays the {len(lineage["steps"])} '
+                           f'cleaning step(s) that turn data/original_{data_name} '
+                           f'into {data_name}. Run: python cleaning.py')
+            else:
+                out.append('- cleaning.py is not included: some cleaning steps '
+                           'were made before STATlee recorded their code.')
+    out.append('- report.md: requests, terminal output and interpretation.')
+    if has_report:
+        out.append('- full_report.md: the written report.')
+    if has_plots:
+        out.append('- plots/: figures from the last run.')
+    if editor_differs:
+        out += ['', 'NOTE', '',
+                'The code in your editor at export time was not reviewed or run '
+                f'in this session, so it is not bundled; {script_name} holds '
+                f'the {script_source} instead.']
+    return '\n'.join(out) + '\n'
+
+
 @bp.route('/export', methods=['POST'])
 def export_project():
     data = request_json()
@@ -815,30 +955,43 @@ def export_project():
     report_md = clamp(data.get('report'), 400_000)
     client_code = str_field(data, 'code')
 
-    # Prefer the script that produced the last run over the "most recent
-    # approved" one: a /wrangle after an analysis saves its bare transform into
-    # the shared approved-script store, so load_approved_script() would bundle
-    # the transform snippet instead of the analysis script (P2-1). Both sources
-    # are server-side/trusted; the client `code` is only a last-resort fallback.
-    record = storage.last_run_script() or storage.load_approved_script()
-    code = (record or {}).get('code') or client_code or ''
-    language = (record or {}).get('language') or language
-    if not isinstance(language, str):   # legacy store entry from pre-D1-12
-        language = 'Python'
+    code, language, script_source, editor_differs = _export_script(
+        client_code, language)
     last_output, plot_paths = storage.last_run_artifacts()
 
     buf = io.BytesIO()
     stem = os.path.splitext(secure_filename(filename or 'project'))[0] or 'project'
+    script_name = None
+    data_name = None
+    lineage = None
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         if filename:
             active = storage.active_dataset_path(filename)
-            if active and os.path.exists(active):
-                zf.write(active, arcname=f'data/{os.path.basename(active)}')
+            staged = storage.resolve_path(filename)
+            if active and os.path.exists(active) and staged:
+                # D4-9: /run stages the active version under the dataset's
+                # stored name (dataset_name in run_code), and the script reads
+                # it from its working directory -- so it goes at the zip root
+                # under that name, not as data/<name>__vN.csv.
+                data_name = os.path.basename(staged)
+                zf.write(active, arcname=data_name)
+                lineage = storage.dataset_lineage(filename)
+                original = (lineage or {}).get('original') or active
+                if os.path.exists(original):
+                    zf.write(original, arcname=f'data/original_{data_name}')
+                if lineage and lineage['steps'] and lineage['replayable']:
+                    zf.writestr('cleaning.py',
+                                _cleaning_script(lineage, data_name))
         if code:
             ext = '.py' if language.lower() == 'python' else '.R'
-            zf.writestr(f'script{ext}', code)
+            script_name = f'script{ext}'
+            zf.writestr(script_name, code)
         for p in plot_paths:
             zf.write(p, arcname=f'plots/{os.path.basename(p)}')
+
+        zf.writestr('README.txt', _export_readme(
+            stem, script_name, script_source, editor_differs, data_name,
+            lineage, bool(plot_paths), bool(report_md)))
 
         lines = [f'# Project: {stem}', '',
                  f'_Exported from STATlee on {time.strftime("%Y-%m-%d %H:%M")}_', '']

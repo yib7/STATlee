@@ -343,18 +343,40 @@ def _truncate_redo_branch(manifest):
                             if v['v'] <= manifest['active']]
 
 
-def add_dataset_version(filename, new_df, instruction, summary=None, identity=None):
+class VersionConflict(Exception):
+    """The active version moved while a transform derived from it was running
+    (L1): committing it would silently discard the other edit."""
+
+
+def _active_entry(manifest):
+    return next((v for v in manifest['versions']
+                 if v['v'] == manifest['active']), None)
+
+
+def add_dataset_version(filename, new_df, instruction, summary=None,
+                        identity=None, code=None, base_file=None):
     """Persist a wrangled DataFrame as the next version and activate it.
 
     ``instruction`` is the user's own words; ``summary`` is the applied,
     past-tense description (used to render the cleaning history as a chat-style
     transcript). A new edit after an Undo truncates the redo branch.
+
+    ``code`` is the transform that produced the frame (D6), kept on the version
+    entry so an export can replay the cleaning from the original upload.
+    ``base_file`` is the version file the transform read; when another
+    wrangle/undo/revert has moved the active version since, the commit is
+    refused with ``VersionConflict`` (L1) instead of stacking a frame derived
+    from the old version on top of the new one.
     """
     # P2-9: serialize the whole read-modify-write so a concurrent wrangle/undo
     # cannot compute the same next_v and silently drop this version.
     with _manifest_lock(filename, identity):
         manifest = (_load_manifest(filename, identity)
                     or register_dataset(filename, identity))
+        if base_file is not None:
+            active = _active_entry(manifest)
+            if active is None or active['file'] != base_file:
+                raise VersionConflict(filename)
         _truncate_redo_branch(manifest)
         next_v = manifest['versions'][-1]['v'] + 1
         stem = os.path.splitext(manifest['filename'])[0]
@@ -366,6 +388,8 @@ def add_dataset_version(filename, new_df, instruction, summary=None, identity=No
             'file': version_file,
             'instruction': instruction,
             'summary': summary,
+            'code': code,
+            'op': 'transform',
             'ts': time.time(),
         })
         manifest['active'] = next_v
@@ -401,6 +425,8 @@ def revert_to_original(filename, identity=None):
             'file': version_file,
             'instruction': 'Reverted to original upload',
             'summary': None,
+            'code': None,
+            'op': 'revert',
             'ts': time.time(),
         })
         manifest['active'] = next_v
@@ -424,6 +450,39 @@ def shift_dataset_version(filename, direction, identity=None):
         manifest['active'] = versions[new_idx]
         _save_manifest(filename, manifest, identity)
         return manifest
+
+
+def dataset_lineage(filename, identity=None):
+    """What an export needs to reproduce the active version (D6).
+
+    Returns None for an unknown dataset, else a dict with ``original`` (path
+    of the v1 file), ``active_v``/``latest_v``, and ``steps``: the transform
+    entries that turn the original into the active version, in order. A revert
+    restarts the lineage from the original; versions past the active pointer
+    (an undone redo branch) are not part of it. ``replayable`` is False when a
+    step predates code recording (D6) and so cannot be replayed."""
+    manifest = _load_manifest(filename, identity)
+    if not manifest or not manifest.get('versions'):
+        return None
+    versions = sorted(manifest['versions'], key=lambda v: v['v'])
+    original = resolve_path(versions[0]['file'], identity)
+    steps = []
+    for v in versions[1:]:
+        if v['v'] > manifest['active']:
+            break
+        if v.get('op') == 'revert' or v.get('instruction') == \
+                'Reverted to original upload':
+            steps = []
+        else:
+            steps.append(v)
+    return {
+        'original': original,
+        'active_v': manifest['active'],
+        'latest_v': versions[-1]['v'],
+        'steps': steps,
+        'replayable': all(isinstance(s.get('code'), str) and s['code'].strip()
+                          for s in steps),
+    }
 
 
 def dataset_changelog(filename, identity=None):
@@ -535,6 +594,12 @@ def is_approved_script(code, language='Python', identity=None):
     """True if ``code`` exactly matches a script previously approved for
     ``language`` (P2-2, D1-7)."""
     return _hash_code(code, language) in _load_approved_store(identity)
+
+
+def approved_entry(code, language='Python', identity=None):
+    """The store entry ``{code, language, source, ts}`` approving ``code`` for
+    ``language``, or None."""
+    return _load_approved_store(identity).get(_hash_code(code, language))
 
 
 def load_approved_script(identity=None, exclude_sources=()):
