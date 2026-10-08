@@ -96,6 +96,15 @@ class EmptyGenerationError(LLMOutputError):
                        'again.')
 
 
+class MalformedReplyError(LLMOutputError, ValueError):
+    """A JSON-mode reply that does not parse, or parses to the wrong shape for
+    the route (D3-9/D3-10). Routes turn it into a 502."""
+
+    reason = 'malformed'
+    default_message = ("The model's reply was not in the expected format. "
+                       'Please try again.')
+
+
 def _reason_name(reason):
     if reason is None:
         return ''

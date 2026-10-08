@@ -6,7 +6,6 @@ Implements roadmap items 0.4 (run-guard), 5.5 (streamed draft), 5.11
 plus the per-analysis usage accounting from 3.4.
 """
 import base64
-import json
 import logging
 import os
 import re
@@ -30,6 +29,7 @@ from . import (
     clamp_plots,
     dict_field,
     json_error,
+    json_object_reply,
     language_field,
     llm_error_payload,
     llm_json_error,
@@ -139,8 +139,10 @@ def chat():
                 prompts.feature_selection(column_context, user_prompt),
                 temperature=0.1, json_mode=True)
             selection_usage = sel.usage
-            candidates = json.loads(sel.text).get('required_columns', [])
-            if isinstance(candidates, list):
+            candidates = json_object_reply(sel.text).get('required_columns')
+            if not isinstance(candidates, list):
+                raise llm.MalformedReplyError(detail='required_columns')
+            if candidates:
                 header_set = set(headers)
                 validated = list(dict.fromkeys(
                     c for c in candidates
@@ -531,12 +533,17 @@ def method_prompt():
             'flash',
             prompts.method_prompt(method_name, method_desc, context),
             temperature=0.4, json_mode=True)
-        payload = json.loads(result.text)
-        if not isinstance(payload, dict):
-            raise ValueError('method_prompt reply is not an object')
+        # D3-9/D3-10: tolerant parse, then a real shape check -- the client
+        # pastes 'prompt' straight into the prompt box.
+        payload = json_object_reply(result.text)
+        method_text = payload.get('prompt')
+        if not isinstance(method_text, str) or not method_text.strip():
+            raise llm.MalformedReplyError(detail='method_prompt.prompt')
+        rationale = payload.get('rationale')
         return jsonify({'status': 'success',
-                        'prompt': payload.get('prompt', ''),
-                        'rationale': payload.get('rationale', ''),
+                        'prompt': method_text.strip()[:FREE_TEXT_MAX],
+                        'rationale': (rationale.strip()[:BACKGROUND_MAX]
+                                      if isinstance(rationale, str) else ''),
                         'usage': usage_breakdown(result.usage)})
     except Exception as exc:
         logger.exception("method_prompt failed")

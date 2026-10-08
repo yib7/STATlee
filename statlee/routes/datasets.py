@@ -30,6 +30,8 @@ from . import (
     FILENAME_MAX,
     HEADER_FIELD_MAX,
     HEADERS_MAX_COUNT,
+    MAPPING_KEY_MAX,
+    MAPPING_VALUE_MAX,
     PREVIOUS_FIELD_MAX,
     PREVIOUS_MAX_COUNT,
     clamp,
@@ -38,13 +40,16 @@ from . import (
     clamp_str_list,
     dict_field,
     json_error,
+    json_object_reply,
     language_field,
     list_field,
     llm_json_error,
     moderation_gate,
+    parse_json_reply,
     register_field_errors,
     request_json,
     str_field,
+    string_mapping,
 )
 
 logger = logging.getLogger('statlee.datasets')
@@ -118,6 +123,29 @@ _frame_cache = OrderedDict()      # (path, mtime) -> DataFrame
 _filtered_cache = OrderedDict()
 _cache_lock = threading.Lock()
 ANALYSIS_CACHE_MAX = 128
+_MEASUREMENT_LEVELS = {'nominal': 'Nominal', 'ordinal': 'Ordinal',
+                       'continuous': 'Continuous'}
+SUGGESTIONS_MAX = 3
+
+
+def _normalize_suggestions(value):
+    """A list of at most ``SUGGESTIONS_MAX`` non-empty strings from a
+    ``/suggest`` reply: a bare array, ``{"suggestions": [...]}``, or an object
+    holding exactly one list. Raises ``llm.MalformedReplyError`` when nothing
+    usable is left (D3-9/D4-21)."""
+    items = value
+    if isinstance(value, dict):
+        items = value.get('suggestions')
+        if not isinstance(items, list):
+            lists = [v for v in value.values() if isinstance(v, list)]
+            items = lists[0] if len(lists) == 1 else None
+    if not isinstance(items, list):
+        raise llm.MalformedReplyError(detail='suggestions shape')
+    out = [s.strip()[:PREVIOUS_FIELD_MAX * 2] for s in items
+           if isinstance(s, str) and s.strip()]
+    if not out:
+        raise llm.MalformedReplyError(detail='no suggestions')
+    return out[:SUGGESTIONS_MAX]
 CLASSIFY_CHUNK = 80          # columns per classification call
 CLASSIFY_MAX_CHUNKS = 10     # at most 800 columns classified per dataset
 FRAME_CACHE_MAX = 4
@@ -420,9 +448,11 @@ def extract_pdf_codebook():
                         prompt]
         result = llm.get_service().generate(
             'flash', contents, temperature=0.1, json_mode=True)
-        mapping = json.loads(result.text)
-        if not isinstance(mapping, dict):
-            raise ValueError('mapping is not an object')
+        # D3-9/D3-10: tolerant parse; the mapping feeds every later prompt as
+        # column descriptions, so values are normalised to strings.
+        mapping = string_mapping(json_object_reply(result.text),
+                                 key_max=MAPPING_KEY_MAX,
+                                 value_max=MAPPING_VALUE_MAX)
         return jsonify({'status': 'success', 'mapping': mapping,
                         'usage': usage_breakdown(result.usage)})
     except Exception as exc:
@@ -543,11 +573,15 @@ def classify_variables():
                 'flash', prompts.classify(preview), temperature=0.1,
                 json_mode=True)
             usages.append(result.usage)
-            part = json.loads(result.text)
-            if not isinstance(part, dict):
-                raise ValueError('classification reply is not an object')
+            part = json_object_reply(result.text)
             wanted = set(map(str, chunk))
-            codebook.update({k: v for k, v in part.items() if k in wanted})
+            # D3-9: only real columns, and only the three measurement levels
+            # the prompts and the UI understand (case-normalised).
+            for key, level in part.items():
+                level = _MEASUREMENT_LEVELS.get(str(level).strip().lower()) \
+                    if isinstance(level, str) else None
+                if key in wanted and level:
+                    codebook[key] = level
         _cache_put(_analysis_cache, (sha, 'classify'), codebook, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'codebook': codebook,
                         'usage': usage_breakdown(*usages)})
@@ -596,7 +630,10 @@ def suggest_analysis():
         result = llm.get_service().generate(
             'flash', prompts.suggest(context, previous),
             temperature=0.7, json_mode=True)
-        suggestions = json.loads(result.text)
+        # D3-9/D4-21: OpenAI JSON mode returns an object, other providers may
+        # return a bare array; either way the client gets <= 3 strings, and a
+        # reply with none is a 502 that is never cached.
+        suggestions = _normalize_suggestions(parse_json_reply(result.text))
         if not previous:
             _cache_put(_analysis_cache, cache_key, suggestions, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'suggestions': suggestions,
@@ -655,12 +692,15 @@ def wrangle():
             cfg.wrangle_role,
             prompts.wrangle(datatools.metadata_json(df), instruction),
             temperature=0.1, json_mode=True)
-        plan = json.loads(result.text)
+        plan = parse_json_reply(result.text)
     except Exception as exc:
         logger.exception("Wrangle plan generation failed")
         return llm_json_error(exc, 'Could not generate the transformation.')
 
-    if not isinstance(plan, dict) or not isinstance(plan.get('code') or '', str):
+    if (not isinstance(plan, dict)
+            or not isinstance(plan.get('code') or '', str)
+            or not isinstance(plan.get('error') or '', str)
+            or not isinstance(plan.get('summary') or '', str)):
         logger.warning("Wrangle plan had an unexpected shape: %r", type(plan))
         return json_error('Could not generate the transformation.', 502)
     if plan.get('error') or not plan.get('code'):

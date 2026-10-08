@@ -14,6 +14,74 @@ def json_error(message, status=400):
 _MODERATION_FALLBACK = ('The request could not be verified as safe and '
                         'on-topic. Please rephrase and try again.')
 
+_FENCE_RE = re.compile(r'```[a-zA-Z0-9_-]*\s*\n?(.*?)```', re.DOTALL)
+
+
+def parse_json_reply(text):
+    """Parse a JSON-mode model reply tolerantly (D3-10).
+
+    Only Gemini (``response_mime_type``) and OpenAI (``response_format``)
+    constrain JSON at the API; Anthropic is asked by system prompt, and any
+    model may still wrap the value in a code fence or add a sentence. This
+    tries, in order: the whole text, the inside of the first code fence, then
+    the first complete ``{...}`` / ``[...]`` value found by a real JSON
+    decoder (so braces inside strings are handled). Raises
+    ``llm.MalformedReplyError`` when nothing parses; callers that must fail
+    closed (moderation) treat that as a block.
+    """
+    from .. import llm
+    raw = (text or '').strip() if isinstance(text, str) else ''
+    if not raw:
+        raise llm.MalformedReplyError(detail='empty reply')
+    candidates = [raw]
+    fence = _FENCE_RE.search(raw)
+    if fence:
+        candidates.append(fence.group(1).strip())
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            pass
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        for i, ch in enumerate(candidate):
+            if ch not in '{[':
+                continue
+            try:
+                value, _end = decoder.raw_decode(candidate, i)
+            except ValueError:
+                continue
+            return value
+    raise llm.MalformedReplyError(detail='no JSON value found')
+
+
+def json_object_reply(text):
+    """``parse_json_reply`` that must yield an object (D3-9)."""
+    from .. import llm
+    value = parse_json_reply(text)
+    if not isinstance(value, dict):
+        raise llm.MalformedReplyError(detail=f'expected object, got '
+                                             f'{type(value).__name__}')
+    return value
+
+
+def string_mapping(value, *, key_max=200, value_max=2000):
+    """Keep a ``{str: str}`` view of a model mapping: scalar values become
+    strings, nested lists/objects are serialised compactly, ``None`` and
+    empty values are dropped (D3-9)."""
+    out = {}
+    for key, val in value.items():
+        if val is None:
+            continue
+        if isinstance(val, (dict, list)):
+            val = json.dumps(val, ensure_ascii=False)
+        val = str(val).strip()
+        if val:
+            out[str(key)[:key_max]] = val[:value_max]
+    return out
+
 
 def moderation_blocked(result_text):
     """Interpret a moderation verdict, **failing closed**.
@@ -37,7 +105,9 @@ def moderation_blocked(result_text):
     Returns ``(blocked: bool, reason: str)``; ``reason`` is empty when allowed.
     """
     try:
-        verdict = json.loads((result_text or '').strip())
+        # D3-10: a fenced or prose-wrapped verdict is still a verdict; only a
+        # reply with no JSON value at all fails closed here.
+        verdict = parse_json_reply(result_text)
     except (ValueError, TypeError):
         return True, _MODERATION_FALLBACK
 

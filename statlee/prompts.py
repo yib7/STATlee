@@ -312,8 +312,8 @@ def suggest(column_context, previous=None):
     - "Explore the relationship between variables." (vague, no column names, no method, no plot)
     - "What patterns exist in this data?" (a question, not an instruction)
 
-    Return STRICTLY a JSON array of exactly 3 strings and nothing else.
-    Example format: ["Suggestion 1", "Suggestion 2", "Suggestion 3"]
+    Return STRICTLY a JSON object holding exactly 3 strings and nothing else.
+    Example format: {{"suggestions": ["Suggestion 1", "Suggestion 2", "Suggestion 3"]}}
     """
 
 
