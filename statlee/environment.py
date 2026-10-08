@@ -11,14 +11,17 @@ so a missing package reads "not installed". The R probe prints
 ``R.version.string`` and ``packageVersion()`` for every installed package.
 
 The result is cached in process memory per boot and per sandbox mode (plus the
-runner image in docker mode). A failed Python probe is not cached, so a later
-export tries again; its environment.txt says the environment could not be
-captured, and the export still succeeds. Raw sandbox output from a failed
+runner image in docker mode). A failure (or an R probe that did not finish) is
+cached for ``FAILURE_TTL`` seconds, so a broken sandbox is not re-probed on
+every export; environment.txt then says the environment could not be captured,
+and the export still succeeds. The probes never run under the module lock: one
+caller runs them, concurrent callers wait once on its result. Raw sandbox output from a failed
 probe is never written into the bundle (it can carry server paths).
 """
 import logging
 import shutil
 import threading
+import time
 from datetime import UTC, datetime
 
 from . import codecheck, sandbox
@@ -73,8 +76,26 @@ for (p in pkgs) {
 }
 '''
 
+# A failed (or partly failed) capture is kept this long, so a broken or hung
+# sandbox is probed at most once per window instead of once per export.
+FAILURE_TTL = 300
+
+# key -> (text, expires_at or None for "until restart")
 _cache = {}
+# key -> threading.Event set when the in-flight capture for that key finishes
+_inflight = {}
+# Guards _cache and _inflight only; never held while a probe runs.
 _lock = threading.Lock()
+
+
+def _now():
+    return time.monotonic()
+
+
+def _wait_timeout(cfg):
+    """How long a concurrent caller waits for the in-flight capture: both
+    probes at their full timeout, plus slack."""
+    return 2 * max(int(getattr(cfg, 'exec_timeout', 60) or 60), 1) + 30
 
 
 def clear_cache():
@@ -142,18 +163,58 @@ def _failed_text(cfg):
             'run them.\n')
 
 
+def _cached(key):
+    """The cached text for ``key`` while it is fresh (call under _lock)."""
+    hit = _cache.get(key)
+    if hit and (hit[1] is None or hit[1] > _now()):
+        return hit[0]
+    return None
+
+
+def _run_probes(cfg):
+    """``(text, ttl)``: ttl None caches until restart, FAILURE_TTL when the
+    Python probe or an attempted R probe did not finish."""
+    python_out = _probe(cfg, PYTHON_PROBE, 'Python')
+    if not python_out:
+        return _failed_text(cfg), FAILURE_TTL
+    r_tried = _r_available(cfg)
+    r_out = _probe(cfg, R_PROBE, 'R') if r_tried else None
+    ttl = FAILURE_TTL if (r_tried and not r_out) else None
+    return _render(cfg, python_out, r_out, r_tried), ttl
+
+
 def capture(cfg):
-    """environment.txt text for the configured sandbox (cached per boot and
-    per sandbox mode). Never raises."""
+    """environment.txt text for the configured sandbox. Never raises.
+
+    One caller per cache key runs the probes, outside the module lock; callers
+    arriving meanwhile wait once on its result (or get the failure text when
+    it outlasts ``_wait_timeout``). A full success is cached until restart, a
+    failure or an R probe that did not finish for ``FAILURE_TTL`` seconds."""
     key = _cache_key(cfg)
     with _lock:
-        if key in _cache:
-            return _cache[key]
-        python_out = _probe(cfg, PYTHON_PROBE, 'Python')
-        if not python_out:
-            return _failed_text(cfg)
-        r_tried = _r_available(cfg)
-        r_out = _probe(cfg, R_PROBE, 'R') if r_tried else None
-        text = _render(cfg, python_out, r_out, r_tried)
-        _cache[key] = text
-        return text
+        text = _cached(key)
+        if text is not None:
+            return text
+        event = _inflight.get(key)
+        runner = event is None
+        if runner:
+            event = _inflight[key] = threading.Event()
+    if not runner:
+        if event.wait(_wait_timeout(cfg)):
+            with _lock:
+                text = _cached(key)
+            if text is not None:
+                return text
+        return _failed_text(cfg)
+
+    text, ttl = _failed_text(cfg), FAILURE_TTL
+    try:
+        text, ttl = _run_probes(cfg)
+    except Exception:
+        logger.exception("Environment capture crashed")
+    finally:
+        with _lock:
+            _cache[key] = (text, None if ttl is None else _now() + ttl)
+            _inflight.pop(key, None)
+        event.set()
+    return text

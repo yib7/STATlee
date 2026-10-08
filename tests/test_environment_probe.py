@@ -140,14 +140,18 @@ def test_r_missing_is_reported_not_a_failure(app, monkeypatch):
     assert 'could not be captured' not in text
 
 
-def test_python_probe_failure_is_stated_and_not_cached(app, monkeypatch):
+def test_python_probe_failure_is_stated_and_retried_after_the_ttl(
+        app, monkeypatch):
     results = [_Result('boom C:\\secret\\path', returncode=1),
                _Result('Python 3.12.1\npandas 2.2.0\n')]
+    now = [50.0]
     monkeypatch.setattr(environment.sandbox, 'run_in_sandbox',
                         lambda code, language='Python', **k: results.pop(0))
     monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(environment, '_now', lambda: now[0])
     with app.app_context():
         first = environment.capture(app.config['STATLEE'])
+        now[0] += environment.FAILURE_TTL + 1
         second = environment.capture(app.config['STATLEE'])
     assert 'could not be captured' in first
     assert 'secret' not in first
@@ -173,3 +177,116 @@ def test_an_exception_in_the_sandbox_is_a_failure_not_a_crash(app, monkeypatch):
     with app.app_context():
         text = environment.capture(app.config['STATLEE'])
     assert 'could not be captured' in text
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1: a failing or hung probe must not block or re-run per export
+# ---------------------------------------------------------------------------
+
+def test_a_failed_probe_is_cached_for_the_failure_ttl(app, monkeypatch):
+    calls = []
+    now = [1000.0]
+
+    def failing(code, language='Python', **k):
+        calls.append(language)
+        return _Result('boom', returncode=1)
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', failing)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(environment, '_now', lambda: now[0])
+    cfg = app.config['STATLEE']
+    with app.app_context():
+        for _ in range(5):
+            assert 'could not be captured' in environment.capture(cfg)
+        assert calls == ['Python']                      # once within the TTL
+        now[0] += environment.FAILURE_TTL + 1
+        environment.capture(cfg)
+    assert calls == ['Python', 'Python']                # retried after it
+
+
+def test_a_transient_r_failure_expires_instead_of_sticking(app, monkeypatch):
+    calls = []
+    now = [1000.0]
+
+    def run(code, language='Python', **k):
+        calls.append(language)
+        if language == 'R':
+            return _Result('', returncode=-1, timed_out=True)
+        return _Result('Python 3.12.1\npandas 2.2.0\n')
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', run)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: 'Rscript')
+    monkeypatch.setattr(environment, '_now', lambda: now[0])
+    cfg = app.config['STATLEE']
+    with app.app_context():
+        text = environment.capture(cfg)
+        environment.capture(cfg)
+        assert calls == ['Python', 'R']
+        assert 'pandas 2.2.0' in text and 'did not finish' in text
+        now[0] += environment.FAILURE_TTL + 1
+        environment.capture(cfg)
+    assert calls == ['Python', 'R', 'Python', 'R']
+
+
+def test_concurrent_first_exports_run_the_probe_once(app, monkeypatch):
+    import threading
+    import time
+    calls = []
+    started = threading.Event()
+
+    def slow(code, language='Python', **k):
+        calls.append(language)
+        started.set()
+        time.sleep(0.5)
+        return _Result('Python 3.12.1\npandas 2.2.0\n')
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', slow)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    cfg = app.config['STATLEE']
+    results = []
+
+    def worker():
+        results.append(environment.capture(cfg))
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert calls == ['Python']
+    assert len(results) == 6
+    assert all('pandas 2.2.0' in r for r in results)
+
+
+def test_the_lock_is_not_held_while_the_probe_runs(app, monkeypatch):
+    seen = []
+
+    def run(code, language='Python', **k):
+        # Another caller must be able to take the module lock meanwhile.
+        got = environment._lock.acquire(timeout=1)
+        seen.append(got)
+        if got:
+            environment._lock.release()
+        return _Result('Python 3.12.1\n')
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', run)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    environment.capture(app.config['STATLEE'])
+    assert seen == [True]
+
+
+def test_a_waiter_that_times_out_gets_the_failure_text(app, monkeypatch):
+    import threading
+    release = threading.Event()
+
+    def hung(code, language='Python', **k):
+        release.wait(5)
+        return _Result('Python 3.12.1\n')
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', hung)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(environment, '_wait_timeout', lambda cfg: 0.2)
+    cfg = app.config['STATLEE']
+    runner = threading.Thread(target=environment.capture, args=(cfg,))
+    runner.start()
+    try:
+        import time
+        time.sleep(0.1)
+        assert 'could not be captured' in environment.capture(cfg)
+    finally:
+        release.set()
+        runner.join(5)
