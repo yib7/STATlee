@@ -408,6 +408,18 @@ def active_version_number(filename, identity=None):
     return active
 
 
+def dataset_version_path(filename, version, identity=None):
+    """Path of version ``version`` of a dataset while its file still exists,
+    else None (an unknown version, or one dropped by a re-upload)."""
+    manifest = _load_manifest(filename, identity)
+    if not isinstance(manifest, dict):
+        return None
+    entry = next((v for v in manifest.get('versions', [])
+                  if isinstance(v, dict) and v.get('v') == version), None)
+    path = resolve_path(entry.get('file'), identity) if entry else None
+    return path if path and os.path.exists(path) else None
+
+
 def add_dataset_version(filename, new_df, instruction, summary=None,
                         identity=None, code=None, base_file=None,
                         base_token=None):
@@ -880,6 +892,7 @@ from .runs import (  # noqa: E402, F401 (re-exported API)
     RUN_NAME_MAX,
     RUNS_DIR,
     RUNS_MAX,
+    latest_meta_for_script,
     latest_run_id,
     list_runs,
     load_run,

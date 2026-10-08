@@ -44,7 +44,7 @@ from . import (
     str_field,
     strip_code_fences,
 )
-from .datasets import read_active_frame
+from .datasets import read_active_frame, read_version_frame
 
 logger = logging.getLogger('statlee.analyze')
 
@@ -420,24 +420,40 @@ def run_code():
     })
 
 
+def _ctx_str(ctx, key):
+    value = (ctx or {}).get(key)
+    return value if isinstance(value, str) else None
+
+
 def _run_provenance(code, language, filename, dataset_path):
-    """What produced this run, from the server's own records (SP1): the
-    question and the drafting role/model /chat stored with the approval, and
-    the exact dataset version and bytes the sandbox read. An edited or pasted
-    script inherits the latest generation's question (as /interpret does) but
-    no model: no model wrote it."""
+    """What produced this run, from the server's own records (SP1), and the
+    exact dataset version and bytes the sandbox read.
+
+    The question and drafting role/model come from, in order: the context
+    /chat stored with this script's approval; else the most recent workbook
+    run of the identical script (its approval may have left the small
+    approved-script store, or been re-saved as an edit without context);
+    else, for an edited or pasted script, the latest generation's question
+    with ``prompt_inherited`` set and no role/model (no model wrote it)."""
     entry = storage.approved_entry(code, language) or {}
     ctx = entry.get('context')
-    generated = isinstance(ctx, dict)
-    if not generated:
-        latest = storage.load_approved_script(exclude_sources=('wrangle', 'run'))
-        ctx = (latest or {}).get('context')
-    ctx = ctx if isinstance(ctx, dict) else {}
-    prompt = ctx.get('prompt') if isinstance(ctx.get('prompt'), str) else None
-    role = model = None
-    if generated:
-        role = ctx.get('role') if isinstance(ctx.get('role'), str) else None
-        model = ctx.get('model') if isinstance(ctx.get('model'), str) else None
+    inherited = False
+    if isinstance(ctx, dict):
+        prompt, role, model = (_ctx_str(ctx, 'prompt'), _ctx_str(ctx, 'role'),
+                               _ctx_str(ctx, 'model'))
+    else:
+        previous = storage.latest_meta_for_script(code, language)
+        if previous:
+            prompt, role, model = (_ctx_str(previous, 'prompt'),
+                                   _ctx_str(previous, 'role'),
+                                   _ctx_str(previous, 'model'))
+            inherited = bool(previous.get('prompt_inherited'))
+        else:
+            latest = storage.load_approved_script(
+                exclude_sources=('wrangle', 'run'))
+            prompt = _ctx_str((latest or {}).get('context'), 'prompt')
+            role = model = None
+            inherited = prompt is not None
     stored_name = version = sha = None
     if filename and dataset_path and os.path.isfile(dataset_path):
         stored_name = os.path.basename(
@@ -449,7 +465,7 @@ def _run_provenance(code, language, filename, dataset_path):
             logger.warning("Could not hash the dataset for run provenance")
     return {'prompt': prompt, 'filename': stored_name,
             'dataset_version': version, 'dataset_sha256': sha,
-            'model': model, 'role': role}
+            'model': model, 'role': role, 'prompt_inherited': inherited}
 
 
 # ---------------------------------------------------------------------------
@@ -486,12 +502,36 @@ def _codebook_parts(codebook):
     return levels, descriptions
 
 
-def _analysis_context(record):
+def _column_context(df, filename, columns, codebook):
+    """The analysed columns described for the interpreter: measurement level
+    and description from the generation's codebook, native value labels from
+    the dataset's metadata sidecar."""
+    columns = [c for c in (columns or []) if c in df.columns]
+    if not columns:
+        return None
+    levels, descriptions = _codebook_parts(codebook)
+    meta = storage.load_dataset_meta(filename) or {}
+    labels = meta.get('labels') if isinstance(meta.get('labels'), dict) else {}
+    merged = {**{str(k): str(v) for k, v in labels.items() if v},
+              **descriptions}
+    return clamp(datatools.build_column_context(
+        df[columns[:INTERPRET_COLUMNS_MAX]], levels, merged),
+        INTERPRET_CONTEXT_MAX)
+
+
+def _analysis_context(record, run_meta=None):
     """``(question, column_context, n_rows)`` for the script that produced the
-    last run, from the server's own records (D6 quick win 5): the context
-    /chat stored with the approval, the active dataset's true row count, and
-    the analysed columns with their native value labels. An edited script has
-    no context of its own, so it inherits the latest /chat generation's."""
+    run, from the server's own records (D6 quick win 5): the context /chat
+    stored with the approval, the dataset's true row count, and the analysed
+    columns with their native value labels.
+
+    SP1: a workbook run that recorded its provenance is described by ITS
+    record (``_run_analysis_context``). Only a run without one (adopted
+    from the old single-run layout, or saved without provenance) uses the
+    approval's context, and an edited script inherits the latest /chat
+    generation's."""
+    if run_meta and (run_meta.get('prompt') or run_meta.get('filename')):
+        return _run_analysis_context(record, run_meta)
     entry = None
     if record:
         entry = storage.approved_entry(record.get('code'),
@@ -513,17 +553,55 @@ def _analysis_context(record):
         df = None
     if df is None:
         return question, None, None
-    columns = [c for c in (ctx.get('columns') or []) if c in df.columns]
+    return (question,
+            _column_context(df, filename, ctx.get('columns'), ctx.get('codebook')),
+            len(df))
+
+
+def _run_frame(filename, run_meta):
+    """The data a run read: its recorded dataset version, and only while that
+    file still holds the bytes the run hashed (a same-name re-upload reuses
+    v1). None when it cannot be shown to be the same data."""
+    version = run_meta.get('dataset_version')
+    if isinstance(version, bool) or not isinstance(version, int):
+        return None
+    try:
+        df, path = read_version_frame(filename, version)
+        if df is None:
+            return None
+        sha = run_meta.get('dataset_sha256')
+        if isinstance(sha, str) and datatools.file_sha256(path) != sha:
+            return None
+    except Exception:
+        logger.warning("Could not read the run's dataset for interpretation "
+                       "context")
+        return None
+    return df
+
+
+def _run_analysis_context(record, run_meta):
+    """``_analysis_context`` for a workbook run with recorded provenance:
+    the question and dataset come from the run's meta (never from a newer
+    generation); the analysed columns come from the script's approval only
+    when that approval was made for the same question. Row count and columns
+    are left out when the run's dataset version is gone or changed."""
+    question = clamp(run_meta.get('prompt'), CONTEXT_PROMPT_MAX).strip() or None
+    filename = run_meta.get('filename')
+    if not isinstance(filename, str) or not filename:
+        return question, None, None
+    df = _run_frame(filename, run_meta)
+    if df is None:
+        return question, None, None
     column_context = None
-    if columns:
-        levels, descriptions = _codebook_parts(ctx.get('codebook'))
-        meta = storage.load_dataset_meta(filename) or {}
-        labels = meta.get('labels') if isinstance(meta.get('labels'), dict) else {}
-        merged = {**{str(k): str(v) for k, v in labels.items() if v},
-                  **descriptions}
-        column_context = clamp(datatools.build_column_context(
-            df[columns[:INTERPRET_COLUMNS_MAX]], levels, merged),
-            INTERPRET_CONTEXT_MAX)
+    entry = None
+    if record:
+        entry = storage.approved_entry(record.get('code'),
+                                       record.get('language') or 'Python')
+    ctx = (entry or {}).get('context')
+    if isinstance(ctx, dict) and question and clamp(
+            ctx.get('prompt'), CONTEXT_PROMPT_MAX).strip() == question:
+        column_context = _column_context(df, filename, ctx.get('columns'),
+                                         ctx.get('codebook'))
     return question, column_context, len(df)
 
 
@@ -594,7 +672,8 @@ def interpret_results():
             failed = status['returncode'] != 0 or status['timed_out']
         else:
             failed = _looks_failed(final_output)
-        question, column_context, n_rows = _analysis_context(record)
+        question, column_context, n_rows = _analysis_context(
+            record, storage.run_meta(run_id))
     else:
         # P1-7: cap the client-supplied text and plot payloads before they reach
         # the prompt. Client `code` is allowed here only because the moderation

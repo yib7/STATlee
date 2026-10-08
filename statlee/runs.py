@@ -250,13 +250,16 @@ def _read_status(run_dir):
 
 def _new_meta(run_id, created_ts=None, prompt=None, filename=None,
               dataset_version=None, dataset_sha256=None, model=None,
-              role=None, methods=None):
+              role=None, methods=None, prompt_inherited=False):
     if isinstance(dataset_version, bool) or not isinstance(dataset_version, int):
         dataset_version = None
     return {
         'run_id': run_id,
         'created_at': _now_iso(created_ts),
         'prompt': _clamp_str(prompt, RUN_PROMPT_MAX),
+        # True when ``prompt`` is the latest generation's question borrowed
+        # for an edited or pasted script, not the question that produced it.
+        'prompt_inherited': bool(prompt_inherited),
         'filename': _clamp_str(filename, 255),
         'dataset_version': dataset_version,
         'dataset_sha256': _clamp_str(dataset_sha256, 64),
@@ -317,14 +320,15 @@ def _ensure_adopted(identity=None):
 def save_run(output, plots_b64, script=None, language=None, identity=None,
              returncode=None, timed_out=False, prompt=None, filename=None,
              dataset_version=None, dataset_sha256=None, model=None, role=None,
-             methods=None):
+             methods=None, prompt_inherited=False):
     """Persist one run's artifacts as a new run and return its ``run_id``.
 
     ``script`` is the exact script that produced the run (P2-1/P2-7: /export
     and /interpret read it, never the shared approved store's "most recent").
     ``returncode``/``timed_out`` are the real sandbox outcome (D1-2).
     ``prompt``, ``filename``, ``dataset_version``, ``dataset_sha256``,
-    ``model`` and ``role`` record what produced it, for provenance.
+    ``model`` and ``role`` record what produced it, for provenance;
+    ``prompt_inherited`` marks a prompt borrowed from another generation.
 
     Allocation, write, index update and eviction all happen under the index
     lock. Over ``MAX_RUNS_PER_IDENTITY`` the oldest unstarred run is evicted
@@ -363,7 +367,7 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
                 run_id, prompt=prompt, filename=filename,
                 dataset_version=dataset_version,
                 dataset_sha256=dataset_sha256, model=model, role=role,
-                methods=methods))
+                methods=methods, prompt_inherited=prompt_inherited))
             os.rename(tmp, os.path.join(root, run_id))
         except BaseException:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -395,6 +399,21 @@ def run_ids(identity=None):
     """The caller's run ids, oldest first."""
     _ensure_adopted(identity)
     return list(_load_index(_runs_root(identity))['runs'])
+
+
+def latest_meta_for_script(code, language, identity=None):
+    """Meta of the most recent run that executed exactly ``code`` under
+    ``language``, or None. Lets a re-run keep the provenance of the run it
+    repeats after its approval left the (small) approved-script store."""
+    _ensure_adopted(identity)
+    root = _runs_root(identity)
+    language = language or 'Python'
+    for run_id in reversed(_load_index(root)['runs']):
+        run_dir = os.path.join(root, run_id)
+        script = _read_script(run_dir)
+        if script and script['code'] == code and script['language'] == language:
+            return _read_meta(run_dir)
+    return None
 
 
 def latest_run_id(identity=None):

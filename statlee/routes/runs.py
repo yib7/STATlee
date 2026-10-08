@@ -56,6 +56,7 @@ def get_run(run_id):
         'name': _meta_str(meta, 'name'),
         'created_at': _meta_str(meta, 'created_at'),
         'prompt': _meta_str(meta, 'prompt'),
+        'prompt_inherited': bool(meta.get('prompt_inherited')),
         'filename': _meta_str(meta, 'filename'),
         'dataset_version': version if isinstance(version, int) else None,
         'dataset_sha256': _meta_str(meta, 'dataset_sha256'),
@@ -98,4 +99,7 @@ def patch_run(run_id):
         return json_error("Nothing to update: send 'name' and/or 'starred'.")
     if storage.update_run_meta(run_id, **changes) is None:
         raise RunNotFound(run_id)
-    return jsonify(storage.run_summary(run_id))
+    summary = storage.run_summary(run_id)
+    if summary is None:          # evicted between the update and the read
+        raise RunNotFound(run_id)
+    return jsonify(summary)

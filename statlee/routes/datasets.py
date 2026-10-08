@@ -204,6 +204,22 @@ def _read_active(filename, nrows=None, row_cap=None):
     return df, path
 
 
+def read_version_frame(filename, version):
+    """Cached full read of one version of a dataset (SP1: interpreting an
+    older run reads the data it ran on). Returns ``(df, path)`` or
+    ``(None, None)`` when that version's file is gone."""
+    path = storage.dataset_version_path(filename, version)
+    if not path:
+        return None, None
+    mtime = os.stat(path).st_mtime
+    cached = _cache_get(_frame_cache, (path, mtime))
+    if cached is not None:
+        return cached, path
+    df = pd.read_csv(path)
+    _cache_put(_frame_cache, (path, mtime), df, FRAME_CACHE_MAX)
+    return df, path
+
+
 def read_active_frame(filename):
     """Public, cached full read of a dataset's active version for other
     blueprints. Returns ``(df, path)`` or ``(None, None)``."""
