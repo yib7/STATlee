@@ -1,5 +1,7 @@
 """Config validation (1.3): fail-fast on hard requirements, soft warnings
 elsewhere, and provider/sandbox/storage sanity checks."""
+import os
+
 import pytest
 
 from statlee.config import Config
@@ -28,6 +30,59 @@ def test_explicit_database_url_is_honored_in_testing(tmp_path):
     target = 'sqlite:///' + str(tmp_path / 'x.db').replace('\\', '/')
     cfg = Config(env='testing', database_url=target)
     assert cfg.resolved_database_url(str(tmp_path / 'instance')) == target
+
+
+def test_unset_upload_root_defaults_to_stable_instance_dir(tmp_path):
+    """D5-9: an unset UPLOAD_ROOT used to mkdtemp a fresh root per process, so
+    every restart 'lost' logged-in users' durable files and leaked a temp dir.
+    Outside testing it is now a stable <instance>/uploads."""
+    inst = tmp_path / 'instance'
+    first = Config(env='development').resolved_upload_root(str(inst))
+    second = Config(env='production').resolved_upload_root(str(inst))
+    assert first == second == str(inst / 'uploads')
+    assert (inst / 'uploads').is_dir()
+
+
+def test_explicit_upload_root_wins(tmp_path):
+    target = tmp_path / 'elsewhere'
+    cfg = Config(env='development', upload_root=str(target))
+    assert cfg.resolved_upload_root(str(tmp_path / 'instance')) == str(target)
+
+
+def test_testing_upload_root_stays_throwaway(tmp_path):
+    root = Config(env='testing').resolved_upload_root(str(tmp_path / 'instance'))
+    assert not root.startswith(str(tmp_path / 'instance'))
+
+
+def test_create_app_resolves_upload_root_against_instance_dir(tmp_path, fake_llm,
+                                                              monkeypatch):
+    """create_app hands its instance path to resolved_upload_root. The spy
+    redirects the actual directory into tmp_path so the test never creates
+    anything in the real instance/ folder."""
+    from statlee import llm
+    from statlee.app import create_app
+    seen = {}
+    real = Config.resolved_upload_root
+
+    def spy(self, instance_dir=None):
+        seen['instance_dir'] = instance_dir
+        return real(self, str(tmp_path / 'inst'))
+
+    monkeypatch.setattr(Config, 'resolved_upload_root', spy)
+    cfg = Config(env='development', flask_secret_key='s',
+                 database_url='sqlite:///' + str(tmp_path / 'u.db').replace('\\', '/'))
+    cfg.validate()
+    application = create_app(cfg)
+    llm.set_service(fake_llm)
+    assert seen['instance_dir'] == application.instance_path
+    assert application.config['UPLOAD_FOLDER'] == os.path.join(
+        str(tmp_path / 'inst'), 'uploads')
+
+
+def test_production_unset_upload_root_warns():
+    cfg = Config(env='production', gemini_api_key='k', flask_secret_key='s')
+    cfg.validate()
+    assert any('UPLOAD_ROOT' in w for w in cfg.warnings)
 
 
 def test_production_requires_secrets():

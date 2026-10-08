@@ -75,8 +75,13 @@ Three coexisting modes preserve the anonymous-sandbox promise:
 
 Each principal gets an isolated directory:
 
-- logged-in users → `user_<id>/` (durable),
+- logged-in users → `user_<id>/` (durable, as long as the storage root is),
 - anonymous sessions → `anon_<sid>/` (TTL-cleaned).
+
+The storage root is `UPLOAD_ROOT`, or `instance/uploads` when unset (testing
+uses a throwaway temp dir). In a container, keep it on a persistent volume (the
+Dockerfile sets `UPLOAD_ROOT=/app/instance/uploads` and compose mounts a named
+volume at `/app/instance`), or logged-in users' files go with the container.
 
 `resolve_path()` is the safety chokepoint: it runs `secure_filename`, joins
 against the caller's own root, then does a `realpath` containment check, so no

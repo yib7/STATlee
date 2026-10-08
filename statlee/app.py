@@ -320,7 +320,7 @@ def create_app(config=None):
 
     app.config['STATLEE'] = cfg
     app.config['MAX_CONTENT_LENGTH'] = cfg.max_upload_mb * 1024 * 1024
-    app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root()
+    app.config['UPLOAD_FOLDER'] = cfg.resolved_upload_root(app.instance_path)
     app.config['SQLALCHEMY_DATABASE_URI'] = cfg.resolved_database_url(app.instance_path)
     app.config['RATELIMIT_ENABLED'] = cfg.rate_limit_enabled
     # Authoritative limiter store (memory:// by default; a shared store such as

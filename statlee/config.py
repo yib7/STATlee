@@ -59,7 +59,7 @@ class Config:
     max_upload_mb: int = 16
 
     # --- Storage / database --------------------------------------------------
-    upload_root: str = ''           # empty -> a fresh temp dir is created
+    upload_root: str = ''           # empty -> <instance>/uploads (temp dir in testing)
     database_url: str = ''          # empty -> sqlite file under instance dir
     storage_backend: str = 'local'  # 'local' | 's3' (7.3)
     s3_bucket: str = ''
@@ -391,6 +391,13 @@ class Config:
                 "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
                 "WEB_CONCURRENCY=1.")
 
+        if self.is_production and not self.upload_root:
+            self._warn(
+                "UPLOAD_ROOT is unset in production; uploads go to "
+                "<instance>/uploads next to the app. Set UPLOAD_ROOT to a path on "
+                "a persistent volume, or logged-in users' files are lost when "
+                "the container or host is replaced.")
+
         if self.is_production and self.monthly_priority_call_ceiling <= 0:
             # The ceiling applies with billing on AND off (D5-3); during a
             # billing-off free trial it is the only cap on priority spend.
@@ -432,12 +439,20 @@ class Config:
     def is_testing(self):
         return self.env == 'testing'
 
-    def resolved_upload_root(self):
-        """Return the storage root, creating a temp dir when unset."""
-        if self.upload_root:
-            os.makedirs(self.upload_root, exist_ok=True)
-            return self.upload_root
-        self.upload_root = tempfile.mkdtemp(prefix='statlee_')
+    def resolved_upload_root(self, instance_dir=None):
+        """Return the storage root, creating it if needed.
+
+        Unset, it is a stable ``<instance_dir>/uploads`` (D5-9): a fresh temp
+        dir per process used to move storage on every restart, so logged-in
+        users' durable files vanished and the old root was never reclaimed.
+        Testing (or a caller with no instance dir) keeps a throwaway temp dir.
+        """
+        if not self.upload_root:
+            if self.is_testing or not instance_dir:
+                self.upload_root = tempfile.mkdtemp(prefix='statlee_')
+                return self.upload_root
+            self.upload_root = os.path.join(instance_dir, 'uploads')
+        os.makedirs(self.upload_root, exist_ok=True)
         return self.upload_root
 
     def resolved_database_url(self, instance_dir):
