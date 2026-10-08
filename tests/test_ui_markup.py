@@ -725,3 +725,62 @@ def test_codebook_copy_has_no_em_dashes(client):
     js = _js_sources()['codebook.js']
     strings = re.findall(r"'([^'\n]*)'", js)
     assert not [s for s in strings if '—' in s]
+
+
+# =============================================================================
+# SP3 methods and assumptions card (2026-10-08)
+# =============================================================================
+
+def test_results_tab_has_a_methods_card_above_the_terminal(client):
+    html = _index_html(client)
+    results = _section(html, 'contentResults', 'contentConverse')
+    card = results.find('id="methodsCard"')
+    terminal = results.find('id="runOutput"')
+    assert card != -1, 'no methods card in Results'
+    assert card < terminal, 'the methods card sits above the terminal'
+    section = _section(html, 'methodsCard', 'runOutput')
+    assert 'Methods and assumptions' in _visible(section)
+    assert 'aria-labelledby="methodsCardTitle"' in section
+    assert 'id="methodsCardBody"' in section
+    assert '—' not in _visible(section)
+
+
+def test_methods_script_is_loaded_before_tools(client):
+    html = _index_html(client)
+    m = html.find('js/methods.js')
+    t = html.find('js/tools.js')
+    assert m != -1, 'methods.js is not loaded'
+    assert m < t
+
+
+def test_methods_js_renders_parsed_values_as_text_only():
+    """The card's values come from a model-written script's output: built
+    with createElement/textContent, never innerHTML."""
+    js = _js_sources()['methods.js']
+    assert 'innerHTML' not in js
+    assert 'insertAdjacentHTML' not in js
+    assert 'textContent' in js and 'createElement' in js
+    # chips carry a text label, not color alone
+    for label in ("'PASS'", "'WARN'", "'FAIL'"):
+        assert label in js, label
+    assert 'Assumptions not reported' in js
+    strings = re.findall(r"'([^'\n]*)'", js)
+    assert not [s for s in strings if '—' in s]
+
+
+def test_methods_card_is_wired_into_runs_and_saved_runs():
+    js = _js_sources()
+    analyze = js['analyze.js']
+    assert analyze.count('CC.renderMethods(') >= 3     # live run, timeout, saved run
+    assert 'CC.clearMethods(' in analyze
+    assert 'CC.clearMethods(' in js['tools.js']        # text-only history restore
+
+
+def test_methods_card_styles_are_hand_written():
+    css = _read('statlee', 'static', 'css', 'app.css')
+    for cls in ('mc-card', 'mc-head', 'mc-method', 'mc-checks', 'mc-check',
+                'mc-chip', 'mc-effects', 'mc-empty'):
+        assert '.' + cls in css, f'{cls} has no rule in app.css'
+    assert '.mc-card.hidden' in css
+    for state in ('pass', 'warn', 'fail', 'unknown'):
+        assert f'.mc-chip.{state}' in css, state

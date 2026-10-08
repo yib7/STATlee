@@ -335,6 +335,9 @@
             // own plots back while its workbook run exists).
             const plotOutput = document.getElementById('plotOutput');
             if (plotOutput) plotOutput.innerHTML = '';
+            // Nor its Methods card: a text-only row has none (SP3).
+            // restoreSavedRun shows the run's own card while it exists.
+            if (CC.clearMethods) CC.clearMethods();
             // D4-10: the report builder and Converse read lastRun; without
             // it the restored results looked present but "Run an analysis
             // first" blocked the report.

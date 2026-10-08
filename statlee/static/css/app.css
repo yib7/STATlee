@@ -859,6 +859,66 @@ input[type="checkbox"].cc-switch::after {
 input[type="checkbox"].cc-switch:checked { background: var(--indigo); border-color: var(--indigo); }
 input[type="checkbox"].cc-switch:checked::after { left: 16px; }
 
+/* The terminal keeps its size in the Results column (it used to be the flex
+   item that shrank, clipping long output behind overflow:hidden with no way
+   to scroll; the methods card above it made that worse). Long output now
+   scrolls inside the terminal and the Results tab scrolls as a whole. */
+.lc-term-box { flex-shrink: 0; }
+.lc-term-body { max-height: 28rem; overflow: auto; }
+
+/* ============ Methods and assumptions card (SP3) ============
+   The run's parsed methods block, above the terminal. Verdict chips carry a
+   text label (PASS / WARN / FAIL / NOTE), color only reinforces it. */
+.mc-card {
+    display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; flex-shrink: 0;
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 0.85rem 1rem; box-shadow: var(--e1);
+}
+.mc-card.hidden { display: none; }
+.mc-card.mc-missing { border-style: dashed; }
+.mc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.mc-summary { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2); }
+.mc-body { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.mc-method {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin: 0; min-width: 0;
+}
+.mc-field { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; max-width: 100%; }
+.mc-field dt {
+    font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-3);
+}
+.mc-field dd { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--text-1); overflow-wrap: anywhere; }
+.mc-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.75rem 1.25rem; }
+.mc-section { min-width: 0; }
+.mc-sub {
+    margin: 0 0 0.35rem; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-3);
+}
+.mc-checks, .mc-effects { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.mc-check { display: flex; align-items: flex-start; gap: 0.55rem; min-width: 0; }
+.mc-check-text { min-width: 0; font-size: 0.8rem; line-height: 1.4; color: var(--text-1); overflow-wrap: anywhere; }
+.mc-check-name { font-weight: 600; }
+.mc-check-detail { color: var(--text-2); }
+.mc-check-detail::before { content: ' '; }
+.mc-chip {
+    flex-shrink: 0; min-width: 2.7rem; text-align: center;
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.12rem 0.4rem; border-radius: var(--r-pill); border: 1px solid currentColor;
+}
+.mc-chip.pass { color: var(--pipe-done); background: color-mix(in srgb, var(--pipe-done) 12%, var(--s0)); }
+.mc-chip.warn { color: var(--c-nom); background: color-mix(in srgb, var(--c-nom) 12%, var(--s0)); }
+.mc-chip.fail { color: var(--pipe-failed); background: color-mix(in srgb, var(--pipe-failed) 12%, var(--s0)); }
+.mc-chip.unknown { color: var(--text-2); background: var(--s2); }
+.mc-effects li {
+    font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-1);
+    padding-left: 0.6rem; border-left: 2px solid var(--indigo); overflow-wrap: anywhere;
+}
+.mc-empty { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--text-1); }
+.mc-empty-sub { margin: 0; font-size: 0.78rem; line-height: 1.45; color: var(--text-2); }
+@media (max-width: 640px) {
+    .mc-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Focus visibility (5.9, D4-13). !important because Tailwind's
    focus:outline-none (a 2px *transparent* outline) used to win on most
    buttons, leaving keyboard users with no visible focus at all. */

@@ -390,6 +390,7 @@
         if (copyBtn) copyBtn.style.display = 'none';
         setTermState(null);
         setInterpretationTitle(false);
+        if (CC.clearMethods) CC.clearMethods();
         ['runOutput', 'interpretationOutput', 'plotOutput'].forEach((id) => {
             const el = byId(id);
             if (el) el.innerHTML = '';
@@ -645,6 +646,8 @@
         CC.switchTab('results');
         runOutput.innerText = 'Running the script in the sandbox...';
         if (plotOutput) plotOutput.innerHTML = '';
+        // The previous run's Methods card must not sit beside this one.
+        if (CC.clearMethods) CC.clearMethods();
         execRunning();
         interpretationOutput.innerHTML =
             `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Awaiting output stream...</span>`;
@@ -662,6 +665,7 @@
                 CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code, run_id: runId };
                 if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
                 renderTerminal(out, true);
+                if (CC.renderMethods) CC.renderMethods(ok ? data.methods : null, { failed: true });
                 execFinished(true, null, 'timed out', { noFix: true });
                 if (plotOutput) plotOutput.innerHTML = renderPlots(plots);
                 interpretationOutput.innerHTML =
@@ -689,6 +693,8 @@
             if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
             const failed = !data.success;
             renderTerminal(data.output, failed);
+            // SP3: the server's parsed methods block, above the terminal.
+            if (CC.renderMethods) CC.renderMethods(data.methods, { failed });
             execFinished(failed, data.returncode,
                 failed ? failureNote(data.output) : null);
             if (failed) showDebugFrame(data.output || '');
@@ -830,6 +836,7 @@
         const icon = byId('termIcon');
         if (icon) icon.classList.toggle('failed', failed);
         renderTerminal(run.output || '', failed);
+        if (CC.renderMethods) CC.renderMethods(run.methods, { failed });
         if (run.timed_out) setTermState('failed', 'saved · timed out', false);
         else if (typeof run.returncode !== 'number') setTermState('done', 'saved run', false);
         else if (failed) setTermState('failed', 'saved · exit ' + run.returncode, false);

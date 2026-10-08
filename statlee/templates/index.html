@@ -654,7 +654,18 @@
                             <span id="execElapsed" class="lc-elapsed live" aria-hidden="true"><span class="lc-dot blink"></span><span id="execElapsedVal">0:00</span></span>
                         </div>
 
-                        <div class="bg-[var(--code-bg)] border border-[var(--code-border)] rounded-[14px] shadow-[var(--e2)] flex flex-col overflow-hidden">
+                        <!-- Methods and assumptions card (SP3): the run's
+                             parsed methods block. methods.js fills the body
+                             with text nodes only; hidden until a run has one. -->
+                        <section id="methodsCard" class="mc-card hidden" aria-labelledby="methodsCardTitle">
+                            <div class="mc-head">
+                                <h3 id="methodsCardTitle" class="label-eyebrow m-0">Methods and assumptions</h3>
+                                <span id="methodsCardSummary" class="mc-summary"></span>
+                            </div>
+                            <div id="methodsCardBody" class="mc-body"></div>
+                        </section>
+
+                        <div class="bg-[var(--code-bg)] border border-[var(--code-border)] rounded-[14px] shadow-[var(--e2)] flex flex-col overflow-hidden lc-term-box">
                             <div class="bg-[var(--code-chrome)] border-b border-[var(--code-border)] px-4 py-3 flex items-center justify-between gap-2">
                                 <h3 class="text-xs font-mono uppercase text-[var(--code-text)] font-semibold tracking-widest flex items-center gap-2 m-0">
                                     <svg id="termIcon" class="w-4 h-4 text-emerald-400 lc-term-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 8l4 4-4 4M13 16h6"></path><rect x="2" y="3" width="20" height="18" rx="2"></rect></svg>
@@ -667,7 +678,7 @@
                                  skeleton standing in. min-height is inline because
                                  `min-h-[150px]` is not in the purged Tailwind build
                                  and would silently do nothing. -->
-                            <div class="relative flex-1 min-h-0" style="min-height:150px">
+                            <div class="relative flex-1 min-h-0 lc-term-body" style="min-height:150px">
                                 <pre id="runOutput" class="text-[var(--code-text)] font-mono text-sm whitespace-pre-wrap leading-relaxed p-5 m-0"></pre>
                                 <div class="es-skels es-run" aria-hidden="true">
                                     <div class="es-skel" style="height:9px;width:40%"></div>
@@ -973,6 +984,7 @@
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ui.js') }}"></script>
     <script src="{{ url_for('static', filename='js/data.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/methods.js') }}"></script>
     <script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/workbook.js') }}"></script>
     <script src="{{ url_for('static', filename='js/codebook.js') }}"></script>
