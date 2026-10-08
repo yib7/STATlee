@@ -75,6 +75,31 @@ def test_login_wrong_password(client):
     assert resp.status_code == 401
 
 
+def test_login_missing_user_still_runs_hash_check(client, monkeypatch):
+    """D2-5: an unknown email must do the same password-hash work as a wrong
+    password (no timing oracle), and return the identical 401 body."""
+    import statlee.routes.auth as auth_mod
+
+    post_json(client, '/register', {'email': 'real@x.com', 'password': 'longenough1'})
+    post_json(client, '/logout', {})
+    wrong = post_json(client, '/login',
+                      {'email': 'real@x.com', 'password': 'wrongpassword'})
+
+    calls = []
+    real_check = auth_mod.check_password_hash
+
+    def spy(pwhash, password):
+        calls.append((pwhash, password))
+        return real_check(pwhash, password)
+
+    monkeypatch.setattr(auth_mod, 'check_password_hash', spy)
+    missing = post_json(client, '/login',
+                        {'email': 'nobody@x.com', 'password': 'wrongpassword'})
+    assert calls == [(auth_mod._DUMMY_PASSWORD_HASH, 'wrongpassword')]
+    assert missing.status_code == wrong.status_code == 401
+    assert missing.get_json() == wrong.get_json()
+
+
 def test_login_logout_cycle(client):
     post_json(client, '/register', {'email': 'e@f.com', 'password': 'longenough1'})
     assert post_json(client, '/logout', {}).status_code == 200

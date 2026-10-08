@@ -23,6 +23,7 @@ from flask import (
 )
 from flask_login import login_user, logout_user
 from sqlalchemy.exc import IntegrityError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
@@ -48,6 +49,12 @@ VERIFY_TOKEN_TTL = timedelta(hours=48)
 # Password-reset tokens are short-lived (P2-11): a reset link should be usable
 # for one sitting, not indefinitely.
 RESET_TOKEN_TTL = timedelta(hours=1)
+
+# Hash of a random throwaway secret, computed once at import (D2-5). /login
+# verifies the submitted password against it when no account matches, so an
+# unknown email costs the same hash work as a wrong password and response
+# timing does not reveal which emails are registered.
+_DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
 
 
 def _token_age_ok(issued_at, ttl):
@@ -117,7 +124,11 @@ def login():
             return json_error('Accounts are disabled on this server.', 403)
         user = db.session.execute(
             db.select(User).filter_by(email=email)).scalar_one_or_none()
-        if user and user.check_password(data.get('password') or ''):
+        password = data.get('password') or ''
+        if user is None:
+            # Equalize work with the wrong-password path (D2-5); result unused.
+            check_password_hash(_DUMMY_PASSWORD_HASH, password)
+        elif user.check_password(password):
             if cfg.require_email_verification and not user.email_verified:
                 return json_error(
                     'Please confirm your email before logging in. Check your '
