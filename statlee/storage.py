@@ -714,6 +714,60 @@ def last_run_artifacts(identity=None):
 # Lifecycle
 # ---------------------------------------------------------------------------
 
+_VERSION_FILE_RE = re.compile(r'^(?P<stem>.+)__v\d+\.[^.]+$')
+
+
+def _adoption_group(name):
+    """The dataset stem a workspace entry belongs to, or None for entries that
+    are not adopted per dataset (locks, markers, staging files, stores)."""
+    if name.endswith('.lock') or name == LAST_SEEN \
+            or name.startswith(INCOMING_PREFIX):
+        return None
+    for prefix in (MANIFEST_PREFIX, META_PREFIX):
+        if name.startswith(prefix) and name.endswith('.json'):
+            return name[len(prefix):-len('.json')]
+    if name.startswith('.'):
+        return None
+    m = _VERSION_FILE_RE.match(name)
+    return m.group('stem') if m else os.path.splitext(name)[0]
+
+
+def adopt_workspace(from_identity, to_identity):
+    """Move an anonymous workspace into an account's at sign-in (L2).
+
+    Datasets move as whole groups (file, version files, manifest, metadata
+    sidecar); a group is skipped when ANY of its names already exists in the
+    account, so nothing the account holds is ever overwritten. The last run and
+    the approved-script store move only when the account has none. Anything
+    skipped stays behind and expires with the anonymous workspace. Returns the
+    number of entries moved."""
+    src = os.path.join(storage_root(), from_identity)
+    if from_identity == to_identity or not os.path.isdir(src):
+        return 0
+    dst = identity_root(to_identity)
+    groups = {}
+    singles = []
+    for name in os.listdir(src):
+        if name in (APPROVED_SCRIPT, LAST_RUN_DIR):
+            singles.append(name)
+            continue
+        stem = _adoption_group(name)
+        if stem is not None and os.path.isfile(os.path.join(src, name)):
+            groups.setdefault(stem, []).append(name)
+    moved = 0
+    for names in groups.values():
+        if any(os.path.exists(os.path.join(dst, n)) for n in names):
+            continue
+        for n in names:
+            os.replace(os.path.join(src, n), os.path.join(dst, n))
+            moved += 1
+    for name in singles:
+        if not os.path.exists(os.path.join(dst, name)):
+            os.replace(os.path.join(src, name), os.path.join(dst, name))
+            moved += 1
+    return moved
+
+
 def reset_identity(identity=None):
     """Delete everything the caller has stored (4.6 Reset)."""
     root = identity_root(identity)

@@ -74,6 +74,22 @@ def _cfg():
     return current_app.config['STATLEE']
 
 
+def _sign_in(user):
+    """``login_user`` plus adoption of this browser session's anonymous
+    workspace (L2): the storage identity switches from ``anon_<sid>`` to
+    ``user_<id>`` here, and without the move a "sign up to save my work"
+    lost the upload. Best-effort -- a failed move must never fail the login."""
+    sid = session.get('sid')
+    login_user(user, remember=True)
+    if not sid:
+        return
+    try:
+        from .. import storage
+        storage.adopt_workspace(f'anon_{sid}', f'user_{user.id}')
+    except Exception:
+        logger.exception("Could not adopt the anonymous workspace at sign-in")
+
+
 def is_authorized():
     """Single authorization decision used by the app-level gate."""
     cfg = _cfg()
@@ -133,7 +149,7 @@ def login():
                 return json_error(
                     'Please confirm your email before logging in. Check your '
                     'inbox for the verification link.', 403)
-            login_user(user, remember=True)
+            _sign_in(user)
             return jsonify({'status': 'success', 'user': {'email': user.email}}), 200
         return json_error('Invalid email or password.', 401)
 
@@ -197,7 +213,7 @@ def register():
                        'logging in.',
         }), 202
 
-    login_user(user, remember=True)
+    _sign_in(user)
     return jsonify({'status': 'success', 'user': {'email': user.email}}), 201
 
 
@@ -277,7 +293,7 @@ def verify_email():
     user.verification_token = None
     user.token_issued_at = None
     db.session.commit()
-    login_user(user, remember=True)
+    _sign_in(user)
     logger.info("Email verified for %s (id=%s)", user.email, user.id)
     return redirect('/')
 
