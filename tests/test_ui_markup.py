@@ -499,3 +499,45 @@ def test_account_form_has_submit_and_password_reset(client):
     tools = _js_sources()['tools.js']
     assert '/request_password_reset' in tools
     assert "status === 'success'" in tools      # reload only on a real sign-in
+
+
+# --- S4: frontend reconciled with the S1-B backend contract -----------------
+def test_s4_dataset_info_and_codebook_text_hooks(client):
+    """The stored name can differ from the picked file (D1-1), so the sidebar
+    names the dataset the user picked and lists upload warnings; a TXT
+    codebook has a text view instead of the PDF frame."""
+    html = _index_html(client)
+    for hook in ('id="datasetInfo"', 'id="datasetName"', 'id="datasetWarnings"',
+                 'id="codebookTextView"', 'id="interpretationTitle"'):
+        assert hook in html, hook
+
+
+def test_s4_export_copy_describes_the_runnable_zip(client):
+    """Contract 15: data at the root, data/original_<name>, README.txt and
+    cleaning.py. The old tooltip promised a data/ folder that is gone."""
+    html = _visible(_index_html(client))
+    i = html.find('id="exportBtn"')
+    tag = html[i - 200:i + 400]
+    assert 'README' in tag and 'original' in tag and 'cleaning' in tag
+    assert 'data + script + plots + report as a zip' not in tag
+
+
+def test_s4_no_stale_run_or_login_contract_in_js():
+    """Contract 11: the "Generate code before running" 403 is gone, and
+    contract 16: sign-in keeps the workspace, so login no longer reloads."""
+    sources = _js_sources()
+    blob = '\n'.join(sources.values())
+    assert 'Generate code before running' not in blob
+    assert 'only runs scripts it generated' not in blob
+    tools = sources['tools.js']
+    start = tools.find('function doLogin')
+    body = tools[start:tools.find('function doRegister')]
+    assert 'location.reload' not in body, 'login still throws the workspace away'
+
+
+def test_s4_credit_balance_is_read_centrally():
+    """Upcoming field: `credits_remaining` is picked up for every JSON reply
+    and every SSE event, not route by route."""
+    api = _js_sources()['api.js']
+    assert 'credits_remaining' in api
+    assert api.count('CC.noteCredits(') >= 3     # post, postForm, streamSSE

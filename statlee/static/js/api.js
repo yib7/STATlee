@@ -8,7 +8,8 @@
     window.CC = {
         csrfToken: csrfMeta ? csrfMeta.content : '',
         state: {
-            filename: '',
+            filename: '',           // the STORED name: send it on every request
+            originalName: '',       // the picked file's name: show it (D1-1)
             headers: [],
             codebook: {},
             pdfMapping: {},
@@ -18,6 +19,7 @@
             lastRun: null,          // {output, plots, success}
             lastPrompt: '',
             suggestions: [],
+            seenSuggestions: [],    // ideas already shown, sent as /suggest `previous` (max 10)
             report: '',
             user: null,
             currentPage: 1,
@@ -47,6 +49,18 @@
             extra || {});
     };
 
+    /** Credit-spending replies may carry the refreshed balance as
+     *  `credits_remaining` (JSON body or SSE event). When present it is the
+     *  balance to show; absent, nothing changes. Read here, centrally, so no
+     *  route handler has to remember it. */
+    CC.noteCredits = function (data) {
+        if (!data || typeof data !== 'object') return;
+        const left = data.credits_remaining;
+        if (typeof left !== 'number' || !isFinite(left)) return;
+        if (CC.state.user) CC.state.user.credits = left;
+        if (CC.showCredits) CC.showCredits();
+    };
+
     /** POST JSON, parse JSON. Returns {ok, status, data}. */
     CC.post = async function (url, body) {
         const res = await fetch(url, {
@@ -56,6 +70,7 @@
         });
         let data = {};
         try { data = await res.json(); } catch (e) { /* non-JSON body */ }
+        CC.noteCredits(data);
         return { ok: res.ok, status: res.status, data };
     };
 
@@ -68,6 +83,7 @@
         });
         let data = {};
         try { data = await res.json(); } catch (e) { /* non-JSON body */ }
+        CC.noteCredits(data);
         return { ok: res.ok, status: res.status, data };
     };
 
@@ -84,7 +100,10 @@
      *  page is not JSON; callers get {} and fall back to the HTTP status
      *  instead of mislabelling a server error as a "network error" (D4-22). */
     CC.readJSON = async function (response) {
-        try { return await response.json(); } catch (e) { return {}; }
+        let data = {};
+        try { data = await response.json(); } catch (e) { return {}; }
+        CC.noteCredits(data);
+        return data;
     };
 
     /** Human message for a non-streaming error reply. */
@@ -104,6 +123,14 @@
         return msg;
     };
 
+    /** The dataset's name as the user knows it. The server stores non-Latin
+     *  names under an ASCII name (`upload_<8hex>.csv`, D1-1): that stored
+     *  `CC.state.filename` is what every request sends, `original_name` is
+     *  what the user sees. */
+    CC.datasetLabel = function () {
+        return CC.state.originalName || CC.state.filename || '';
+    };
+
     /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
      *  onPhase receives (phase, message): some phases are notices rather than
      *  progress (P2-8's feature-selection fallback carries the text to show),
@@ -118,6 +145,7 @@
         const h = handlers || {};
         let terminal = false;
         const dispatch = (parsed) => {
+            CC.noteCredits(parsed);
             if (parsed.type === 'delta' && h.onDelta) h.onDelta(parsed.text || '');
             else if (parsed.type === 'phase' && h.onPhase) h.onPhase(parsed.phase, parsed.message);
             else if (parsed.type === 'done') { terminal = true; if (h.onDone) h.onDone(parsed); }

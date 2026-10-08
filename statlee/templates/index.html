@@ -255,7 +255,7 @@
                     <button id="resetBtn" class="btn-toolbar" title="Start over with a clean workspace" aria-label="New analysis: reset everything">New</button>
                     <button id="historyBtn" class="btn-toolbar" title="Past analyses" aria-label="Open analysis history">History</button>
                     <button id="catalogBtn" class="btn-toolbar" title="Browse statistical tests and plots" aria-label="Open analysis catalog">Catalog</button>
-                    <button id="exportBtn" class="btn-toolbar" title="Download data + script + plots + report as a zip" aria-label="Download project archive">Export</button>
+                    <button id="exportBtn" class="btn-toolbar" title="Download a zip that runs as unzipped: the current data next to the script, the original upload in data/original_*, cleaning.py to replay your cleaning steps, plots, the report and a README" aria-label="Download project archive">Export</button>
                     <button id="issueBtn" class="btn-toolbar" title="Report a problem" aria-label="Report an issue">Support</button>
                     <button id="accountBtn" class="btn-toolbar" title="Sign in to keep your work" aria-label="Account">Account</button>
                     <button id="settingsBtn" class="btn-toolbar" title="Workspace settings: suggestions, split view" aria-label="Workspace settings">Settings</button>
@@ -285,6 +285,14 @@
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                         Anonymous · uploads auto-deleted
                         </p>
+                    </div>
+                    <!-- The loaded dataset (D1-1): the name the user picked, plus
+                         the stored name scripts read when the two differ, and any
+                         upload warnings (D1-13: skipped sheets, ...). -->
+                    <div id="datasetInfo" class="cc-dataset-info hidden" role="status">
+                        <p class="cc-dataset-name">Loaded <strong id="datasetName"></strong></p>
+                        <p id="datasetStored" class="cc-dataset-stored hidden"></p>
+                        <ul id="datasetWarnings" class="cc-dataset-warnings hidden"></ul>
                     </div>
                     <p id="sessionExpiry" class="cc-session-expiry hidden" role="status"></p>
 
@@ -664,7 +672,7 @@
                         <div class="bg-[var(--s1)] border border-[var(--border)] rounded-[14px] p-8 flex-1 shadow-[var(--e1)]">
                             <h3 class="label-eyebrow mb-6 flex items-center gap-2 border-b border-[var(--border)] pb-4">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 3a9 9 0 00-9 9c0 4 3 6 3 8h12c0-2 3-4 3-8a9 9 0 00-9-9zM9 21h6"></path></svg>
-                                Interpretation
+                                <span id="interpretationTitle">Interpretation</span>
                             </h3>
                             <div class="relative" style="min-height:76px">
                                 <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body"></div>
@@ -787,6 +795,9 @@
                                 </div>
                             </div>
                             <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white hidden" src="" title="Uploaded codebook document"></iframe>
+                            <!-- A .txt codebook stays text on the server (D1-10), so it
+                                 is shown as text, never loaded into the PDF frame. -->
+                            <pre id="codebookTextView" class="cc-codebook-text hidden" tabindex="0" aria-label="Uploaded codebook text"></pre>
                         </div>
                     </div>
 

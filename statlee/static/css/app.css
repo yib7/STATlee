@@ -527,6 +527,20 @@ body.cc-no-data .es-hint { display: block; }
 /* Anonymous-upload expiry line (D4-20). */
 .cc-session-expiry { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2); text-align: center; }
 
+/* S4: the loaded dataset under the dropzone. The user's own file name, the
+   stored name when it differs (scripts read that one), and upload warnings. */
+.cc-dataset-info { margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-2); line-height: 1.45; overflow-wrap: anywhere; }
+.cc-dataset-name strong { color: var(--text-1); font-weight: 600; }
+.cc-dataset-stored { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2); }
+.cc-dataset-warnings { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem 0.4rem 1.4rem; list-style: disc; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--s0); display: flex; flex-direction: column; gap: 0.25rem; }
+
+/* A missing / NaN / inf cell from /data_page (null): visibly empty, not a
+   literal "null" and not a blank that reads like an empty string. */
+.cell-missing { color: var(--text-3); font-style: italic; }
+
+/* A .txt codebook preview: plain text, never HTML, never the PDF frame. */
+.cc-codebook-text { flex: 1; margin: 0; padding: 1.25rem 1.5rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; color: var(--text-1); background: var(--s0); }
+
 /* Conversational data-cleaning transcript (5.16) */
 .wrangle-chat { max-height: 14rem; }
 .revert-btn { border-color: color-mix(in srgb, var(--c-nom) 55%, transparent); color: var(--c-nom); }
