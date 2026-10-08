@@ -680,6 +680,11 @@ def wrangle():
     if denied is not None:
         return denied
 
+    # S5: take the version token BEFORE reading the data. Any upload, wrangle,
+    # undo or revert that lands after this point changes it, so the commit
+    # below is refused (409) instead of stacking a frame built from data that
+    # is no longer the active version.
+    base_token = storage.dataset_version_token(filename)
     try:
         df, active_path = _read_active(filename)
     except Exception:
@@ -760,7 +765,8 @@ def wrangle():
         # version while this one ran, rather than discarding that edit.
         storage.add_dataset_version(
             filename, new_df, instruction, summary=plan.get('summary'),
-            code=plan['code'], base_file=dataset_basename)
+            code=plan['code'], base_file=dataset_basename,
+            base_token=base_token)
         clear_caches()
         return jsonify({
             'status': 'success',

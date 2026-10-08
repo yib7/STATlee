@@ -19,6 +19,7 @@ import re
 import shutil
 import time
 import unicodedata
+import uuid
 
 from filelock import FileLock
 from flask import current_app, session
@@ -295,7 +296,13 @@ def register_dataset(filename, identity=None):
 
     A re-upload under the same name starts a fresh history; the previous
     history's version files are deleted so they neither linger on disk nor
-    count toward the byte quota (D1-14)."""
+    count toward the byte quota (D1-14). Each registration gets a new
+    ``upload_id``, so a wrangle that read the previous upload can tell (S5)."""
+    with _manifest_lock(filename, identity):
+        return _register_unlocked(filename, identity)
+
+
+def _register_unlocked(filename, identity=None):
     previous = _load_manifest(filename, identity)
     if previous:
         keep = secure_filename(filename)
@@ -308,6 +315,9 @@ def register_dataset(filename, identity=None):
                         os.remove(path)
                     except OSError:
                         logger.warning("Could not remove old version %s", path)
+    rev = 0
+    if isinstance(previous, dict) and isinstance(previous.get('rev'), int):
+        rev = previous['rev']
     manifest = {
         'filename': secure_filename(filename),
         'versions': [{
@@ -318,6 +328,12 @@ def register_dataset(filename, identity=None):
             'ts': time.time(),
         }],
         'active': 1,
+        # S5: the version token. A fresh id per upload plus a counter bumped
+        # by every change, so neither a same-name re-upload nor an undo
+        # followed by a new edit (same v number, same file name, different
+        # bytes) can look like the version a running wrangle read.
+        'upload_id': uuid.uuid4().hex,
+        'rev': rev + 1,
     }
     _save_manifest(filename, manifest, identity)
     return manifest
@@ -353,8 +369,26 @@ def _active_entry(manifest):
                  if v['v'] == manifest['active']), None)
 
 
+def _version_token(manifest):
+    return f"{manifest.get('upload_id') or ''}:{int(manifest.get('rev') or 0)}"
+
+
+def _bump(manifest):
+    manifest['rev'] = int(manifest.get('rev') or 0) + 1
+
+
+def dataset_version_token(filename, identity=None):
+    """An opaque token naming the dataset's current state, or None for an
+    unknown dataset. It changes on every upload, wrangle, undo, redo and
+    revert; pass it back as ``base_token`` to ``add_dataset_version`` to
+    commit only on top of the state that was read (S5)."""
+    manifest = _load_manifest(filename, identity)
+    return _version_token(manifest) if manifest else None
+
+
 def add_dataset_version(filename, new_df, instruction, summary=None,
-                        identity=None, code=None, base_file=None):
+                        identity=None, code=None, base_file=None,
+                        base_token=None):
     """Persist a wrangled DataFrame as the next version and activate it.
 
     ``instruction`` is the user's own words; ``summary`` is the applied,
@@ -367,12 +401,17 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
     wrangle/undo/revert has moved the active version since, the commit is
     refused with ``VersionConflict`` (L1) instead of stacking a frame derived
     from the old version on top of the new one.
+    ``base_token`` (from ``dataset_version_token``, read BEFORE the data) is
+    the stronger check (S5): file names repeat after a same-name re-upload or
+    an undo plus a new edit, the token does not.
     """
     # P2-9: serialize the whole read-modify-write so a concurrent wrangle/undo
     # cannot compute the same next_v and silently drop this version.
     with _manifest_lock(filename, identity):
         manifest = (_load_manifest(filename, identity)
-                    or register_dataset(filename, identity))
+                    or _register_unlocked(filename, identity))
+        if base_token is not None and _version_token(manifest) != base_token:
+            raise VersionConflict(filename)
         if base_file is not None:
             active = _active_entry(manifest)
             if active is None or active['file'] != base_file:
@@ -393,6 +432,7 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
             'ts': time.time(),
         })
         manifest['active'] = next_v
+        _bump(manifest)
         _save_manifest(filename, manifest, identity)
         return manifest
 
@@ -430,6 +470,7 @@ def revert_to_original(filename, identity=None):
             'ts': time.time(),
         })
         manifest['active'] = next_v
+        _bump(manifest)
         _save_manifest(filename, manifest, identity)
         return manifest
 
@@ -448,6 +489,7 @@ def shift_dataset_version(filename, direction, identity=None):
         if new_idx < 0 or new_idx >= len(versions):
             return manifest  # already at the edge -- no-op
         manifest['active'] = versions[new_idx]
+        _bump(manifest)
         _save_manifest(filename, manifest, identity)
         return manifest
 
