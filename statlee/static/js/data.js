@@ -8,6 +8,9 @@
     let pendingFilename = null;
     let pdfMode = 'codebook';   // 'codebook' | 'survey' (5.13)
     let searchDebounce;
+    let pageSeq = 0;            // D4-23: only the newest /data_page reply renders
+    let uploadBusy = false;
+    let codebookURL = null;     // blob: URL of the attached document (revoked on replace)
 
     // --- data table -----------------------------------------------------------
     CC.fetchDataPage = async function (page) {
@@ -16,20 +19,33 @@
         document.querySelectorAll('.col-search-input').forEach(input => {
             if (input.value.trim() !== '') filters[input.dataset.col] = input.value.trim();
         });
-        const { ok, data } = await CC.post('/data_page', {
-            filename: CC.state.filename, page, per_page: 100, filters,
-        });
+        const seq = ++pageSeq;
+        const forFile = CC.state.filename;
+        let reply;
+        try {
+            reply = await CC.post('/data_page', {
+                filename: forFile, page, per_page: 100, filters,
+            });
+        } catch (e) {
+            if (seq === pageSeq) CC.toast('Network error loading the data table.', 'error');
+            return;
+        }
+        // A slower, older reply (a previous filter, or the previous dataset)
+        // must not overwrite a newer one.
+        if (seq !== pageSeq || forFile !== CC.state.filename) return;
+        const { ok, data } = reply;
         if (ok && data.status === 'success') {
+            const totalPages = Math.max(1, data.total_pages || 0);
             CC.state.currentPage = data.current_page;
-            CC.state.totalPages = data.total_pages;
+            CC.state.totalPages = totalPages;
             renderTableBody(CC.state.headers, data.data);
             document.getElementById('paginationFooter').classList.remove('hidden');
             document.getElementById('pageInfo').innerText =
-                `Page ${data.current_page} of ${data.total_pages} (${data.total_rows} matching rows)`;
+                `Page ${data.current_page} of ${totalPages} (${data.total_rows} matching rows)`;
             document.getElementById('prevPageBtn').disabled = data.current_page <= 1;
-            document.getElementById('nextPageBtn').disabled = data.current_page >= data.total_pages;
+            document.getElementById('nextPageBtn').disabled = data.current_page >= totalPages;
         } else if (data && data.error) {
-            CC.toast(data.error, 'error');
+            CC.toast(CC.explainError(data.error), 'error');
         }
     };
 
@@ -52,7 +68,8 @@
         });
         thead.innerHTML = html + '</tr>';
         document.querySelectorAll('.col-search-input').forEach(input => {
-            input.addEventListener('keyup', () => {
+            // `input`, not `keyup`: Tab, arrows and Shift must not refetch.
+            input.addEventListener('input', () => {
                 clearTimeout(searchDebounce);
                 searchDebounce = setTimeout(() => CC.fetchDataPage(1), 400);
             });
@@ -158,18 +175,34 @@
                 pdf_mapping: CC.state.pdfMapping,
                 previous: previous || [],
             });
-            if (ok && data.suggestions) {
-                CC.state.suggestions = data.suggestions;
+            // D4-21: the model's JSON shape is not guaranteed. Accept a list or
+            // {suggestions: [...]}, keep strings only, at most three; anything
+            // else is a failed step, not a TypeError mislabelled "network error".
+            const raw = data && (Array.isArray(data.suggestions) ? data.suggestions
+                : (data.suggestions && Array.isArray(data.suggestions.suggestions)
+                    ? data.suggestions.suggestions : null));
+            const suggestions = raw ? raw.filter(s => typeof s === 'string' && s.trim()).slice(0, 3) : [];
+            if (ok && suggestions.length) {
+                CC.state.suggestions = suggestions;
                 if (data.usage) CC.addUsage(data.usage);
                 list.innerHTML = '';
-                data.suggestions.forEach(suggestion => {
+                suggestions.forEach(suggestion => {
                     const btn = document.createElement('button');
+                    btn.type = 'button';
                     btn.className = 'text-sm bg-white/80 hover:bg-white dark:bg-surface-2/50 dark:hover:bg-surface-2 text-indigo-900 dark:text-indigo-300 border border-slate-300 hover:border-indigo-400 dark:border-slate-700/50 dark:hover:border-indigo-500/50 py-3 px-4 rounded-xl text-left transition-all duration-300 shadow-sm hover:shadow-md flex items-center gap-3 group font-medium w-full';
                     btn.innerHTML = `<svg class="w-4 h-4 shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-amber-500 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> <span class="leading-relaxed">${CC.escapeHtml(suggestion)}</span>`;
-                    btn.onclick = () => { document.getElementById('promptInput').value = suggestion; };
+                    btn.onclick = () => {
+                        const prompt = document.getElementById('promptInput');
+                        prompt.value = suggestion;
+                        prompt.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        prompt.focus({ preventScroll: true });
+                    };
                     list.appendChild(btn);
                 });
                 if (!previous) CC.pipeline.set('suggest', 'done', data.cached ? 'cached' : '');
+            } else if (ok) {
+                list.innerHTML = '';
+                if (!previous) CC.pipeline.set('suggest', 'failed', 'no usable suggestions');
             } else {
                 list.innerHTML = '';
                 if (!previous) CC.pipeline.set('suggest', 'failed', (data && data.error) || '');
@@ -208,35 +241,82 @@
     window.pickDataset = CC.pickDataset;
 
     // --- upload flow ------------------------------------------------------------
+    /** Clear the previous dataset's sidebar state. Runs only once the NEW
+     *  upload has been accepted (D4-2): a rejected file must leave the dataset
+     *  the user is working on untouched. */
+    function resetDatasetChrome() {
+        CC.state.pdfMapping = {};
+        CC.state.codebook = {};
+        CC.dockCodebook();
+        document.getElementById('codebookContainer').classList.add('hidden');
+        document.getElementById('codebookList').innerHTML = '';
+        if (CC.dockWrangle) CC.dockWrangle();   // dock any floating cleaning panel before hiding
+        document.getElementById('changelogPanel').classList.add('hidden');
+        resetCodebookViewer();   // clear any prior codebook doc, back to empty state
+    }
+
+    /** Is there analysis work tied to the current dataset that a new upload
+     *  would discard? (D4-3) */
+    function hasAnalysisWork() {
+        return !!(CC.getCode && CC.getCode().trim()) || !!CC.state.lastRun ||
+            CC.state.converseHistory.length > 0 || !!(CC.state.report && CC.state.report.trim());
+    }
+
     function initUpload() {
         document.getElementById('fileInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
+            const input = e.target;
+            const file = input.files[0];
             if (!file) return;
+            if (uploadBusy) { input.value = ''; return; }
+            if (CC.state.filename && hasAnalysisWork() && !window.confirm(
+                'Load a new dataset? The current script, results, conversation and report draft '
+                + 'belong to the current dataset and will be cleared.')) {
+                input.value = '';
+                return;
+            }
+            uploadBusy = true;
             const formData = new FormData();
             formData.append('file', file);
+
+            const previous = CC.state.filename;
+            const box = document.getElementById('pipelineChecklist');
+            const statusEl = document.getElementById('pipelineStatus');
+            const snapshot = { html: box ? box.innerHTML : '', status: statusEl ? statusEl.textContent : '' };
+            function restorePipeline() {
+                if (box) box.innerHTML = snapshot.html;
+                if (statusEl) statusEl.textContent = snapshot.status;
+            }
 
             CC.pipeline.begin();
             CC.pipeline.set('load', 'active');
 
             const generateBtn = document.getElementById('generateBtn');
             const promptInput = document.getElementById('promptInput');
+            const placeholder = promptInput.placeholder;
             generateBtn.disabled = true;
             promptInput.placeholder = 'Please wait, profiling dataset variables. This might take a sec..';
 
-            // Reset prior dataset state so a fresh upload starts clean
-            CC.state.pdfMapping = {};
-            CC.state.codebook = {};
-            CC.dockCodebook();
-            document.getElementById('codebookContainer').classList.add('hidden');
-            document.getElementById('codebookList').innerHTML = '';
-            if (CC.dockWrangle) CC.dockWrangle();   // dock any floating cleaning panel before hiding
-            document.getElementById('changelogPanel').classList.add('hidden');
-            resetCodebookViewer();   // clear any prior codebook doc, back to empty state
+            function failed(message) {
+                if (previous) {
+                    // Keep working on the dataset that is still loaded.
+                    restorePipeline();
+                    releaseComposer();
+                    CC.toast(`${message} Still using ${previous}.`, 'error');
+                } else {
+                    CC.pipeline.set('load', 'failed', message);
+                    promptInput.placeholder = placeholder;
+                    CC.toast(message, 'error');
+                }
+            }
 
             try {
-                const { ok, data } = await CC.postForm('/upload', formData);
+                const { ok, status, data } = await CC.postForm('/upload', formData);
                 if (ok && data.filename) {
+                    resetDatasetChrome();
+                    if (CC.resetAnalysisState) CC.resetAnalysisState();
                     CC.state.filename = data.filename;
+                    CC.state.uploadedAt = Date.now();
+                    if (CC.session) CC.session.armExpiry();
                     // Real data exists now: retire the dropzone-era empty states
                     // (Data tab skeleton, composer "upload to enable" hint).
                     document.body.classList.remove('cc-no-data');
@@ -249,18 +329,22 @@
                         CC.toast(`Loaded ${Object.keys(data.labels).length} native variable labels.`, 'success');
                     }
                     CC.renderTableHeaders(CC.state.headers);
-                    await CC.fetchDataPage(1);
-                    renderChangelog(data.changelog);   // reveal the cleaning chat with v1
                     CC.pipeline.set('load', 'done');
+                    // The table preview is its own request: a /data_page hiccup
+                    // must not mark an accepted upload as failed (D4-23).
+                    CC.fetchDataPage(1);
+                    renderChangelog(data.changelog);   // reveal the cleaning chat with v1
                     pendingFilename = data.filename;
                     showCodebookStep('ask');
+                    CC.announce(`Dataset ${data.filename} loaded.`);
                 } else {
-                    CC.pipeline.set('load', 'failed', (data && data.error) || 'upload failed');
-                    CC.toast((data && data.error) || 'Upload failed.', 'error');
-                    e.target.value = '';
+                    failed((data && data.error) || `Upload failed (HTTP ${status}).`);
                 }
             } catch (err) {
-                CC.pipeline.set('load', 'failed', 'network error');
+                failed('Network error: the upload did not reach the server.');
+            } finally {
+                uploadBusy = false;
+                input.value = '';   // D4-18: re-picking the same file must fire `change` again
             }
         });
 
@@ -277,11 +361,18 @@
             pdfMode = 'survey';
             document.getElementById('pdfInput').click();
         });
-        document.getElementById('surveySkipBtn').addEventListener('click', async () => {
-            hideCodebookPrompt();
+        async function skipCodebook() {
             CC.pipeline.set('codebook_link', 'skipped');
             await continuePipeline();
+        }
+        document.getElementById('surveySkipBtn').addEventListener('click', async () => {
+            hideCodebookPrompt();
+            await skipCodebook();
         });
+        // D4-1: Escape / closing the prompt is the usual way to say "no
+        // thanks". It must mean "skip", or classification never starts and
+        // Generate stays disabled forever.
+        CC.modal.onDismiss('codebookPromptOverlay', skipCodebook);
 
         document.getElementById('pdfInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
@@ -289,15 +380,17 @@
             hideCodebookPrompt();
             CC.pipeline.set('codebook_link', 'active');
 
-            const fileURL = URL.createObjectURL(file);
-            showCodebookDocument(fileURL);   // swap empty state -> the document
-            CC.switchTab('pdf');
-
             const formData = new FormData();
             formData.append('file', file);
             try {
-                const { ok, data } = await CC.postForm('/upload_pdf', formData);
+                const { ok, status, data } = await CC.postForm('/upload_pdf', formData);
                 if (ok && data.filename) {
+                    // D4-30: show the document only once the server accepted it,
+                    // so a rejected PDF never reads as "attached".
+                    if (codebookURL) URL.revokeObjectURL(codebookURL);
+                    codebookURL = URL.createObjectURL(file);
+                    showCodebookDocument(codebookURL);   // swap empty state -> the document
+                    CC.switchTab('pdf');
                     const ext = await CC.post('/extract_pdf_codebook', {
                         filename: data.filename,
                         mode: pdfMode,
@@ -314,13 +407,18 @@
                             pdfMode === 'survey' ? `survey: ${matched}/${CC.state.headers.length} columns matched` : `${n} definitions`);
                     } else {
                         CC.pipeline.set('codebook_link', 'failed', 'extraction failed');
+                        CC.toast(CC.errorMessage(ext.status, ext.data,
+                            'Could not read variable definitions from that document') +
+                            ' The analysis continues without them.', 'error');
                     }
                 } else {
+                    const msg = CC.errorMessage(status, data, 'Documentation upload failed');
                     CC.pipeline.set('codebook_link', 'failed', (data && data.error) || 'upload failed');
-                    CC.toast((data && data.error) || 'Documentation upload failed.', 'error');
+                    CC.toast(msg, 'error');
                 }
             } catch (err) {
                 CC.pipeline.set('codebook_link', 'failed', 'network error');
+                CC.toast('Network error uploading the document.', 'error');
             }
             e.target.value = '';
             await continuePipeline();
@@ -338,7 +436,19 @@
     function showCodebookStep(step) {
         document.getElementById('codebookStepAsk').classList.toggle('hidden', step !== 'ask');
         document.getElementById('codebookStepSurvey').classList.toggle('hidden', step !== 'survey');
+        const num = document.getElementById('codebookStepNum');
+        if (num) num.textContent = step === 'survey' ? '2' : '1';
+        // Only the visible step's heading may label the dialog.
+        const overlay = document.getElementById('codebookPromptOverlay');
+        if (overlay) {
+            overlay.setAttribute('aria-labelledby',
+                step === 'survey' ? 'codebookSurveyTitle' : 'codebookPromptTitle');
+        }
         CC.modal.open('codebookPromptOverlay');
+        if (step === 'survey') {
+            const yes = document.getElementById('surveyYesBtn');
+            if (yes) setTimeout(() => yes.focus(), 40);
+        }
     }
     function hideCodebookPrompt() { CC.modal.close('codebookPromptOverlay'); }
 
@@ -393,82 +503,114 @@
         const applyBtn = document.getElementById('wrangleApplyBtn');
         const input = document.getElementById('wrangleInput');
 
+        // D4-6: one dataset-version change at a time. A second /wrangle (or an
+        // undo) fired while one is in flight would branch two versions off the
+        // same parent.
+        let versionBusy = false;
+        const versionButtons = ['undoBtn', 'redoBtn', 'revertBtn'].map(id => document.getElementById(id));
+        let savedDisabled = [];
+        function setVersionBusy(on) {
+            versionBusy = on;
+            applyBtn.disabled = on;
+            applyBtn.setAttribute('aria-busy', on ? 'true' : 'false');
+            if (on) {
+                savedDisabled = versionButtons.map(b => !!(b && b.disabled));
+                versionButtons.forEach(b => { if (b) b.disabled = true; });
+            }
+        }
+        // No fresh changelog (the change failed): put undo/redo/revert back
+        // exactly as they were before the attempt.
+        function restoreVersionButtons() {
+            versionButtons.forEach((b, i) => { if (b) b.disabled = !!savedDisabled[i]; });
+        }
+
         function appendPending(instruction) {
             const list = document.getElementById('changelogList');
             const el = document.createElement('div');
             el.className = 'wrangle-turn pending';
-            el.id = 'wranglePending';
             el.innerHTML =
                 `<div class="wrangle-msg user">${CC.escapeHtml(instruction)}</div>` +
                 `<div class="wrangle-msg applied">${CC.spinner('h-3 w-3')} Applying…</div>`;
             list.appendChild(el);
             list.scrollTop = list.scrollHeight;
-        }
-        function removePending() {
-            const el = document.getElementById('wranglePending');
-            if (el) el.remove();
+            return el;
         }
 
         async function applyWrangle() {
             const instruction = input.value.trim();
-            if (!instruction || !CC.state.filename) return;
-            applyBtn.disabled = true;
+            if (versionBusy || !instruction || !CC.state.filename) return;
+            setVersionBusy(true);
             applyBtn.innerHTML = CC.spinner('h-4 w-4');
             input.value = '';
-            appendPending(instruction);              // optimistic chat echo
+            const pending = appendPending(instruction);   // optimistic chat echo
+            let changelog = null;
             try {
-                const { ok, data } = await CC.post('/wrangle', {
+                const { ok, status, data } = await CC.post('/wrangle', {
                     filename: CC.state.filename, instruction,
                 });
                 if (ok && data.status === 'success') {
                     if (data.usage) CC.addUsage(data.usage);
                     CC.toast(`Applied: ${data.summary}`, 'success');
+                    changelog = data.changelog;
                     await afterVersionChange(data.profile, data.changelog);
                 } else {
-                    removePending();
-                    input.value = instruction;       // restore for an easy retry
-                    CC.toast((data && data.error) || 'Transformation failed.', 'error');
+                    pending.remove();
+                    if (!input.value) input.value = instruction;   // restore for an easy retry
+                    CC.toast(CC.errorMessage(status, data, 'Transformation failed'), 'error');
                 }
             } catch (e) {
-                removePending();
-                input.value = instruction;
+                pending.remove();
+                if (!input.value) input.value = instruction;
                 CC.toast('Network error applying the transformation.', 'error');
             } finally {
-                applyBtn.disabled = false;
+                pending.remove();
+                setVersionBusy(false);
                 applyBtn.innerHTML = 'Apply';
+                if (changelog) renderChangelog(changelog);     // re-derive undo/redo state
+                else restoreVersionButtons();
             }
         }
-
         applyBtn.addEventListener('click', applyWrangle);
-        input.addEventListener('keypress', (e) => { if (e.key === 'Enter') applyWrangle(); });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); applyWrangle(); }
+        });
 
         document.getElementById('undoBtn').addEventListener('click', () => shiftVersion('undo'));
         document.getElementById('redoBtn').addEventListener('click', () => shiftVersion('redo'));
         document.getElementById('revertBtn').addEventListener('click', revertToOriginal);
 
-        async function shiftVersion(direction) {
-            const { ok, data } = await CC.post('/version_control', {
-                filename: CC.state.filename, direction,
-            });
-            if (ok && data.status === 'success') {
-                await afterVersionChange(data.profile, data.changelog);
-            } else {
-                CC.toast((data && data.error) || 'Could not change version.', 'error');
+        async function versionCall(url, body, okToast, failMsg) {
+            if (versionBusy || !CC.state.filename) return;
+            setVersionBusy(true);
+            let changelog = null;
+            try {
+                const { ok, status, data } = await CC.post(url, body);
+                if (ok && data.status === 'success') {
+                    if (okToast) CC.toast(okToast, 'success');
+                    changelog = data.changelog;
+                    await afterVersionChange(data.profile, data.changelog);
+                } else {
+                    CC.toast(CC.errorMessage(status, data, failMsg), 'error');
+                }
+            } catch (e) {
+                CC.toast('Network error: ' + failMsg.toLowerCase() + '.', 'error');
+            } finally {
+                setVersionBusy(false);
+                if (changelog) renderChangelog(changelog);
+                else restoreVersionButtons();
             }
         }
 
-        async function revertToOriginal() {
-            if (!CC.state.filename) return;
+        function shiftVersion(direction) {
+            return versionCall('/version_control', { filename: CC.state.filename, direction },
+                null, 'Could not change version');
+        }
+
+        function revertToOriginal() {
+            if (versionBusy || !CC.state.filename) return;
             if (!window.confirm('Revert the data to its original upload? You can Undo this afterwards.')) return;
-            const { ok, data } = await CC.post('/revert_dataset', {
-                filename: CC.state.filename,
-            });
-            if (ok && data.status === 'success') {
-                CC.toast('Reverted to the original upload.', 'success');
-                await afterVersionChange(data.profile, data.changelog);
-            } else {
-                CC.toast((data && data.error) || 'Could not revert the dataset.', 'error');
-            }
+            return versionCall('/revert_dataset', { filename: CC.state.filename },
+                'Reverted to the original upload.', 'Could not revert the dataset');
         }
     }
 
@@ -485,14 +627,19 @@
     function showCodebookDocument(url) {
         const frame = document.getElementById('pdfViewerFrame');
         const empty = document.getElementById('codebookEmptyState');
+        const replace = document.getElementById('codebookReplaceBtn');
         if (frame) { frame.src = url; frame.classList.remove('hidden'); }
         if (empty) empty.classList.add('hidden');
+        if (replace) replace.classList.remove('hidden');
     }
     function resetCodebookViewer() {
         const frame = document.getElementById('pdfViewerFrame');
         const empty = document.getElementById('codebookEmptyState');
-        if (frame) { frame.src = ''; frame.classList.add('hidden'); }
+        const replace = document.getElementById('codebookReplaceBtn');
+        if (frame) { frame.src = 'about:blank'; frame.classList.add('hidden'); }
         if (empty) empty.classList.remove('hidden');
+        if (replace) replace.classList.add('hidden');
+        if (codebookURL) { URL.revokeObjectURL(codebookURL); codebookURL = null; }
     }
     // The Codebook tab is always reachable now. Its empty-state buttons let the
     // user add a codebook (or a survey to generate descriptions) at any time
@@ -510,6 +657,9 @@
         }
         if (uploadBtn) uploadBtn.addEventListener('click', () => pickCodebook('codebook'));
         if (surveyBtn) surveyBtn.addEventListener('click', () => pickCodebook('survey'));
+        // D4-30: an attached document can be swapped without re-uploading data.
+        const replaceBtn = document.getElementById('codebookReplaceBtn');
+        if (replaceBtn) replaceBtn.addEventListener('click', () => pickCodebook('codebook'));
     }
 
     // --- data-viewer zoom -----------------------------------------------------------------
