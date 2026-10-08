@@ -117,6 +117,8 @@ _frame_cache = OrderedDict()      # (path, mtime) -> DataFrame
 _filtered_cache = OrderedDict()
 _cache_lock = threading.Lock()
 ANALYSIS_CACHE_MAX = 128
+CLASSIFY_CHUNK = 80          # columns per classification call
+CLASSIFY_MAX_CHUNKS = 10     # at most 800 columns classified per dataset
 FRAME_CACHE_MAX = 4
 FILTERED_CACHE_MAX = 8
 
@@ -510,7 +512,7 @@ def classify_variables():
     if not filename:
         return json_error('Missing filename')
     try:
-        df, path = _read_active(filename, nrows=100)
+        df, path = _read_active(filename)
     except Exception:
         logger.exception("classify read failure")
         return json_error('Could not read dataset.', 500)
@@ -523,13 +525,30 @@ def classify_variables():
         return jsonify({'status': 'success', 'codebook': cached, 'cached': True})
 
     try:
-        preview = datatools.metadata_json(df)
-        result = llm.get_service().generate(
-            'flash', prompts.classify(preview), temperature=0.1, json_mode=True)
-        codebook = json.loads(result.text)
+        # D1-5/D3-6: classify in chunks of CLASSIFY_CHUNK columns instead of
+        # truncating at the first 80, so a wide survey's later columns get a
+        # measurement level too (and can then be found by feature selection).
+        # D3-7: the metadata describes the full frame.
+        columns = list(df.columns)
+        chunks = [columns[i:i + CLASSIFY_CHUNK]
+                  for i in range(0, len(columns), CLASSIFY_CHUNK)]
+        chunks = chunks[:CLASSIFY_MAX_CHUNKS] or [[]]
+        codebook, usages = {}, []
+        for chunk in chunks:
+            preview = datatools.metadata_json(df[chunk],
+                                              max_columns=CLASSIFY_CHUNK)
+            result = llm.get_service().generate(
+                'flash', prompts.classify(preview), temperature=0.1,
+                json_mode=True)
+            usages.append(result.usage)
+            part = json.loads(result.text)
+            if not isinstance(part, dict):
+                raise ValueError('classification reply is not an object')
+            wanted = set(map(str, chunk))
+            codebook.update({k: v for k, v in part.items() if k in wanted})
         _cache_put(_analysis_cache, (sha, 'classify'), codebook, ANALYSIS_CACHE_MAX)
         return jsonify({'status': 'success', 'codebook': codebook,
-                        'usage': usage_breakdown(result.usage)})
+                        'usage': usage_breakdown(*usages)})
     except Exception:
         logger.exception("Classification error")
         return json_error('Variable classification failed.', 500)
@@ -549,7 +568,7 @@ def suggest_analysis():
     if not filename:
         return json_error('Missing filename')
     try:
-        df, path = _read_active(filename, nrows=100)
+        df, path = _read_active(filename)
     except Exception:
         logger.exception("suggest read failure")
         return json_error('Could not read dataset.', 500)
@@ -627,7 +646,7 @@ def wrangle():
         return json_error(f'Request denied. {reason}', 403)
 
     try:
-        df, active_path = _read_active(filename, nrows=100)
+        df, active_path = _read_active(filename)
     except Exception:
         logger.exception("wrangle read failure")
         return json_error('Could not read dataset.', 500)
@@ -744,7 +763,7 @@ def version_control():
         return json_error('Unknown dataset.', 404)
     clear_caches()
     try:
-        df, _ = _read_active(filename, nrows=100)
+        df, _ = _read_active(filename)   # D3-7: profile the whole version
         profile = datatools.profile_dataframe(df) if df is not None else None
     except Exception:
         profile = None
@@ -768,7 +787,7 @@ def revert_dataset():
         return json_error('Unknown dataset.', 404)
     clear_caches()
     try:
-        df, _ = _read_active(filename, nrows=100)
+        df, _ = _read_active(filename)   # D3-7: profile the whole version
         profile = datatools.profile_dataframe(df) if df is not None else None
     except Exception:
         profile = None

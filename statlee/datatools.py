@@ -264,13 +264,22 @@ def profile_dataframe(df):
     }
 
 
+_SAMPLE_SCAN_ROWS = 200
+
+
 def summarize_dataframe(df, max_columns=80):
     """Per-column structural metadata for LLM prompts (5.10).
 
     Compact on purpose: dtype, measurement hints, missingness, cardinality,
     numeric range, and at most 3 sample values. No raw rows.
+
+    D3-7: pass the FULL frame. Every statistic describes all rows (callers used
+    to pass the first 100 rows, so a column missing only after row 100 was
+    reported as complete), the true size is in ``__dataset__``, and only the
+    sample values come from the first rows.
     """
-    summary = {}
+    summary = {'__dataset__': {'rows': int(len(df)),
+                               'columns': int(len(df.columns))}}
     for col in df.columns[:max_columns]:
         series = df[col]
         entry = {
@@ -285,7 +294,8 @@ def summarize_dataframe(df, max_columns=80):
             entry['min'] = round(float(desc.get('min', float('nan'))), 4)
             entry['median'] = round(float(series.median()), 4)
             entry['max'] = round(float(desc.get('max', float('nan'))), 4)
-        entry['samples'] = series.dropna().astype(str).unique()[:3].tolist()
+        entry['samples'] = (series.head(_SAMPLE_SCAN_ROWS).dropna().astype(str)
+                            .unique()[:3].tolist())
         summary[col] = entry
     if len(df.columns) > max_columns:
         summary['__truncated__'] = (
@@ -304,9 +314,10 @@ def build_column_context(df, codebook=None, descriptions=None):
     and the structural metadata summary.
     """
     codebook = codebook or {}
-    desc_lower = {k.lower(): v for k, v in (descriptions or {}).items()}
-    summary = summarize_dataframe(df)
-    lines = []
+    desc_lower = {str(k).lower(): v for k, v in (descriptions or {}).items()}
+    summary = summarize_dataframe(df, max_columns=len(df.columns))
+    lines = [f"  (dataset: {len(df):,} rows x {len(df.columns)} columns; "
+             "statistics cover every row, samples are from the first rows)"]
     for col in df.columns:
         meta = summary.get(col, {})
         classification = codebook.get(col, 'Unknown')

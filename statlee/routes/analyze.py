@@ -11,7 +11,6 @@ import logging
 import os
 import re
 
-import pandas as pd
 from flask import Blueprint, current_app, jsonify
 
 from .. import billing, codecheck, datatools, llm, prompts, sandbox, storage
@@ -40,6 +39,7 @@ from . import (
     str_field,
     strip_code_fences,
 )
+from .datasets import read_active_frame
 
 logger = logging.getLogger('statlee.analyze')
 
@@ -99,16 +99,16 @@ def chat():
     # invalid/expired filename (anonymous TTL cleanup makes stale tabs common)
     # or an unreadable CSV returns here without touching credits or the
     # operator's monthly priority ceiling (P1-1).
-    filepath = storage.active_dataset_path(filename)
-    if not filepath or not os.path.exists(filepath):
-        return json_error('Invalid filename')
     try:
-        df = pd.read_csv(filepath, nrows=100)
-        headers = df.columns.tolist()
-        metadata_summary = datatools.metadata_json(df)
+        # D3-7: the full (cached) frame, so the draft's missing counts, dtypes
+        # and ranges describe the whole dataset rather than its first 100 rows.
+        df, _ = read_active_frame(filename)
     except Exception:
         logger.exception("Could not read dataset for /chat")
         return json_error('Could not read dataset headers.', 500)
+    if df is None:
+        return json_error('Invalid filename')
+    headers = df.columns.tolist()
 
     # Monetization seam (E): one chokepoint decides whether the costlier Pro-mode
     # request is allowed for this user. No-op unless billing is enabled. Runs
@@ -129,8 +129,12 @@ def chat():
     selection_usage = None
     selection_degraded = False   # feature selection failed -> full-schema fallback
     if len(headers) >= cfg.feature_selection_threshold:
-        column_context = (json.dumps(codebook, indent=2)
-                          if codebook else ', '.join(headers))
+        # D1-5/D3-6: list EVERY column, annotated by its codebook entry where
+        # one exists. Sending only the codebook (when present) hid every column
+        # the user had not classified, so selection could never pick them.
+        column_context = '\n'.join(
+            f'- {h}: {clamp(codebook[h], 200)}' if h in codebook else f'- {h}'
+            for h in map(str, headers))
         try:
             sel = service.generate(
                 'flash',
@@ -139,7 +143,10 @@ def chat():
             selection_usage = sel.usage
             candidates = json.loads(sel.text).get('required_columns', [])
             if isinstance(candidates, list):
-                validated = [c for c in candidates if c in headers]
+                header_set = set(headers)
+                validated = list(dict.fromkeys(
+                    c for c in candidates
+                    if isinstance(c, str) and c in header_set))
                 if validated:
                     filtered_headers = validated
                     if codebook:
@@ -162,6 +169,11 @@ def chat():
             # depends on the paid feature-selection pass, which must stay
             # behind the debit) so a prompt-construction failure lands on the
             # refund path below instead of stranding the debited credit.
+            # D1-5/D3-6: the metadata covers the columns Stage 1 picked (all of
+            # them when it was skipped), not whatever the first 80 happened to be.
+            metadata_summary = datatools.metadata_json(
+                df[filtered_headers],
+                max_columns=min(max(80, len(filtered_headers)), 300))
             draft_prompt = prompts.draft(
                 filename, filtered_headers, filtered_codebook, target_language,
                 metadata_summary, history, user_prompt,
@@ -501,11 +513,14 @@ def method_prompt():
     if not filename or not method_name:
         return json_error('Missing filename or method')
 
-    filepath = storage.active_dataset_path(filename)
-    if not filepath or not os.path.exists(filepath):
+    try:
+        df, _ = read_active_frame(filename)   # D3-7: full-frame statistics
+    except Exception:
+        logger.exception("method_prompt read failure")
+        return json_error('Could not read dataset.', 500)
+    if df is None:
         return json_error('Invalid filename')
     try:
-        df = pd.read_csv(filepath, nrows=100)
         context = datatools.build_column_context(df, codebook, pdf_mapping)
         result = llm.get_service().generate(
             'flash',
