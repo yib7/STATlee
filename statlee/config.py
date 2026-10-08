@@ -158,6 +158,10 @@ class Config:
     pdf_max_pages: int = 50
 
     # --- Auth (7.1) -------------------------------------------------------------
+    # Public origin (scheme://host[:port]) that emailed links point at (D5-7).
+    # Password-reset links are built from it, never from the request's Host
+    # header (which a caller controls). Required in production for resets.
+    public_base_url: str = ''
     accounts_enabled: bool = True
     require_login: bool = False         # False keeps the anonymous sandbox mode
     require_email_verification: bool = False  # gate accounts until email confirmed
@@ -286,6 +290,7 @@ class Config:
             feature_selection_threshold=_env_int('FEATURE_SELECTION_THRESHOLD', 15),
             data_page_row_cap=_env_int('DATA_PAGE_ROW_CAP', 500_000),
             pdf_max_pages=_env_int('PDF_MAX_PAGES', 50),
+            public_base_url=os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/'),
             accounts_enabled=_env_bool('ACCOUNTS_ENABLED', True),
             require_login=_env_bool('REQUIRE_LOGIN', False),
             require_email_verification=_env_bool('REQUIRE_EMAIL_VERIFICATION', False),
@@ -398,6 +403,27 @@ class Config:
                 "a shared store (e.g. RATELIMIT_STORAGE_URI=redis://...) or pin "
                 "WEB_CONCURRENCY=1.")
 
+        if self.public_base_url and not self.public_base_url.startswith(
+                ('http://', 'https://')):
+            raise ValueError(
+                "PUBLIC_BASE_URL must start with http:// or https:// "
+                f"(got {self.public_base_url!r})")
+        self.public_base_url = self.public_base_url.rstrip('/')
+
+        if self.is_production and self.accounts_enabled:
+            if not self.smtp_host:
+                self._warn(
+                    "ACCOUNTS_ENABLED with no SMTP_HOST in production: password "
+                    "reset and email verification links cannot be delivered "
+                    "(and are not logged outside development). Configure SMTP_*.")
+            if not self.public_base_url:
+                self._warn(
+                    "ACCOUNTS_ENABLED with no PUBLIC_BASE_URL in production: "
+                    "password reset links are not sent, because the only other "
+                    "source for their host is the request's Host header, which "
+                    "the requester controls. Set PUBLIC_BASE_URL=https://<your "
+                    "domain>.")
+
         if self.is_production and not self.upload_root:
             self._warn(
                 "UPLOAD_ROOT is unset in production; uploads go to "
@@ -446,6 +472,13 @@ class Config:
     @property
     def is_testing(self):
         return self.env == 'testing'
+
+    def external_url(self, path):
+        """Absolute URL for the app-relative ``path`` (e.g. a ``url_for``
+        result) on ``PUBLIC_BASE_URL``, or ``None`` when that is unset."""
+        if not self.public_base_url:
+            return None
+        return self.public_base_url.rstrip('/') + '/' + path.lstrip('/')
 
     def resolved_upload_root(self, instance_dir=None):
         """Return the storage root, creating it if needed.

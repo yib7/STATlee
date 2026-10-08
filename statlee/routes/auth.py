@@ -218,11 +218,25 @@ def _send_password_reset_email(cfg, email, token):
     """Send the reset link, or log it when SMTP isn't configured (dev).
 
     Mirrors ``_send_verification_email`` so the reset flow reuses the exact same
-    SMTP plumbing (P2-11)."""
-    link = url_for('auth.reset_password', token=token, _external=True)
+    SMTP plumbing (P2-11).
+
+    D5-7: the link's origin comes from PUBLIC_BASE_URL, never from the request's
+    Host header (reset-link poisoning). Production with no PUBLIC_BASE_URL sends
+    nothing. The token-bearing link is only ever logged in development."""
+    link = cfg.external_url(url_for('auth.reset_password', token=token))
+    if link is None:
+        if cfg.is_production:
+            logger.error("Password reset requested for %s, but PUBLIC_BASE_URL "
+                         "is not set, so no link was sent.", email)
+            return
+        link = url_for('auth.reset_password', token=token, _external=True)
     if not cfg.smtp_host:
-        logger.info("Password reset link for %s (no SMTP configured): %s",
-                    email, link)
+        if cfg.env == 'development':
+            logger.info("Password reset link for %s (no SMTP configured): %s",
+                        email, link)
+        else:
+            logger.warning("Password reset requested for %s, but SMTP is not "
+                           "configured, so no link was sent.", email)
         return
     import smtplib
     from email.message import EmailMessage
