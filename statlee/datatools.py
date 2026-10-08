@@ -115,6 +115,42 @@ def _merge_value_labels(names, col_labels, value_labels):
     return labels
 
 
+def _missing_codes(ranges):
+    """User-missing values of one .sav column (``[{'lo', 'hi'}]``) as codes:
+    a discrete value is its code, a range reads ``"98 to 99"``."""
+    codes = []
+    for item in ranges or []:
+        if not isinstance(item, dict):
+            continue
+        lo, hi = item.get('lo'), item.get('hi')
+        if lo is None:
+            continue
+        code = _fmt_code(lo) if hi is None or hi == lo \
+            else f'{_fmt_code(lo)} to {_fmt_code(hi)}'
+        if code not in codes:
+            codes.append(code)
+    return codes
+
+
+def native_codebook(names, col_labels, value_labels, missing_ranges=None):
+    """Structured native .sav/.dta metadata for the server codebook (SP2):
+    ``{column: {label, value_labels: {code: text}, missing_codes: [...]}}``,
+    only the fields the file actually carries."""
+    out = {}
+    for name, label in zip(names, col_labels, strict=False):
+        if label:
+            out.setdefault(str(name), {})['label'] = str(label)
+    for name, mapping in (value_labels or {}).items():
+        if isinstance(mapping, dict) and mapping:
+            out.setdefault(str(name), {})['value_labels'] = {
+                _fmt_code(k): str(v) for k, v in mapping.items()}
+    for name, ranges in (missing_ranges or {}).items():
+        codes = _missing_codes(ranges)
+        if codes:
+            out.setdefault(str(name), {})['missing_codes'] = codes
+    return out
+
+
 def _read_excel_all_sheets(src_path, info):
     """Read every sheet and keep the one with the most cells (D1-13). A
     workbook whose first sheet is a README/notes tab used to be ingested as
@@ -159,7 +195,9 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
     Returns ``(csv_path, labels)`` where ``labels`` maps column names to
     human-readable variable labels when the source format carries them
     (.sav/.dta); empty dict otherwise. The source file is removed once the
-    CSV exists (one canonical artifact per dataset).
+    CSV exists (one canonical artifact per dataset). For .sav/.dta, ``info``
+    also gets ``native_codebook`` (``native_codebook()``), which seeds the
+    server codebook's native layer (SP2).
 
     ``max_cells`` and ``max_uncompressed_bytes`` bound the parse against a
     decompression bomb (P2-2): a small compressed request body can still expand
@@ -230,10 +268,21 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
                     _cell_limit_message(n_rows * n_cols, max_cells))
         df, meta = reader(src_path)
         # Native variable AND value labels seed the codebook (no LLM call).
-        labels = _merge_value_labels(
-            list(getattr(meta, 'column_names', []) or []),
-            list(getattr(meta, 'column_labels', []) or []),
-            getattr(meta, 'variable_value_labels', None) or {})
+        names = list(getattr(meta, 'column_names', []) or [])
+        col_labels = list(getattr(meta, 'column_labels', []) or [])
+        value_labels = getattr(meta, 'variable_value_labels', None) or {}
+        labels = _merge_value_labels(names, col_labels, value_labels)
+        # SP2: user-missing values are read as NaN; their codes are only in
+        # the metadata of a user_missing read (metadata only, no data rows).
+        missing = {}
+        try:
+            _, missing_meta = reader(src_path, metadataonly=True,
+                                     user_missing=True)
+            missing = getattr(missing_meta, 'missing_ranges', None) or {}
+        except Exception:
+            missing = {}
+        info['native_codebook'] = native_codebook(
+            names, col_labels, value_labels, missing)
     else:
         raise UnsupportedFormatError(
             f"Unsupported file format '{ext}'. Supported: "

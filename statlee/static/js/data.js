@@ -466,6 +466,7 @@
                     CC.switchTab('pdf');
                     const ext = await CC.post('/extract_pdf_codebook', {
                         filename: data.filename,
+                        dataset: CC.state.filename,   // seeds the server codebook (SP2)
                         mode: pdfMode,
                         headers: CC.state.headers,
                     });

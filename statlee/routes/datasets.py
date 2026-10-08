@@ -21,6 +21,7 @@ import pandas as pd
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
+from .. import codebook as codebook_store
 from .. import codecheck, datatools, llm, prompts, sandbox, storage
 from ..extensions import limiter
 from ..usage import usage_breakdown
@@ -322,11 +323,14 @@ def upload_file():
     clear_caches()
     sha256 = datatools.file_sha256(target)
     storage.register_dataset(csv_name)
-    storage.save_dataset_meta(csv_name, {
+    # SP2: the meta sidecar carries the server codebook. Native .sav/.dta
+    # metadata seeds its native layer; identical content restores the user,
+    # pdf and llm layers of an earlier upload (keyed by sha256).
+    restored = codebook_store.init_for_upload(csv_name, {
         'sha256': sha256,
         'original_name': file.filename,
         'labels': labels,
-    })
+    }, native=info.get('native_codebook'))
 
     return jsonify({
         'message': 'File uploaded',
@@ -337,6 +341,7 @@ def upload_file():
         'warnings': info.get('warnings', []),   # e.g. skipped sheets (D1-13)
         'sha256': sha256,
         'changelog': storage.dataset_changelog(csv_name),  # seeds the cleaning panel
+        'codebook_restored': restored,   # GET /codebook has the merged codebook
     }), 200
 
 
@@ -439,11 +444,19 @@ def extract_pdf_codebook():
     # D1-6: the survey header list is client text going into a paid prompt.
     headers = clamp_str_list(list_field(data, 'headers'),
                              HEADERS_MAX_COUNT, HEADER_FIELD_MAX)
+    # SP2: the dataset whose server codebook the extraction seeds (pdf
+    # layer). Optional: without it the mapping is only returned, as before.
+    dataset = dataset_filename_field(data, 'dataset')
     if not filename:
         return json_error('Missing filename')
     filepath = storage.resolve_path(filename)
     if not filepath or not os.path.exists(filepath):
         return json_error('Invalid filename')
+    dataset_columns = None
+    if dataset:
+        dataset_columns = codebook_store.dataset_columns(dataset)
+        if dataset_columns is None:
+            return json_error('Unknown dataset.', 404)
     doc_ext = os.path.splitext(filepath)[1].lower()
     if doc_ext not in ('.pdf', '.txt'):
         return json_error('Not a documentation file.')
@@ -472,12 +485,54 @@ def extract_pdf_codebook():
         mapping = string_mapping(json_object_reply(result.text),
                                  key_max=MAPPING_KEY_MAX,
                                  value_max=MAPPING_VALUE_MAX)
-        return jsonify({'status': 'success', 'mapping': mapping,
-                        'usage': usage_breakdown(result.usage)})
+        body = {'status': 'success', 'mapping': mapping,
+                'usage': usage_breakdown(result.usage)}
+        if dataset_columns is not None:
+            body['codebook_updated'] = _seed_pdf_layer(
+                dataset, dataset_columns, mapping)
+        return jsonify(body)
     except Exception as exc:
         logger.exception("PDF extraction error")
         return llm_json_error(
             exc, 'Failed to extract definitions from the document.')
+
+
+def _seed_pdf_layer(dataset, columns, mapping):
+    """Write extracted descriptions into the dataset's codebook as pdf-layer
+    labels (SP2), matching names case-insensitively like the prompt context
+    always did. Returns how many columns were described."""
+    by_lower = {}
+    for column in columns:
+        by_lower.setdefault(column.lower(), column)
+    updates = {}
+    for key, text in mapping.items():
+        column = by_lower.get(str(key).strip().lower())
+        if column is None:
+            continue
+        fields = codebook_store.clean_fields({'label': text}, lenient=True)
+        if fields.get('label'):
+            updates[column] = fields
+    codebook_store.apply(dataset, 'pdf', updates)
+    return len(updates)
+
+
+def server_codebook_context(filename, df):
+    """``(levels, descriptions)`` of the dataset's server codebook for
+    ``datatools.build_column_context``, clamped like the client mapping used
+    to be (SP2: the client's ``codebook``/``pdf_mapping`` are ignored)."""
+    entries = codebook_store.merged(filename, [str(c) for c in df.columns])
+    levels, descriptions = codebook_store.prompt_levels_and_descriptions(
+        entries or {})
+    return clamp_mapping(levels), clamp_mapping(descriptions)
+
+
+def ignore_client_codebook(data, route):
+    """The client's ``codebook``/``pdf_mapping`` fields stay accepted (old
+    clients send them; a wrong JSON type is still a 400) but never reach a
+    prompt: the server codebook is the only source (SP2)."""
+    for key in ('codebook', 'pdf_mapping'):
+        if dict_field(data, key):
+            logger.debug("%s: ignoring the client-sent %r field", route, key)
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +610,14 @@ def data_page():
 # Intelligent codebook + suggestions (cached per content hash, 5.6)
 # ---------------------------------------------------------------------------
 
+def _seed_llm_layer(filename, levels):
+    """Classification seeds the llm layer's ``type`` (SP2); the user's and
+    native fields still win in the merged view. The response keeps the
+    model's levels for older clients."""
+    codebook_store.apply(filename, 'llm', {
+        column: {'type': level.lower()} for column, level in levels.items()})
+
+
 @bp.route('/classify_variables', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def classify_variables():
@@ -573,6 +636,7 @@ def classify_variables():
     sha = datatools.file_sha256(path)
     cached = _cache_get(_analysis_cache, (sha, 'classify'))
     if cached is not None:
+        _seed_llm_layer(filename, cached)
         return jsonify({'status': 'success', 'codebook': cached, 'cached': True})
 
     try:
@@ -602,6 +666,7 @@ def classify_variables():
                 if key in wanted and level:
                     codebook[key] = level
         _cache_put(_analysis_cache, (sha, 'classify'), codebook, ANALYSIS_CACHE_MAX)
+        _seed_llm_layer(filename, codebook)
         return jsonify({'status': 'success', 'codebook': codebook,
                         'usage': usage_breakdown(*usages)})
     except Exception as exc:
@@ -614,9 +679,8 @@ def classify_variables():
 def suggest_analysis():
     data = request_json()
     filename = _filename(data)
+    ignore_client_codebook(data, '/suggest')
     # D1-6: every field below reaches the paid suggest prompt.
-    codebook = clamp_mapping(dict_field(data, 'codebook'))
-    pdf_mapping = clamp_mapping(dict_field(data, 'pdf_mapping'))
     previous = clamp_str_list(list_field(data, 'previous'),    # 4.5 reroll
                               PREVIOUS_MAX_COUNT, PREVIOUS_FIELD_MAX)
 
@@ -631,9 +695,9 @@ def suggest_analysis():
         return json_error('Invalid filename')
 
     sha = datatools.file_sha256(path)
-    # D1-11: key on everything that shapes the prompt -- the FULL codebook
-    # (the old key truncated it to 512 chars) and the pdf_mapping (ignored
-    # before, so a newly linked codebook kept serving stale suggestions).
+    # SP2: the codebook context is the server's; D1-11: the cache key covers
+    # all of it (levels and descriptions), so an edit serves new suggestions.
+    codebook, pdf_mapping = server_codebook_context(filename, df)
     context_hash = hashlib.sha256(json.dumps(
         [codebook, pdf_mapping], sort_keys=True, default=str).encode()
     ).hexdigest()

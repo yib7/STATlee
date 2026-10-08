@@ -2,7 +2,16 @@
 D1-11, latent L5)."""
 import json
 
-from conftest import SAMPLE_CSV, post_json, upload_csv
+from conftest import SAMPLE_CSV, csrf_token, post_json, upload_csv
+
+
+def _put_codebook(client, codebook, filename='test.csv'):
+    """Edit the server codebook (SP2): the only codebook prompts read."""
+    token = csrf_token(client)
+    resp = client.put('/codebook', json={'filename': filename,
+                                         'codebook': codebook},
+                      headers={'X-CSRF-Token': token})
+    assert resp.status_code == 200, resp.get_json()
 
 
 def test_data_page_never_emits_infinity_or_nan(client):
@@ -39,26 +48,26 @@ def test_data_page_row_cap_does_not_parse_whole_file(client, app, monkeypatch):
     assert seen and all(n is not None for n in seen), seen
 
 
-def test_suggest_cache_respects_pdf_mapping(client, fake_llm):
+def test_suggest_cache_respects_codebook_descriptions(client, fake_llm):
+    """D1-11 on the server codebook (SP2): a newly linked description (a pdf
+    seed or a user label) serves fresh suggestions; the same context hits."""
     upload_csv(client, SAMPLE_CSV)
-    cb = {'age': 'Continuous'}
-    first = post_json(client, '/suggest', {'filename': 'test.csv', 'codebook': cb})
+    _put_codebook(client, {'age': {'type': 'continuous'}})
+    first = post_json(client, '/suggest', {'filename': 'test.csv'})
     assert not first.get_json().get('cached')
-    second = post_json(client, '/suggest', {
-        'filename': 'test.csv', 'codebook': cb,
-        'pdf_mapping': {'age': 'Age in years at interview'}})
+    _put_codebook(client, {'age': {'label': 'Age in years at interview'}})
+    second = post_json(client, '/suggest', {'filename': 'test.csv'})
     assert not second.get_json().get('cached')
-    third = post_json(client, '/suggest', {
-        'filename': 'test.csv', 'codebook': cb,
-        'pdf_mapping': {'age': 'Age in years at interview'}})
+    third = post_json(client, '/suggest', {'filename': 'test.csv'})
     assert third.get_json().get('cached') is True
 
 
 def test_suggest_cache_distinguishes_codebooks_past_512_chars(client):
-    upload_csv(client, SAMPLE_CSV)
-    base = {f'col_{i:03d}': 'Continuous' for i in range(40)}
-    other = dict(base, col_039='Nominal')
-    post_json(client, '/suggest', {'filename': 'test.csv', 'codebook': base})
-    resp = post_json(client, '/suggest', {'filename': 'test.csv',
-                                          'codebook': other})
+    cols = [f'col_{i:03d}' for i in range(40)]
+    upload_csv(client, ','.join(cols) + '\n' + ','.join('1' for _ in cols)
+               + '\n')
+    _put_codebook(client, {c: {'type': 'continuous'} for c in cols})
+    post_json(client, '/suggest', {'filename': 'test.csv'})
+    _put_codebook(client, {'col_039': {'type': 'nominal'}})
+    resp = post_json(client, '/suggest', {'filename': 'test.csv'})
     assert not resp.get_json().get('cached')
