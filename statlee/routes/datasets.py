@@ -5,6 +5,7 @@ Implements roadmap items 5.1 (formats), 5.6 (cache), 5.8 (paging cache +
 row cap), 5.13 (survey→codebook), 5.16 (wrangle + undo/redo), 5.3 (export),
 4.5 (suggestion reroll), 4.6 (reset).
 """
+import hashlib
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ import time
 import zipfile
 from collections import OrderedDict
 
+import numpy as np
 import pandas as pd
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
@@ -145,8 +147,12 @@ def clear_caches():
         _filtered_cache.clear()
 
 
-def _read_active(filename, nrows=None):
-    """Read the ACTIVE version of a dataset (5.16-aware)."""
+def _read_active(filename, nrows=None, row_cap=None):
+    """Read the ACTIVE version of a dataset (5.16-aware).
+
+    With ``row_cap`` (L5), at most ``row_cap + 1`` rows are parsed: a frame
+    longer than ``row_cap`` comes back truncated (and uncached) so the caller
+    can refuse it without first materializing the whole file."""
     path = storage.active_dataset_path(filename)
     if not path or not os.path.exists(path):
         return None, None
@@ -156,9 +162,28 @@ def _read_active(filename, nrows=None):
     cached = _cache_get(_frame_cache, (path, mtime))
     if cached is not None:
         return cached, path
-    df = pd.read_csv(path)
+    if row_cap:
+        df = pd.read_csv(path, nrows=row_cap + 1)
+        if len(df) > row_cap:
+            return df, path
+    else:
+        df = pd.read_csv(path)
     _cache_put(_frame_cache, (path, mtime), df, FRAME_CACHE_MAX)
     return df, path
+
+
+def read_active_frame(filename):
+    """Public, cached full read of a dataset's active version for other
+    blueprints. Returns ``(df, path)`` or ``(None, None)``."""
+    return _read_active(filename)
+
+
+def _json_records(df):
+    """Rows as JSON-safe records (D1-9): NaN/NA and +/-inf become null. Flask
+    would otherwise emit bare ``NaN``/``Infinity`` tokens, which the browser's
+    ``JSON.parse`` rejects, breaking the data viewer."""
+    df = df.replace([np.inf, -np.inf], np.nan)
+    return df.astype(object).where(df.notna(), None).to_dict(orient='records')
 
 
 # ---------------------------------------------------------------------------
@@ -422,19 +447,20 @@ def data_page():
 
     if not filename:
         return json_error('Missing filename')
+    cap = _cfg().data_page_row_cap
     try:
-        df, path = _read_active(filename)
+        df, path = _read_active(filename, row_cap=cap)
     except Exception:
         logger.exception("data_page read failure")
         return json_error('Could not read dataset.', 500)
     if df is None:
         return json_error('Invalid filename')
 
-    if len(df) > _cfg().data_page_row_cap:
+    if cap and len(df) > cap:
         return json_error(
-            f'This dataset has {len(df):,} rows, beyond the viewer limit of '
-            f'{_cfg().data_page_row_cap:,}. Analysis still works; the table '
-            'view is disabled for files this large.', 413)
+            f'This dataset has more than {cap:,} rows, the viewer limit. '
+            'Analysis still works; the table view is disabled for files this '
+            'large.', 413)
 
     try:
         # Reuse a previously-filtered frame for this exact (path, mtime, filters)
@@ -459,10 +485,10 @@ def data_page():
         total_pages = max(1, -(-total_rows // per_page)) if total_rows else 0
         page = max(1, min(page, total_pages) if total_pages else 1)
         start = (page - 1) * per_page
-        df_page = filtered.iloc[start:start + per_page].fillna('')
+        df_page = filtered.iloc[start:start + per_page]
         return jsonify({
             'status': 'success',
-            'data': df_page.to_dict(orient='records'),
+            'data': _json_records(df_page),
             'total_rows': total_rows,
             'total_pages': total_pages,
             'current_page': page,
@@ -531,7 +557,13 @@ def suggest_analysis():
         return json_error('Invalid filename')
 
     sha = datatools.file_sha256(path)
-    cache_key = (sha, 'suggest', json.dumps(sorted(codebook.items()))[:512])
+    # D1-11: key on everything that shapes the prompt -- the FULL codebook
+    # (the old key truncated it to 512 chars) and the pdf_mapping (ignored
+    # before, so a newly linked codebook kept serving stale suggestions).
+    context_hash = hashlib.sha256(json.dumps(
+        [codebook, pdf_mapping], sort_keys=True, default=str).encode()
+    ).hexdigest()
+    cache_key = (sha, 'suggest', context_hash)
     if not previous:
         cached = _cache_get(_analysis_cache, cache_key)
         if cached is not None:
