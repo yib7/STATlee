@@ -80,34 +80,83 @@
         });
     };
 
+    /** Read a non-streaming JSON body without throwing. A proxy's 502/504 HTML
+     *  page is not JSON; callers get {} and fall back to the HTTP status
+     *  instead of mislabelling a server error as a "network error" (D4-22). */
+    CC.readJSON = async function (response) {
+        try { return await response.json(); } catch (e) { return {}; }
+    };
+
+    /** Human message for a non-streaming error reply. */
+    CC.errorMessage = function (status, data, fallback) {
+        if (data && data.error) return CC.explainError(data.error);
+        if (status) return (fallback || 'Request failed') + ' (HTTP ' + status + ').';
+        return fallback || 'Request failed.';
+    };
+
+    /** Map server wording the user cannot act on to wording they can. The
+     *  anonymous TTL reaper deletes the dataset; every route then answers
+     *  "Invalid filename" (D4-20). */
+    CC.explainError = function (msg) {
+        if (/^invalid filename/i.test(String(msg || '')) && CC.state.filename && !CC.state.user) {
+            return 'Your anonymous session data has expired and was deleted. Upload the dataset again to continue.';
+        }
+        return msg;
+    };
+
     /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
      *  onPhase receives (phase, message): some phases are notices rather than
      *  progress (P2-8's feature-selection fallback carries the text to show),
-     *  so the message must reach the caller instead of being dropped here. */
+     *  so the message must reach the caller instead of being dropped here.
+     *
+     *  Every stream ends in exactly one terminal callback. If the connection
+     *  closes with neither a `done` nor an `error` event (proxy idle timeout,
+     *  worker restart, a mobile network handoff), onError fires with a
+     *  "connection closed" message, so callers have one failure path (D4-7).
+     *  Resolves to {terminated: true|false}. */
     CC.streamSSE = async function (response, handlers) {
         const h = handlers || {};
+        let terminal = false;
+        const dispatch = (parsed) => {
+            if (parsed.type === 'delta' && h.onDelta) h.onDelta(parsed.text || '');
+            else if (parsed.type === 'phase' && h.onPhase) h.onPhase(parsed.phase, parsed.message);
+            else if (parsed.type === 'done') { terminal = true; if (h.onDone) h.onDone(parsed); }
+            else if (parsed.type === 'error') {
+                terminal = true;
+                if (h.onError) h.onError(CC.explainError(parsed.message || 'Stream error.'));
+            }
+        };
+        const handleEvent = (event) => {
+            if (!event.trim()) return;
+            const dataLine = event.split('\n').find(l => l.startsWith('data: '));
+            if (!dataLine) return;
+            let parsed;
+            try { parsed = JSON.parse(dataLine.slice(6)); }
+            catch (e) { console.error('Bad SSE payload:', dataLine, e); return; }
+            dispatch(parsed);
+        };
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split('\n\n');
-            buffer = events.pop();
-            for (const event of events) {
-                if (!event.trim()) continue;
-                const dataLine = event.split('\n').find(l => l.startsWith('data: '));
-                if (!dataLine) continue;
-                let parsed;
-                try { parsed = JSON.parse(dataLine.slice(6)); }
-                catch (e) { console.error('Bad SSE payload:', dataLine, e); continue; }
-                if (parsed.type === 'delta' && h.onDelta) h.onDelta(parsed.text || '');
-                else if (parsed.type === 'phase' && h.onPhase) h.onPhase(parsed.phase, parsed.message);
-                else if (parsed.type === 'done' && h.onDone) h.onDone(parsed);
-                else if (parsed.type === 'error' && h.onError) h.onError(parsed.message || 'Stream error.');
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop();
+                for (const event of events) handleEvent(event);
             }
+            if (buffer) handleEvent(buffer);   // a final event with no trailing blank line
+        } catch (e) {
+            if (!terminal && h.onError) h.onError('Connection lost while the response was streaming.');
+            return { terminated: false };
         }
+        if (!terminal) {
+            if (h.onError) h.onError('Connection closed before the response finished.');
+            return { terminated: false };
+        }
+        return { terminated: true };
     };
 
     // --- rendering helpers ---------------------------------------------------
@@ -119,10 +168,51 @@
     };
 
     /** Sanitized markdown rendering: the only path LLM text takes into the
-     *  DOM (roadmap 0.5). */
+     *  DOM (roadmap 0.5).
+     *
+     *  Model text can carry prompt-injected HTML (dataset cells and column
+     *  names reach the prompts, and terminal output is fed to /interpret), so
+     *  DOMPurify's defaults are not enough (D4-4): they keep data-* attributes
+     *  (which boot.js's click dispatcher reads), inline style (a full-screen
+     *  click-jacking overlay) and form controls (a fake "session expired"
+     *  form). id/name/class are dropped too: no DOM clobbering of the app's own
+     *  ids, and no borrowing the app's button styles. Links open in a new tab,
+     *  so a click on one never throws away the in-memory session. */
+    const SANITIZE_CONFIG = {
+        ALLOW_DATA_ATTR: false,
+        ALLOW_ARIA_ATTR: false,
+        FORBID_ATTR: ['style', 'id', 'name', 'class', 'form', 'formaction', 'action',
+            'tabindex', 'autofocus', 'target', 'srcset', 'ping'],
+        FORBID_TAGS: ['style', 'form', 'button', 'input', 'textarea', 'select', 'option',
+            'optgroup', 'label', 'fieldset', 'iframe', 'frame', 'frameset', 'object', 'embed',
+            'video', 'audio', 'source', 'track', 'dialog', 'details', 'summary', 'svg', 'math',
+            'base', 'link', 'meta'],
+    };
+    let sanitizeHooked = false;
+    function hookSanitizer() {
+        if (sanitizeHooked || !window.DOMPurify || !DOMPurify.addHook) return;
+        sanitizeHooked = true;
+        DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+            if (node.tagName === 'A' && node.hasAttribute('href')) {
+                node.setAttribute('target', '_blank');
+                node.setAttribute('rel', 'noopener noreferrer');
+            }
+        });
+    }
     CC.renderMarkdown = function (md) {
+        hookSanitizer();
         const html = marked.parse(md || '');
-        return DOMPurify.sanitize(html);
+        return DOMPurify.sanitize(html, SANITIZE_CONFIG);
+    };
+
+    /** One polite screen-reader announcement (D4-14). Streamed output is not a
+     *  live region itself (every chunk would be read out); instead the stream's
+     *  end is announced once here. */
+    CC.announce = function (message) {
+        const el = document.getElementById('srAnnounce');
+        if (!el) return;
+        el.textContent = '';
+        setTimeout(() => { el.textContent = message; }, 60);
     };
 
     CC.spinner = function (cls) {
@@ -184,7 +274,7 @@
         const lines = [
             'Session LLM usage',
             `Input ${CC.state.usage.input.toLocaleString()} · Output ${CC.state.usage.output.toLocaleString()} tokens · ${CC.state.usage.calls} calls`,
-            `Estimated cost ≈ ${CC.fmtUSD(cost)}  (Gemini list prices; display only)`,
+            `Estimated cost ≈ ${CC.fmtUSD(cost)}  (provider list prices; display only)`,
         ];
         const models = Object.keys(by);
         if (models.length) {
@@ -201,15 +291,37 @@
     };
 
     // --- toasts ------------------------------------------------------------------
+    /** Errors are announced assertively, stay long enough to read (a 300-char
+     *  /wrangle error does not fit in 4 s), and can be dismissed (D4-14). */
     CC.toast = function (message, type) {
         const area = document.getElementById('toastArea');
         if (!area) { console.log('[toast]', message); return; }
+        const kind = type || 'info';
         const el = document.createElement('div');
-        el.className = 'cc-toast ' + (type || 'info');
-        el.setAttribute('role', 'status');
-        el.textContent = message;
+        el.className = 'cc-toast ' + kind;
+        el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+        const text = document.createElement('span');
+        text.className = 'cc-toast-text';
+        text.textContent = message;
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'cc-toast-close';
+        close.setAttribute('aria-label', 'Dismiss notification');
+        close.textContent = '×';
+        el.appendChild(text);
+        el.appendChild(close);
         area.appendChild(el);
-        setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; }, 4200);
-        setTimeout(() => el.remove(), 4700);
+        let timer = null;
+        const dismiss = () => {
+            clearTimeout(timer);
+            el.style.opacity = '0'; el.style.transition = 'opacity .4s';
+            setTimeout(() => el.remove(), 400);
+        };
+        const life = kind === 'error' ? 12000 : 5000;
+        const arm = () => { clearTimeout(timer); timer = setTimeout(dismiss, life); };
+        close.addEventListener('click', dismiss);
+        el.addEventListener('mouseenter', () => clearTimeout(timer));   // hold while reading
+        el.addEventListener('mouseleave', arm);
+        arm();
     };
 }());

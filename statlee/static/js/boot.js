@@ -34,13 +34,25 @@
     } catch (e) { /* no-op */ }
 
     // Delegated replacement for inline onclick= handlers. The target functions
-    // (switchTab, toggleSidebar, toggleTheme, toggleCodebook, changePage) are
-    // globals defined by the app JS loaded at the end of <body>; resolving them
-    // lazily at click time lets this listener attach from <head>.
+    // are globals defined by the app JS loaded at the end of <body>; resolving
+    // them lazily at click time lets this listener attach from <head>.
+    //
+    // Dispatch is an explicit allowlist (D4-4). The old `window[name]` lookup
+    // let any element carrying data-action reach ANY global (window.open,
+    // fixWithAI's billable regeneration, ...), and model-written markdown is
+    // rendered into this same document. The sanitizer now strips data-*
+    // attributes; this is the second, independent fence: only these names are
+    // ever called, and never from inside rendered model output.
+    var ACTIONS = ['switchTab', 'toggleSidebar', 'toggleTheme', 'toggleCodebook',
+        'changePage', 'retryRun', 'fixWithAI', 'pickDataset', 'askSample'];
+    var UNTRUSTED = '.markdown-body, [data-untrusted]';
     document.addEventListener('click', function (ev) {
         var el = ev.target.closest && ev.target.closest('[data-action]');
         if (!el) return;
-        var fn = window[el.getAttribute('data-action')];
+        if (el.closest(UNTRUSTED)) return;
+        var name = el.getAttribute('data-action');
+        if (ACTIONS.indexOf(name) === -1) return;
+        var fn = window[name];
         if (typeof fn !== 'function') return;
         var arg = el.getAttribute('data-arg');
         if (arg !== null && arg !== '' && !isNaN(arg)) {
