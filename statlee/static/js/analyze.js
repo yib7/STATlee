@@ -405,10 +405,14 @@
             });
         }
         document.body.classList.add('cc-no-code', 'cc-no-run', 'cc-no-chat');
+        // The workbook keeps its runs (they live on the server), but nothing
+        // from the previous dataset stays open in Results.
+        if (CC.workbook) CC.workbook.reset();
     };
 
     // --- generate ----------------------------------------------------------
     let generating = false;
+    CC.isGenerating = function () { return generating; };
 
     async function generate() {
         if (generating) return;            // D4-6: one generation at a time
@@ -553,8 +557,11 @@
     }
 
     // --- run + interpret -------------------------------------------------------
-    function renderPlots(plots) {
-        if (!plots || plots.length === 0) return '';
+    const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+    function renderPlots(input) {
+        // Only well-formed base64 reaches the data: URL below.
+        const plots = (input || []).filter((p) => typeof p === 'string' && B64.test(p));
+        if (plots.length === 0) return '';
         const label = plots.length > 1
             ? `Generated Visualizations (${plots.length})` : 'Generated Visualization';
         let html = `<div class="mt-8 border-t border-slate-200 dark:border-slate-800 pt-6">
@@ -568,6 +575,10 @@
 
     const RUN_LABEL = '<svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg> Run in sandbox';
     let running = false;
+    let interpreting = false;
+    /** True while a run or an interpretation is writing into Results: the
+     *  workbook must not swap another run into those panels meanwhile. */
+    CC.resultsBusy = function () { return running || interpreting; };
 
     /** Language to run with. D4-29: if the editor still holds the script the
      *  server generated, run it in the language it was generated (and
@@ -611,6 +622,10 @@
 
     async function runScript() {
         if (running) return;               // D4-6: one run at a time
+        if (interpreting) {                // a saved run's interpretation is streaming
+            CC.toast('Wait for the interpretation to finish, then run the script.', 'info');
+            return;
+        }
         const code = CC.getCode();
         if (!code.trim()) {
             CC.toast('There is no script to run yet.', 'error');
@@ -623,6 +638,8 @@
         const plotOutput = byId('plotOutput');
 
         running = true;
+        // A new run takes Results back from any saved run being viewed.
+        if (CC.workbook) CC.workbook.leaveView();
         runBtn.disabled = true;
         runBtn.innerHTML = `${CC.spinner('h-4 w-4')} Running...`;
         CC.switchTab('results');
@@ -641,13 +658,15 @@
                 // (returncode / timed_out), so /interpret diagnoses it.
                 const out = String((ok ? data.output : data.error) || '');
                 const plots = (ok && Array.isArray(data.plots)) ? data.plots : [];
-                CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code };
+                const runId = (ok && data.run_id) || null;
+                CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code, run_id: runId };
+                if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
                 renderTerminal(out, true);
                 execFinished(true, null, 'timed out', { noFix: true });
                 if (plotOutput) plotOutput.innerHTML = renderPlots(plots);
                 interpretationOutput.innerHTML =
                     `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Diagnosing the failure...</span>`;
-                await interpret({ output: out, plots, success: false }, code, language);
+                await interpret({ output: out, plots, success: false }, code, language, { runId });
                 return;
             }
             if (!ok) {
@@ -662,9 +681,12 @@
                 CC.toast(msg, 'error');
                 return;
             }
+            const runId = data.run_id || null;
             CC.state.lastRun = {
                 output: data.output || '', plots: data.plots || [], success: !!data.success, code,
+                run_id: runId,
             };
+            if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
             const failed = !data.success;
             renderTerminal(data.output, failed);
             execFinished(failed, data.returncode,
@@ -676,7 +698,7 @@
             interpretationOutput.innerHTML =
                 `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} ${data.success ? 'Analyzing terminal results...' : 'Diagnosing the failure...'}</span>`;
 
-            await interpret(data, code, language);
+            await interpret(data, code, language, { runId });
         } catch (err) {
             const msg = 'Network error: the run request did not reach the server.';
             runOutput.innerText = msg;
@@ -698,18 +720,29 @@
     }
     CC.setInterpretationTitle = setInterpretationTitle;
 
-    async function interpret(runData, code, language) {
+    /** Stream an interpretation into Results.
+     *
+     *  `opts.runId` names the workbook run it grounds on (SP1): the server
+     *  reads that run's own output and stores the interpretation on it. With
+     *  `opts.saved` the run is an older one open from the rail: the live
+     *  session state (latestInterpretation, lastRun, history) is left alone.
+     *  Resolves to the interpretation text, or '' when there is none. */
+    async function interpret(runData, code, language, opts) {
+        const o = opts || {};
         const interpretationOutput = document.getElementById('interpretationOutput');
         interpretationOutput.setAttribute('aria-busy', 'true');
+        interpreting = true;
         let debug = !runData.success;
         setInterpretationTitle(debug);
+        const body = {
+            output: runData.output || '',
+            plots: runData.plots || [],
+            success: !!runData.success,
+            code,  // 5.11: lets the backend switch to debugging-assistant mode
+        };
+        if (o.runId) body.run_id = o.runId;
         try {
-            const response = await CC.postStream('/interpret', {
-                output: runData.output || '',
-                plots: runData.plots || [],
-                success: !!runData.success,
-                code,  // 5.11: lets the backend switch to debugging-assistant mode
-            });
+            const response = await CC.postStream('/interpret', body);
             const contentType = response.headers.get('Content-Type') || '';
             if (!contentType.includes('text/event-stream')) {
                 const data = await CC.readJSON(response);
@@ -717,12 +750,12 @@
                     // An error body is not an interpretation (D4-22).
                     interpretationOutput.textContent = 'Interpretation failed: ' +
                         CC.errorMessage(response.status, data, 'no interpretation returned');
-                    return;
+                    return '';
                 }
-                CC.state.latestInterpretation = data.interpretation;
+                if (!o.saved) CC.state.latestInterpretation = data.interpretation;
                 interpretationOutput.innerHTML = CC.renderMarkdown(data.interpretation);
                 CC.announce('Interpretation ready.');
-                return;
+                return data.interpretation;
             }
             const scrollContainer = document.getElementById('contentResults');
             let accumulated = '';
@@ -734,14 +767,14 @@
                     if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
                 },
                 onDone: (data) => {
-                    CC.state.latestInterpretation = accumulated;
+                    if (!o.saved) CC.state.latestInterpretation = accumulated;
                     if (data.usage) CC.addUsage(data.usage);
                     if (typeof data.debug === 'boolean') {
                         debug = data.debug;
                         setInterpretationTitle(debug);
                         // An R error or a timeout used to read as success;
                         // the server's verdict is the recorded exit code.
-                        if (CC.state.lastRun && debug) CC.state.lastRun.success = false;
+                        if (!o.saved && CC.state.lastRun && debug) CC.state.lastRun.success = false;
                     }
                 },
                 onError: (msg) => { streamError = msg; },
@@ -749,8 +782,10 @@
             if (streamError) {
                 interpretationOutput.textContent = 'Error generating interpretation: ' + streamError;
                 CC.announce('Interpretation failed.');
-            } else {
-                CC.announce('Interpretation ready.');
+                return '';
+            }
+            CC.announce('Interpretation ready.');
+            if (!o.saved) {
                 CC.recordHistory({
                     prompt: CC.state.lastPrompt,
                     code,
@@ -760,14 +795,90 @@
                     output: runData.output || '',
                     interpretation: CC.state.latestInterpretation,
                     success: !debug,      // restore it as a failed run, not a success
+                    run_id: o.runId || undefined,         // SP1: restore brings back plots
                 });
             }
+            return accumulated;
         } catch (err) {
             interpretationOutput.textContent = 'Network error: the interpretation request failed.';
+            return '';
         } finally {
+            interpreting = false;
             interpretationOutput.removeAttribute('aria-busy');
         }
     }
+
+    // --- saved workbook runs (SP1) -------------------------------------------
+    /** A saved run failed when it timed out or exited non-zero. A run with no
+     *  recorded exit code (an adopted legacy run) is not claimed either way. */
+    function savedRunFailed(run) {
+        return !!run.timed_out || (typeof run.returncode === 'number' && run.returncode !== 0);
+    }
+    CC.savedRunFailed = savedRunFailed;
+
+    /** Render a saved run (GET /runs/<id>) into Results: terminal, plots and
+     *  its own stored interpretation. Display only: the editor, the pipeline
+     *  and the live run state are not touched. */
+    CC.renderSavedRun = function (run) {
+        const failed = savedRunFailed(run);
+        const plots = Array.isArray(run.plots) ? run.plots : [];
+        document.body.classList.remove('cc-no-run');
+        ['execHeader', 'debugFrame', 'execProgress'].forEach((id) => {
+            const el = byId(id);
+            if (el) el.classList.add('hidden');
+        });
+        const icon = byId('termIcon');
+        if (icon) icon.classList.toggle('failed', failed);
+        renderTerminal(run.output || '', failed);
+        if (run.timed_out) setTermState('failed', 'saved · timed out', false);
+        else if (typeof run.returncode !== 'number') setTermState('done', 'saved run', false);
+        else if (failed) setTermState('failed', 'saved · exit ' + run.returncode, false);
+        else setTermState('done', 'saved · exit ' + run.returncode, false);
+        const plotOutput = byId('plotOutput');
+        if (plotOutput) plotOutput.innerHTML = renderPlots(plots);
+        const out = byId('interpretationOutput');
+        setInterpretationTitle(failed);
+        if (!out) return;
+        if (run.interpretation && run.interpretation.trim()) {
+            out.innerHTML = CC.renderMarkdown(run.interpretation);
+        } else {
+            out.textContent = (run.output || '').trim() || plots.length
+                ? 'No interpretation was saved for this run.'
+                : 'This run produced no output to interpret.';
+        }
+    };
+
+    /** Interpret a saved run that has none yet, grounded on that run. */
+    CC.interpretSavedRun = function (run) {
+        const out = byId('interpretationOutput');
+        if (out) {
+            out.innerHTML = `<span class="font-mono text-xs uppercase tracking-widest text-indigo-500 flex items-center gap-2">${CC.spinner('h-3.5 w-3.5')} Analyzing the saved run...</span>`;
+        }
+        // The server grounds on the run's stored output and plots; the
+        // client copy only has to say what is being interpreted.
+        return interpret({ output: run.output || '', plots: [], success: !savedRunFailed(run) },
+            run.code || '', run.language || 'Python', { runId: run.run_id, saved: true });
+    };
+
+    /** "Load script": put a saved run's script in the editor, in its own
+     *  language, ready to run again. */
+    CC.loadRunScript = function (run) {
+        const lang = run.language === 'R' ? 'R' : 'Python';
+        const select = languageSelect();
+        if (select && select.value !== lang) {
+            select.value = lang;
+            select.dispatchEvent(new Event('change'));
+        }
+        CC.setCode(run.code || '');
+        // Same record a generation leaves, so Run uses this script's language.
+        CC.state.generated = { code: run.code || '', language: lang };
+        if (run.prompt) CC.state.lastPrompt = run.prompt;
+        const copyBtn = byId('copyBtn');
+        if (copyBtn) copyBtn.style.display = 'flex';
+        const runSection = byId('runSection');
+        if (runSection) runSection.classList.remove('hidden');
+        CC.switchTab('generate');
+    };
 
     document.addEventListener('DOMContentLoaded', () => {
         initEditor();

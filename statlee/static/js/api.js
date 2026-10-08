@@ -61,16 +61,31 @@
         if (CC.showCredits) CC.showCredits();
     };
 
-    /** POST JSON, parse JSON. Returns {ok, status, data}. */
-    CC.post = async function (url, body) {
+    /** Send JSON with the CSRF header, parse JSON. Returns {ok, status, data}.
+     *  The one path every JSON write takes (POST and PATCH), so none can
+     *  forget the X-CSRF-Token header the server checks. */
+    CC.send = async function (method, url, body) {
         const res = await fetch(url, {
-            method: 'POST',
+            method,
             headers: CC.headers(),
             body: JSON.stringify(body || {}),
         });
         let data = {};
         try { data = await res.json(); } catch (e) { /* non-JSON body */ }
         CC.noteCredits(data);
+        return { ok: res.ok, status: res.status, data };
+    };
+
+    /** POST JSON, parse JSON. Returns {ok, status, data}. */
+    CC.post = function (url, body) { return CC.send('POST', url, body); };
+
+    /** PATCH JSON (e.g. renaming or starring a workbook run). */
+    CC.patch = function (url, body) { return CC.send('PATCH', url, body); };
+
+    /** GET JSON. Returns {ok, status, data}; data is {} for a non-JSON body. */
+    CC.getJSON = async function (url) {
+        const res = await fetch(url, { headers: { 'X-CSRF-Token': CC.csrfToken } });
+        const data = await CC.readJSON(res);
         return { ok: res.ok, status: res.status, data };
     };
 

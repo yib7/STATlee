@@ -73,7 +73,15 @@
     async function generateReport() {
         const btn = document.getElementById('reportGenerateBtn');
         const editor = document.getElementById('reportEditor');
-        if (!CC.state.lastRun || !CC.state.lastRun.output) {
+        // SP1: the report is grounded on the workbook runs ticked in the
+        // checklist; the server reads each one's own output and interpretation.
+        const inWorkbook = CC.workbook ? CC.workbook.count() : 0;
+        const runIds = CC.workbook ? CC.workbook.selectedRunIds() : [];
+        if (inWorkbook && !runIds.length) {
+            CC.toast('Select at least one run to ground the report on.', 'error');
+            return;
+        }
+        if (!inWorkbook && (!CC.state.lastRun || !CC.state.lastRun.output)) {
             CC.toast('Run an analysis first — the report is grounded in actual results.', 'error');
             return;
         }
@@ -85,7 +93,8 @@
                 length: document.getElementById('reportLength').value,
                 tone: document.getElementById('reportTone').value,
                 format: document.getElementById('reportFormat').value,
-                output: CC.state.lastRun.output,
+                run_ids: runIds.length ? runIds : undefined,
+                output: CC.state.lastRun ? CC.state.lastRun.output : '',
                 interpretation: CC.state.latestInterpretation,
                 history: CC.state.chatHistory,
                 converse: CC.state.converseHistory,
@@ -275,6 +284,7 @@
                         prompt: r.prompt, code: r.code, language: r.language,
                         dataset_name: r.dataset_name, output: r.output,
                         interpretation: r.interpretation,
+                        run_id: r.run_id, run_available: !!r.run_available,
                         ts, server: true,
                     });
                 });
@@ -316,7 +326,15 @@
             CC.state.lastPrompt = entry.prompt;
         }
         if (entry.output) {
+            // Results now shows this entry, not a workbook run opened from
+            // the rail (restoreSavedRun re-links it when its run still exists).
+            if (CC.workbook) CC.workbook.reset();
             document.getElementById('runOutput').innerText = entry.output;
+            // A history row holds no plots: the previous run's must not
+            // linger beside this one's text (restoreSavedRun adds the run's
+            // own plots back while its workbook run exists).
+            const plotOutput = document.getElementById('plotOutput');
+            if (plotOutput) plotOutput.innerHTML = '';
             // D4-10: the report builder and Converse read lastRun; without
             // it the restored results looked present but "Run an analysis
             // first" blocked the report.
@@ -333,6 +351,7 @@
             if (CC.setInterpretationTitle) CC.setInterpretationTitle(entry.success === false);
         }
         CC.switchTab('generate');
+        restoreSavedRun(entry);
         // S1-B contract 11: a script this session did not generate is no
         // longer refused outright. /run gives it a safety re-check first, so a
         // restored script runs in a fresh session too (or is refused with a
@@ -345,6 +364,34 @@
             : 'Past analysis restored. To re-run it, load ' + label + ' first. A restored '
               + 'script gets a quick safety re-check before it runs.',
             'info');
+    }
+
+    /** SP1: while the entry's workbook run still exists, bring back what the
+     *  text-only history row cannot hold: the full output and the plots. An
+     *  account row says so itself (`run_available`); a browser entry is
+     *  checked here, and a run newer than the entry (an id reused after the
+     *  workspace was wiped) is not this entry's run. */
+    async function restoreSavedRun(entry) {
+        if (!entry.run_id || !CC.workbook || !CC.renderSavedRun) return;
+        if (entry.server && !entry.run_available) return;
+        const got = await CC.workbook.fetchRun(entry.run_id);
+        const run = got && got.run;
+        if (!run) return;
+        const created = Date.parse(run.created_at || '');
+        if (entry.ts && !isNaN(created) && created > entry.ts + 5000) return;
+        // Another restore or a new run may have replaced this one meanwhile.
+        const current = CC.state.lastRun;
+        if (current && (!current.restored || current.code !== (entry.code || ''))) return;
+        if (CC.resultsBusy && CC.resultsBusy()) return;
+        if (!run.interpretation && entry.interpretation) run.interpretation = entry.interpretation;
+        CC.renderSavedRun(run);
+        CC.state.lastRun = {
+            output: run.output || '', plots: Array.isArray(run.plots) ? run.plots : [],
+            success: !CC.savedRunFailed(run), code: entry.code || '', restored: true,
+            run_id: run.run_id,
+        };
+        if (run.interpretation) CC.state.latestInterpretation = run.interpretation;
+        CC.workbook.noteLiveRun(run.run_id);
     }
 
     // =====================================================================
@@ -562,6 +609,9 @@
             if (CC.reloadDatasetState) await CC.reloadDatasetState();
             else CC.fetchDataPage(1);
         }
+        // The workbook moved with the workspace (or the account's own runs
+        // won): list what the account has now.
+        if (CC.workbook) CC.workbook.refresh();
     }
 
     /** Status line in the account dialog. kind 'error' (red) or 'info'. */

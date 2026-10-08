@@ -562,6 +562,132 @@ body.cc-no-data .es-hint { display: block; }
 .codebook-grid.expanded { grid-template-columns: 1fr; }
 .codebook-grid.expanded .codebook-desc { display: block; }
 
+/* ============ Session workbook (SP1) ============
+   Run rail (Results), the saved-run view bar, and the report run checklist.
+   Hand-written like the lifecycle chrome: the purged Tailwind build has no
+   utilities to spare. Every block that sets `display` carries a .hidden
+   override, because app.css loads after tailwind.css. */
+.wb-rail {
+    display: flex; flex-direction: column; gap: 0.5rem;
+    background: var(--s1); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 0.75rem 0.85rem; box-shadow: var(--e1);
+    flex-shrink: 0; min-width: 0;
+}
+.wb-rail.hidden { display: none; }
+.wb-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.wb-rail-count { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-3); }
+.wb-run-list {
+    list-style: none; margin: 0; padding: 0; position: relative;
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 12.5rem; overflow-y: auto;
+}
+.wb-run { display: flex; align-items: center; gap: 0.15rem; min-width: 0; }
+.wb-run-open {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem;
+    text-align: left; padding: 0.4rem 0.5rem; cursor: pointer;
+    color: var(--text-1); background: transparent;
+    border: 1px solid transparent; border-radius: var(--r-md);
+    transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.wb-run-open:hover { background: var(--s2); }
+.wb-run-open[aria-current="true"] {
+    background: var(--indigo-soft);
+    border-color: color-mix(in srgb, var(--indigo) 35%, transparent);
+}
+.wb-run-num {
+    flex-shrink: 0; min-width: 1.6rem; height: 1.6rem; padding: 0 0.3rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--r-sm); background: var(--s2); color: var(--text-2);
+    font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
+}
+.wb-run-open[aria-current="true"] .wb-run-num { background: var(--indigo); color: #fff; }
+.wb-run-body { min-width: 0; display: flex; flex-direction: column; gap: 0.05rem; }
+.wb-run-name {
+    font-size: 0.8rem; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wb-run-meta {
+    font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wb-run-meta .wb-run-failed { color: var(--pipe-failed); font-weight: 600; }
+.wb-icon-btn {
+    flex-shrink: 0; width: 2rem; height: 2rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-3); background: transparent; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.wb-icon-btn:hover { background: var(--s2); color: var(--text-1); }
+.wb-run-star[aria-pressed="true"] { color: var(--c-nom); }
+.wb-run.editing .wb-run-open { display: none; }
+.wb-run-name-input {
+    flex: 1; min-width: 0; font-size: 0.8rem; padding: 0.45rem 0.55rem;
+    color: var(--text-1); background: var(--s0);
+    border: 1px solid var(--indigo); border-radius: var(--r-md); outline: none;
+}
+.wb-run-name-input:focus-visible { outline: 2px solid var(--indigo); outline-offset: 1px; }
+
+.wb-viewbar {
+    display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+    gap: 0.75rem; flex-shrink: 0; min-width: 0;
+    background: var(--indigo-soft);
+    border: 1px solid color-mix(in srgb, var(--indigo) 30%, transparent);
+    border-radius: var(--r-lg); padding: 0.75rem 0.9rem;
+}
+.wb-viewbar.hidden { display: none; }
+.wb-viewbar-text { flex: 1 1 16rem; min-width: 0; }
+.wb-viewbar-title { margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--text-1); overflow-wrap: anywhere; }
+.wb-viewbar-tag {
+    display: inline-block; margin-left: 0.5rem; vertical-align: 1px;
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--indigo); border: 1px solid currentColor;
+    border-radius: var(--r-pill); padding: 0.05rem 0.45rem;
+}
+.wb-viewbar-meta { margin: 0.15rem 0 0; font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-2); overflow-wrap: anywhere; }
+.wb-viewbar-q {
+    margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--text-1); overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wb-note { margin: 0.3rem 0 0; font-size: 0.72rem; font-style: italic; color: var(--text-2); }
+.wb-note.hidden { display: none; }
+.wb-viewbar-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.wb-btn {
+    display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;
+    font-size: 0.75rem; font-weight: 600; padding: 0.45rem 0.8rem;
+    color: var(--text-1); background: var(--s0);
+    border: 1px solid var(--border-strong); border-radius: var(--r-md);
+    transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.wb-btn:hover { border-color: var(--indigo); color: var(--indigo); }
+.wb-btn:disabled { opacity: 0.55; cursor: progress; }
+.wb-btn.primary { color: var(--indigo); border-color: var(--indigo); }
+.wb-btn.hidden { display: none; }
+
+.wb-checklist {
+    margin: 0; min-width: 0; padding: 0.55rem 0.8rem 0.7rem;
+    border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--s1);
+}
+.wb-checklist.hidden { display: none; }
+.wb-checklist legend { padding: 0 0.3rem; }
+.wb-checklist-hint { margin: 0 0 0.4rem; font-size: 0.72rem; color: var(--text-2); }
+.wb-checklist-list { display: flex; flex-direction: column; gap: 2px; max-height: 10rem; overflow-y: auto; }
+.wb-check {
+    display: flex; align-items: center; gap: 0.55rem; min-width: 0; cursor: pointer;
+    padding: 0.3rem 0.35rem; border-radius: var(--r-sm); font-size: 0.8rem;
+}
+.wb-check:hover { background: var(--s2); }
+.wb-check input { flex-shrink: 0; width: 1rem; height: 1rem; margin: 0; accent-color: var(--indigo); }
+.wb-check input:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.wb-check-num { flex-shrink: 0; font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; color: var(--text-2); min-width: 1.1rem; }
+.wb-check-name { flex: 1; min-width: 0; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-check-meta {
+    flex-shrink: 1; max-width: 45%; min-width: 0;
+    font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* Data-viewer zoom controls (cycle 2) */
 .data-zoom-btn { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; line-height: 1; min-width: 1.75rem; padding: 0.3rem 0.5rem; border: 1px solid var(--border-strong); border-radius: var(--r-sm); color: var(--text-2); background: var(--s0); transition: background var(--dur-1), border-color var(--dur-1); }
 .data-zoom-btn:hover { background: var(--indigo-soft); border-color: var(--indigo); color: var(--indigo); }

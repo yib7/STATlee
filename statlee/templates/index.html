@@ -612,6 +612,33 @@
                     <!-- RESULTS TAB -->
                     <div id="contentResults" role="tabpanel" aria-labelledby="tabResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6">
 
+                        <!-- Session workbook (SP1): every run this session is
+                             kept. workbook.js fills the list from GET /runs; it
+                             stays hidden while the workbook is empty. -->
+                        <section id="runRail" class="wb-rail hidden" aria-labelledby="runRailTitle">
+                            <div class="wb-rail-head">
+                                <h3 id="runRailTitle" class="label-eyebrow m-0">Runs this session</h3>
+                                <span id="runRailCount" class="wb-rail-count"></span>
+                            </div>
+                            <ol id="runList" class="wb-run-list"></ol>
+                        </section>
+
+                        <!-- Shown while a saved run is open from the rail. The
+                             editor is untouched unless "Load script" is used. -->
+                        <div id="runViewBar" class="wb-viewbar hidden" role="region" aria-labelledby="runViewTitle">
+                            <div class="wb-viewbar-text">
+                                <p class="wb-viewbar-title"><span id="runViewTitle">Saved run</span><span class="wb-viewbar-tag">read-only</span></p>
+                                <p id="runViewMeta" class="wb-viewbar-meta"></p>
+                                <p id="runViewQuestion" class="wb-viewbar-q"></p>
+                                <p id="runInheritNote" class="wb-note hidden">Question carried over from an earlier run: this script was edited or pasted after it was generated.</p>
+                            </div>
+                            <div class="wb-viewbar-actions">
+                                <button type="button" id="runInterpretBtn" class="wb-btn hidden">Interpret this run</button>
+                                <button type="button" id="runLoadScriptBtn" class="wb-btn primary" title="Put this run's script in the editor">Load script</button>
+                                <button type="button" id="runBackBtn" class="wb-btn hidden">Back to latest</button>
+                            </div>
+                        </div>
+
                         <!-- Execution phase header: sandbox badge + live timer.
                              Shown once a run starts; flips to a failed variant
                              when the sandbox exits non-zero. -->
@@ -808,7 +835,7 @@
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                 AI Report Builder
                             </h3>
-                            <span class="text-[11px] text-[var(--text-3)]">Grounded in your latest run.</span>
+                            <span class="text-[11px] text-[var(--text-3)]">Grounded in the runs you select.</span>
                         </div>
 
                         <!-- Locked until a run exists. "your first run", not the
@@ -850,6 +877,14 @@
                                     <option value="plain-language explainer">Plain language</option>
                                 </select>
                             </div>
+                            <!-- Which workbook runs ground the report (SP1).
+                                 workbook.js fills it; default: the latest run
+                                 plus any starred run. -->
+                            <fieldset id="reportRuns" class="wb-checklist md:col-span-3 hidden">
+                                <legend class="label-eyebrow">Runs to include</legend>
+                                <p class="wb-checklist-hint">The latest run and starred runs are selected to start with.</p>
+                                <div id="reportRunList" class="wb-checklist-list"></div>
+                            </fieldset>
                             <div class="md:col-span-3 flex justify-end">
                                 <button id="reportGenerateBtn" class="btn-primary py-2.5 px-6 text-sm">Generate Report</button>
                             </div>
@@ -902,6 +937,7 @@
     <script src="{{ url_for('static', filename='js/ui.js') }}"></script>
     <script src="{{ url_for('static', filename='js/data.js') }}"></script>
     <script src="{{ url_for('static', filename='js/analyze.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/workbook.js') }}"></script>
     <script src="{{ url_for('static', filename='js/converse.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tools.js') }}"></script>
 </body>

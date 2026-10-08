@@ -541,3 +541,86 @@ def test_s4_credit_balance_is_read_centrally():
     api = _js_sources()['api.js']
     assert 'credits_remaining' in api
     assert api.count('CC.noteCredits(') >= 3     # post, postForm, streamSSE
+
+
+# =============================================================================
+# SP1 session workbook (2026-10-08): run rail, read-only view, report checklist
+# =============================================================================
+
+def _section(html, start_id, end_id):
+    i = html.find(f'id="{start_id}"')
+    j = html.find(f'id="{end_id}"', i)
+    assert i != -1 and j != -1, (start_id, end_id)
+    return html[i:j]
+
+
+def test_results_tab_has_a_numbered_run_rail(client):
+    results = _section(_index_html(client), 'contentResults', 'contentConverse')
+    assert 'id="runRail"' in results
+    assert re.search(r'<ol[^>]*id="runList"', results), 'the run rail is a numbered list'
+    # Viewing a saved run: read-only, with the one action that touches the editor.
+    for hook in ('runViewBar', 'runViewTitle', 'runViewQuestion', 'runInheritNote',
+                 'runLoadScriptBtn', 'runInterpretBtn', 'runBackBtn'):
+        assert f'id="{hook}"' in results, hook
+    assert 'Load script' in _visible(results)
+    assert 'read-only' in _visible(results)
+
+
+def test_report_builder_has_a_run_checklist(client):
+    report = _section(_index_html(client), 'contentReport', 'paneDivider')
+    m = re.search(r'<fieldset[^>]*id="reportRuns"[^>]*>(.*?)</fieldset>', report, re.S)
+    assert m, 'the report run checklist is a fieldset'
+    assert '<legend' in m.group(1)
+    assert 'id="reportRunList"' in m.group(1)
+    assert 'Grounded in your latest run.' not in report
+
+
+def test_workbook_script_is_loaded_after_analyze(client):
+    html = _index_html(client)
+    a = html.find('js/analyze.js')
+    w = html.find('js/workbook.js')
+    t = html.find('js/tools.js')
+    assert w != -1, 'workbook.js is not loaded'
+    assert a < w < t
+
+
+def test_workbook_js_renders_run_data_as_text_only():
+    """Run names, questions, file names and outputs are user/model text: the
+    workbook module builds its DOM with textContent, never innerHTML."""
+    js = _js_sources()['workbook.js']
+    assert 'innerHTML' not in js
+    assert 'insertAdjacentHTML' not in js
+    assert 'textContent' in js
+
+
+def test_patch_requests_carry_the_csrf_header():
+    """PATCH /runs/<id> is CSRF-protected: it must go through CC.headers()."""
+    api = _js_sources()['api.js']
+    m = re.search(r'CC\.send\s*=\s*async function[^{]*\{(.*?)\n    \};', api, re.S)
+    assert m, 'api.js has no shared CC.send'
+    assert 'CC.headers()' in m.group(1)
+    assert re.search(r"CC\.patch\s*=.*CC\.send\('PATCH'", api)
+    assert "CC.send('PATCH'" in api
+    js = _js_sources()['workbook.js']
+    assert 'CC.patch(' in js
+    assert "method: 'PATCH'" not in js, 'PATCH bypasses the shared CSRF path'
+
+
+def test_workbook_styles_are_hand_written_not_purged_utilities():
+    css = _read('statlee', 'static', 'css', 'app.css')
+    for cls in ('wb-rail', 'wb-run-list', 'wb-run', 'wb-run-open', 'wb-run-num',
+                'wb-run-name', 'wb-run-meta', 'wb-icon-btn', 'wb-run-star',
+                'wb-run-name-input', 'wb-viewbar', 'wb-note', 'wb-btn',
+                'wb-checklist', 'wb-check'):
+        assert '.' + cls in css, f'{cls} has no rule in app.css'
+    for cls in ('wb-rail', 'wb-viewbar', 'wb-note', 'wb-btn', 'wb-checklist'):
+        assert f'.{cls}.hidden' in css, f'.{cls} needs a .hidden override'
+
+
+def test_workbook_copy_has_no_em_dashes(client):
+    html = _index_html(client)
+    for start, end in (('runRail', 'execHeader'), ('reportRuns', 'reportGenerateBtn')):
+        assert '\u2014' not in _visible(_section(html, start, end))
+    js = _js_sources()['workbook.js']
+    strings = re.findall(r"'([^'\n]*)'", js)
+    assert not [s for s in strings if '\u2014' in s]

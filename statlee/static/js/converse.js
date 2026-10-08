@@ -71,13 +71,20 @@
             chatLog.scrollTop = chatLog.scrollHeight;
         }
 
+        // SP1: while a saved run is open in Results, the conversation is about
+        // that run: its id, its script and its interpretation (the server
+        // reads the stored interpretation for the id it is given).
+        const saved = CC.workbook ? CC.workbook.viewedRun() : null;
+        const runId = CC.workbook ? CC.workbook.activeRunId() : null;
         try {
             const res = await CC.postStream('/converse', {
                 message: text,
                 history: CC.state.converseHistory,
-                context: CC.state.latestInterpretation || 'No results generated yet.',
-                code: CC.getCode(),
+                context: (saved ? saved.interpretation : CC.state.latestInterpretation)
+                    || 'No results generated yet.',
+                code: saved ? (saved.code || '') : CC.getCode(),
                 mode: guideMode ? 'guide' : 'chat',
+                run_id: runId || undefined,
             });
 
             const contentType = res.headers.get('Content-Type') || '';
