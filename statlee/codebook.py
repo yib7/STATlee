@@ -43,6 +43,8 @@ import os
 import re
 from datetime import UTC, datetime
 
+from .prompts import neutralize_markers
+
 logger = logging.getLogger('statlee.codebook')
 
 TYPES = ('continuous', 'ordinal', 'nominal', 'binary', 'text', 'id', 'date')
@@ -372,8 +374,6 @@ def _is_default(entry):
 
 
 _WS_RE = re.compile(r'\s+')
-_OPEN_RE = re.compile(r'<{3,}')
-_CLOSE_RE = re.compile(r'>{3,}')
 
 
 def prompt_text(value):
@@ -382,7 +382,7 @@ def prompt_text(value):
     ``- column:`` line) and no ``<<<``/``>>>`` runs (so it cannot close or
     open an untrusted-data block). Storage keeps the original text."""
     text = _WS_RE.sub(' ', str(value)).strip()
-    return _CLOSE_RE.sub('>>', _OPEN_RE.sub('<<', text))
+    return neutralize_markers(text)
 
 
 def _prompt_entry(entry):
