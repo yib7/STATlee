@@ -882,8 +882,9 @@ def adopt_workspace(from_identity, to_identity):
 
     Datasets move as whole groups (file, version files, manifest, metadata
     sidecar); a group is skipped when ANY of its names already exists in the
-    account, so nothing the account holds is ever overwritten. The last run and
-    the approved-script store move only when the account has none. Anything
+    account, so nothing the account holds is ever overwritten. The last run,
+    the approved-script store and each codebook archive (``.codebook__<sha>``)
+    move only when the account has none. Anything
     skipped stays behind and expires with the anonymous workspace.
 
     Returns ``{'moved': [...], 'skipped': [...]}``: the stored names of the
@@ -899,6 +900,11 @@ def adopt_workspace(from_identity, to_identity):
     singles = []
     for name in os.listdir(src):
         if name in (APPROVED_SCRIPT, LAST_RUN_DIR, RUNS_DIR):
+            singles.append(name)
+            continue
+        if name.startswith(CODEBOOK_ARCHIVE_PREFIX) and name.endswith('.json'):
+            # Codebook archives are keyed by content hash: each moves on its
+            # own unless the account already holds one for that content.
             singles.append(name)
             continue
         stem = _adoption_group(name)

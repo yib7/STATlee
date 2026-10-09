@@ -378,3 +378,21 @@ def test_cleanup_old_files_removes_workspace_without_files(app):
 
     assert not os.path.isdir(empty_dir)
     assert not os.path.isdir(root)
+
+
+def test_adopt_workspace_carries_codebook_archives(app):
+    """Final review item 7: codebook archives (.codebook__<sha>.json) move to
+    the account at sign-in; an archive the account already holds wins."""
+    sha_new, sha_both = 'a' * 64, 'b' * 64
+    with app.app_context():
+        storage.save_codebook_archive(sha_new, {'layers': {'user': {
+            'age': {'label': 'ANON ONLY'}}}}, identity='anon_cbadopt')
+        storage.save_codebook_archive(sha_both, {'layers': {'user': {
+            'age': {'label': 'ANON COPY'}}}}, identity='anon_cbadopt')
+        storage.save_codebook_archive(sha_both, {'layers': {'user': {
+            'age': {'label': 'ACCOUNT COPY'}}}}, identity='user_cbadopt')
+        storage.adopt_workspace('anon_cbadopt', 'user_cbadopt')
+        moved = storage.load_codebook_archive(sha_new, identity='user_cbadopt')
+        kept = storage.load_codebook_archive(sha_both, identity='user_cbadopt')
+    assert moved['layers']['user']['age']['label'] == 'ANON ONLY'
+    assert kept['layers']['user']['age']['label'] == 'ACCOUNT COPY'
