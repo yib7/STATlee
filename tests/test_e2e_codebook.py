@@ -267,12 +267,19 @@ def test_codebook_text_renders_literally(page, fake):
     fake.set('classify', json.dumps({'<i>q1</i>': 'Ordinal', 'group': 'Nominal'}))
     upload(page, 'cb-xss.csv', csv)
     skip_codebook(page)
+    # Like open_codebook: wait for the background classification to reach
+    # the editor first, so its refresh cannot re-render the rows after the
+    # PUT below (the flake under full-suite load).
+    page.click('#tabPdf')
+    page.wait_for_selector('#cbEditor:not(.hidden)')
+    page.wait_for_selector(row('group') + ' select.cb-type')
+    page.wait_for_function(
+        f"() => document.querySelector('{row('group')} select.cb-type').value === 'nominal'")
     evil = '<img src=x onerror="window.__xss=1">'
     page.evaluate(
         """(evil) => CC.put('/codebook', {filename: CC.state.filename, codebook: {
             '<i>q1</i>': {label: evil, value_labels: {'1': '<b>bold</b>'}, scale_group: evil}}})""",
         evil)
-    page.click('#tabPdf')
     page.evaluate('() => CC.codebookEditor.refresh()')
     first = '#cbList > li.cb-row:first-child'
     page.wait_for_function(
