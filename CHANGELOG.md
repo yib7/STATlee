@@ -96,7 +96,7 @@ reproducibility bundle that records what produced what.
 ### Internal
 - New settings: `MAX_RUNS_PER_IDENTITY` (in `.env.example`). One migration adds
   nullable `run_id`, `dataset_version` and `model` columns to `analysis_runs`.
-- Test suite grew from 884 to 1239 passing, including Playwright end-to-end
+- Test suite grew from 884 to 1240 passing, including Playwright end-to-end
   tests for the run rail, codebook editor, methods card and export dialog.
 
 ## [1.5.0] - 2026-10-08
