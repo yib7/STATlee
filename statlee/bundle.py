@@ -126,20 +126,35 @@ def write_file(zf, path, arcname, root):
 # Runs
 # ---------------------------------------------------------------------------
 
-def select_run_ids(selection, cap, dataset_name):
-    """The caller's run ids for ``selection``, oldest first, at most ``cap``
-    (the newest are kept). Only runs on the exported dataset count: a run's
-    meta ``filename`` is the stored dataset name (``dataset_name``, the
-    basename the sandbox staged); with no dataset, only runs that recorded
-    none."""
+def eligible_runs(dataset_name, dataset_shas=None):
+    """``([(run_id, meta)], left_out)`` for the runs that may ship with the
+    exported dataset, oldest first.
+
+    A run counts when its meta ``filename`` is the stored dataset name
+    (``dataset_name``, the basename the sandbox staged; with no dataset, only
+    runs that recorded none) AND, when ``dataset_shas`` is given, the dataset
+    bytes it read (``dataset_sha256``) are one of the versions in this bundle's
+    lineage. A run on earlier content of a same-name dataset (re-uploaded
+    since) matches the name but none of those hashes: it is left out and
+    counted in ``left_out``, since its data is not in the bundle."""
     metas = []
+    left_out = 0
     for run_id in storage.run_ids():
         meta = storage.run_meta(run_id)
         if meta is None:
             continue
         if (meta.get('filename') or None) != (dataset_name or None):
             continue
+        if dataset_shas is not None and                 meta.get('dataset_sha256') not in dataset_shas:
+            left_out += 1
+            continue
         metas.append((run_id, meta))
+    return metas, left_out
+
+
+def select_run_ids(selection, cap, metas):
+    """The run ids of ``metas`` (from ``eligible_runs``) for ``selection``,
+    oldest first, at most ``cap`` (the newest are kept)."""
     if selection == 'latest':
         metas = metas[-1:]
     elif selection == 'starred':
@@ -211,8 +226,9 @@ def _str(value, limit=4000):
     return value[:limit] if isinstance(value, str) and value else None
 
 
-def _lineage_steps(lineage, include_prompts, root):
-    """Upload + the cleaning steps that produced the shipped data."""
+def lineage_steps(lineage, include_prompts, root):
+    """Upload + the cleaning steps that produced the shipped data, as
+    ``[(ts, step)]``."""
     versions = lineage.get('versions') or []
     if not versions:
         return []
@@ -290,11 +306,21 @@ def _run_steps(run_id, record, include_prompts):
     return out
 
 
-def provenance(cfg, lineage, records, include_prompts, root):
-    """The provenance.json document."""
-    steps = []
-    if lineage:
-        steps += _lineage_steps(lineage, include_prompts, root)
+def lineage_shas(steps):
+    """The dataset hashes the lineage steps (``lineage_steps``) produced: the
+    data versions this bundle documents. A run is shipped only when it read
+    one of them (``eligible_runs``)."""
+    return {step['dataset_sha256_after'] for _ts, step in steps
+            if step.get('dataset_sha256_after')}
+
+
+def provenance(cfg, lineage, records, include_prompts, root, steps=None):
+    """The provenance.json document. ``steps`` are the lineage steps when the
+    caller already computed them (``lineage_steps``), so the dataset versions
+    are hashed once per export."""
+    if steps is None:
+        steps = lineage_steps(lineage, include_prompts, root) if lineage             else []
+    steps = list(steps)
     for run_id, record in records:
         steps += _run_steps(run_id, record, include_prompts)
     steps.sort(key=lambda item: (item[0], _KIND_ORDER[item[1]['kind']]))
@@ -318,9 +344,13 @@ _RUNS_LABEL = {'all': 'all runs in the workbook',
 def readme(stem, *, script_name, script_source, editor_differs, data_name,
            lineage, run_dirs, runs_selection, include_prompts, has_codebook,
            has_report, provider, generated, script_run=None,
-           has_original=True, has_cleaning=False):
+           has_original=True, has_cleaning=False, report_run=None,
+           left_out=0):
     """README.md for the bundle (plain Markdown, no em dashes). Only files
-    that were actually written are listed."""
+    that were actually written are listed. ``report_run`` is the run whose
+    output report.md carries (None: no run on this dataset is recorded);
+    ``left_out`` counts runs on this dataset name whose data is not in the
+    bundle (``eligible_runs``)."""
     replay = bool(has_cleaning)
     out = [f'# STATlee project export: {stem}', '',
            f'Exported {generated} with STATlee {app_version()} '
@@ -343,6 +373,9 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
                 'this folder.']
     elif script_name:
         out.append(f'Run {script_name} from this folder.')
+    elif data_name:
+        out.append('No analysis has been run on this dataset yet, so no '
+                   'analysis script is included.')
     else:
         out.append('No analysis script was generated or run in this session, '
                    'so none is included.')
@@ -389,13 +422,29 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
     else:
         out.append(f'- outputs/: no runs included ({_RUNS_LABEL[runs_selection]} '
                    'was selected and there are none).')
-    which = (f'run {script_run}' if script_run else 'the latest run')
-    if include_prompts:
-        out.append(f'- report.md: your requests, the terminal output and the '
-                   f'interpretation of {which}.')
+    if left_out:
+        out.append(f'- {left_out} run was left out because its data is not in '
+                   'this bundle (it read earlier content of this dataset).'
+                   if left_out == 1 else
+                   f'- {left_out} runs were left out because their data is not '
+                   'in this bundle (they read earlier content of this '
+                   'dataset).')
+    out.append('- Runs saved before 1.6.0 are not included: they did not '
+               'record which dataset they read.')
+    if report_run:
+        if include_prompts:
+            out.append('- report.md: your requests, the terminal output and '
+                       f'the interpretation of run {report_run}.')
+        else:
+            out.append('- report.md: the terminal output and the '
+                       f'interpretation of run {report_run}.')
+    elif include_prompts:
+        out.append('- report.md: your requests. It has no terminal output or '
+                   'interpretation: no run on this dataset is recorded.')
     else:
-        out.append(f'- report.md: the terminal output and the interpretation '
-                   f'of {which}.')
+        out.append('- report.md: a title only. No run on this dataset is '
+                   'recorded, so there is no terminal output or '
+                   'interpretation.')
     if has_report:
         out.append('- full_report.md: the written report.')
 

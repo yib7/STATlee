@@ -503,7 +503,9 @@ def test_export_bundles_zip(client):
     assert resp.mimetype == 'application/zip'
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     names = zf.namelist()
-    assert 'analysis.py' in names
+    # The editor text was never generated, reviewed or run for test.csv, so
+    # it is not bundled as its analysis (final review item 1).
+    assert 'analysis.py' not in names
     assert 'report.md' in names
     assert any(n.startswith('data/') for n in names)
 

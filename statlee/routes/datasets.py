@@ -962,31 +962,50 @@ def revert_dataset():
 # Project export (5.3) and reset (4.6)
 # ---------------------------------------------------------------------------
 
-def _export_script(client_code, client_language):
-    """Pick the analysis script to bundle (D4-9).
+def _for_dataset(entry, dataset_name):
+    """True when an approved-script entry was generated for ``dataset_name``
+    (the stored name; None when no dataset is exported): its approval context
+    names it. An entry without a context (an edited script approved at /run)
+    names no dataset."""
+    ctx = entry.get('context') if isinstance(entry, dict) else None
+    name = ctx.get('filename') if isinstance(ctx, dict) else None
+    name = secure_filename(name) if isinstance(name, str) and name else None
+    return (name or None) == (dataset_name or None)
 
-    Returns ``(code, language, source, editor_differs)``. Order:
 
-    1. the editor's code, when it was reviewed in this session as an analysis
-       script (/chat or /run approved it) -- it is what the user is looking at;
-    2. otherwise the NEWER of the script that produced the last run and the
-       last generated analysis script, so a script generated after a run is not
-       shadowed by the older run (and vice versa);
-    3. only with neither on record, the editor text as-is.
+def _export_script(client_code, client_language, dataset_name, run=None):
+    """Pick the analysis script to bundle when no included run kept one
+    (D4-9). Only a script that belongs to the exported dataset is ever
+    bundled: another dataset's script would not read this one.
+
+    ``run`` is ``(run_id, record)`` of the latest run on this dataset that
+    may ship (``bundle.eligible_runs``) or None. Returns ``(code, language,
+    source, editor_differs)``. Order:
+
+    1. the editor's code, when it was generated for this dataset in this
+       session (its approval context names it);
+    2. otherwise the NEWER of that run's script and the last script generated
+       for this dataset, so a script generated after a run is not shadowed by
+       the older run (and vice versa);
+    3. with no dataset exported, the editor text as-is; with one, nothing
+       (the README then says no analysis has been run on it yet).
 
     A /wrangle transform is never bundled as the analysis script: it is a
     fragment that expects a ``df`` in scope (P2-1); cleaning.py replays those.
     """
     if client_code:
         entry = storage.approved_entry(client_code, client_language)
-        if entry and entry.get('source') != 'wrangle':
+        if entry and entry.get('source') != 'wrangle' \
+                and _for_dataset(entry, dataset_name):
             return client_code, client_language, 'reviewed editor script', False
 
     candidates = []
-    run = storage.last_run_script()
-    if run:
-        candidates.append((storage.last_run_time() or 0, run, 'last run'))
-    generated = storage.load_approved_script(exclude_sources=('wrangle',))
+    if run and (run[1].get('script') or {}).get('code'):
+        candidates.append((storage.run_time(run[0]) or 0, run[1]['script'],
+                           'last run'))
+    generated = storage.load_approved_script(
+        exclude_sources=('wrangle',),
+        match=lambda entry: _for_dataset(entry, dataset_name))
     if generated:
         candidates.append((generated.get('ts') or 0, generated,
                            'last generated script'))
@@ -999,7 +1018,7 @@ def _export_script(client_code, client_language):
         differs = bool(client_code) and client_code.strip() != code.strip()
         return code, language, source, differs
 
-    if client_code:
+    if client_code and not dataset_name:
         entry = storage.approved_entry(client_code, client_language)
         if not (entry and entry.get('source') == 'wrangle'):
             return (client_code, client_language,
@@ -1089,7 +1108,8 @@ def export_project():
     # clamp_history also drops non-dict turns that used to 500 here.
     history = clamp_history(data.get('history'), max_turns=1000,
                             field_max=20_000)
-    interpretation = clamp(data.get('interpretation'), 200_000)
+    # The interpretation in report.md is always the server's copy of the
+    # run it describes; a client-sent 'interpretation' is ignored.
     report_md = clamp(data.get('report'), 400_000)
     client_code = str_field(data, 'code')
     cfg = _cfg()
@@ -1097,9 +1117,22 @@ def export_project():
     root = storage.identity_root()
     staged = storage.resolve_path(filename) if filename else None
     dataset_name = os.path.basename(staged) if staged else None
-    # Only runs on this dataset (their meta records the stored name).
+    active = storage.active_dataset_path(filename) if filename else None
+    lineage = None
+    if active and os.path.exists(active) and staged:
+        lineage = storage.dataset_lineage(filename)
+    lineage_steps = (bundle.lineage_steps(lineage, include_prompts, root)
+                     if lineage else [])
+    # Only runs on this dataset's current content: their meta records the
+    # stored name and a hash of one of the versions this bundle documents.
+    dataset_shas = None
+    if dataset_name:
+        dataset_shas = bundle.lineage_shas(lineage_steps)
+        if not lineage and active and os.path.exists(active):
+            dataset_shas.add(bundle.file_sha(active, root))
+    eligible, left_out = bundle.eligible_runs(dataset_name, dataset_shas)
     records = bundle.load_runs(bundle.select_run_ids(
-        runs_selection, cfg.max_runs_per_identity, dataset_name))
+        runs_selection, cfg.max_runs_per_identity, eligible))
 
     # analysis.py|analysis.R is the latest run in the bundle, so its hash
     # matches a provenance step; with no such run, the latest approved
@@ -1115,31 +1148,40 @@ def export_project():
             client_code.strip() != code.strip()
         last_output = record.get('output') or ''
         interpretation = record.get('interpretation') or ''
-        script_run_id = run_id
+        script_run_id = report_run_id = run_id
     else:
+        # No included run kept a script. report.md and the script come only
+        # from the latest run on THIS dataset (any selection), never another
+        # dataset's.
+        fallback = None
+        if eligible:
+            loaded = bundle.load_runs([eligible[-1][0]])
+            fallback = loaded[0] if loaded else None
         code, language, script_source, editor_differs = _export_script(
-            client_code, language)
-        last_output, _plots = storage.last_run_artifacts()
+            client_code, language, dataset_name, fallback)
+        last_output = interpretation = ''
+        report_run_id = None
+        if fallback:
+            report_run_id = fallback[0]
+            last_output = fallback[1].get('output') or ''
+            interpretation = fallback[1].get('interpretation') or ''
         script_run_id = None
     env_text = environment.capture(cfg)
 
     stem = os.path.splitext(secure_filename(filename or 'project'))[0] or 'project'
     script_name = None
     data_name = None
-    lineage = None
     has_codebook = has_original = has_cleaning = False
     # Spooled: small bundles stay in memory, big ones (many runs of plots)
     # roll over to a temp file. Closed by the response (or below on error).
     spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MAX)
     try:
         with zipfile.ZipFile(spool, 'w', zipfile.ZIP_DEFLATED) as zf:
-            active = storage.active_dataset_path(filename) if filename else None
-            if active and os.path.exists(active) and staged:
+            if lineage:
                 # D4-9: /run stages the active version under the dataset's
                 # stored name (dataset_name in run_code), and the script
                 # reads it from its working directory -- so it goes at the
                 # zip root under that name, not as data/<name>__vN.csv.
-                lineage = storage.dataset_lineage(filename)
                 if bundle.write_file(zf, active, dataset_name, root):
                     data_name = dataset_name
                     original = (lineage or {}).get('original') or active
@@ -1163,7 +1205,7 @@ def export_project():
             zf.writestr('environment.txt', env_text)
             zf.writestr('provenance.json', json.dumps(
                 bundle.provenance(cfg, lineage, records, include_prompts,
-                                  root),
+                                  root, steps=lineage_steps),
                 indent=2, ensure_ascii=False))
             zf.writestr('README.md', bundle.readme(
                 stem, script_name=script_name, script_source=script_source,
@@ -1175,7 +1217,8 @@ def export_project():
                 provider=cfg.llm_provider,
                 generated=time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime()),
                 script_run=script_run_id, has_original=has_original,
-                has_cleaning=has_cleaning))
+                has_cleaning=has_cleaning, report_run=report_run_id,
+                left_out=left_out))
             zf.writestr('report.md', _report_md(
                 stem, history, last_output, interpretation, include_prompts))
             if report_md:

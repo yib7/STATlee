@@ -774,16 +774,20 @@ def approved_language(code, language='Python', identity=None):
     return language
 
 
-def load_approved_script(identity=None, exclude_sources=()):
+def load_approved_script(identity=None, exclude_sources=(), match=None):
     """Return the MOST-RECENTLY approved script ``{code, language, ...}`` or
-    None, skipping entries whose ``source`` is in ``exclude_sources``.
+    None, skipping entries whose ``source`` is in ``exclude_sources`` and,
+    with ``match``, entries for which ``match(entry)`` is false (/export only
+    takes a script generated for the exported dataset).
 
-    Retained for /export (bundles the latest script). Membership tests use
-    ``is_approved_script`` instead of equality against this single entry.
+    Membership tests use ``is_approved_script`` instead of equality against
+    this single entry.
     """
     store = _load_approved_store(identity)
     for entry in reversed(list(store.values())):
-        if entry.get('source') not in exclude_sources:
+        if entry.get('source') in exclude_sources:
+            continue
+        if match is None or match(entry):
             return entry
     return None
 

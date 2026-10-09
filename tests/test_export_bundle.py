@@ -584,3 +584,66 @@ def test_export_is_rate_limited(config, reset_limiter_state, fake_llm):
     codes = [post_json(c, '/export', {'code': "print('x')"}).status_code
              for _ in range(3)]
     assert codes == [200, 200, 429]
+
+
+# ---------------------------------------------------------------------------
+# Final review fixes
+# ---------------------------------------------------------------------------
+
+def test_fallback_never_ships_another_datasets_script_output_or_interpretation(
+        client, fake_llm):
+    """No run on test.csv, a run on other.csv: the test.csv bundle must not
+    carry other.csv's script, output, or the client-sent interpretation."""
+    upload_csv(client, SAMPLE_CSV)
+    upload_csv(client, SAMPLE_CSV.replace('income', 'salary'), 'other.csv')
+    other_code = "print('ON_OTHER_ONLY')"
+    _generate_and_run(client, fake_llm, other_code, prompt='other question',
+                      filename='other.csv')
+    zf = _export(client, code=other_code,
+                 interpretation='CLIENT_SENT_INTERPRETATION')
+    names = zf.namelist()
+    assert 'analysis.py' not in names and 'analysis.R' not in names
+    text = _all_text(zf)
+    assert 'ON_OTHER_ONLY' not in text
+    assert 'CLIENT_SENT_INTERPRETATION' not in text
+    readme = zf.read('README.md').decode()
+    assert 'The script reads test.csv' not in readme
+    assert 'no analysis has been run on this dataset yet' in readme.lower()
+    # other.csv's own export still has its script.
+    other = _export(client, filename='other.csv')
+    assert b'ON_OTHER_ONLY' in other.read('analysis.py')
+
+
+def test_fallback_uses_a_script_generated_for_this_dataset(client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    upload_csv(client, SAMPLE_CSV.replace('income', 'salary'), 'other.csv')
+    _chat(client, fake_llm, "print('FOR_TEST')", prompt='q', filename='test.csv')
+    _generate_and_run(client, fake_llm, "print('FOR_OTHER')", prompt='q2',
+                      filename='other.csv')
+    zf = _export(client, interpretation='CLIENT_SENT_INTERPRETATION')
+    assert zf.read('analysis.py') == b"print('FOR_TEST')"
+    assert 'CLIENT_SENT_INTERPRETATION' not in _all_text(zf)
+    assert 'FOR_OTHER' not in _all_text(zf)
+
+
+def test_runs_on_earlier_content_of_a_same_name_dataset_are_left_out(
+        client, fake_llm):
+    upload_csv(client, SAMPLE_CSV)
+    old = _generate_and_run(client, fake_llm, "print('OLD_CONTENT')",
+                            prompt='old q')['run_id']
+    upload_csv(client, SAMPLE_CSV.replace('30000', '31000'))
+    new = _generate_and_run(client, fake_llm, "print('NEW_CONTENT')",
+                            prompt='new q')['run_id']
+    zf = _export(client)
+    assert _prov_runs(zf) == [new]
+    assert _run_dirs(zf) == ['run_' + new[1:]]
+    assert old not in _prov_runs(zf)
+    assert 'OLD_CONTENT' not in _all_text(zf)
+    readme = zf.read('README.md').decode()
+    assert '1 run was left out because its data is not in this bundle' in readme
+
+
+def test_bundle_readme_notes_runs_saved_before_1_6_0_are_not_included(
+        client, full_session):
+    readme = _export(client).read('README.md').decode()
+    assert 'before 1.6.0' in readme
