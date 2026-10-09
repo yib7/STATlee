@@ -214,15 +214,25 @@ script; an edited or pasted script gets the latest generation's question marked
 that run's own dataset version, and omits the row count and column context when
 the file is gone or its hash no longer matches.
 
-The store is capped by `MAX_RUNS_PER_IDENTITY`. For account users the history
+The store is capped by `MAX_RUNS_PER_IDENTITY` and by a byte budget: 25 percent
+of `MAX_BYTES_PER_IDENTITY` (`runs.RUNS_BYTES_SHARE_PERCENT`; 50 MB of the
+default 200 MB, or 50 MB when that cap is off), so stored runs always leave room
+for uploads. Past either cap the oldest unstarred run is evicted (the oldest run
+when all are starred; never the run just saved). A run keeps at most 20 plots
+and 10 MB of plots (`sandbox.PLOTS_MAX`, `sandbox.PLOTS_BYTES_MAX`); the output
+says how many were not kept. `/run` reads the dataset's version number, path and
+hash from one manifest read before the sandbox starts, so a wrangle that lands
+mid-run cannot pair the new version with the old bytes. A locked file in a
+legacy `.last_run/` (Windows) leaves it in place and adoption retries on a later
+access. For account users the history
 rows (`analysis_runs`) link back to a run through nullable `run_id`,
 `dataset_version` and `model` columns; a restored row gets its full output and
 plots only while its run still exists (`run_available`).
 
 Limits worth knowing:
 
-- Run plots count toward `MAX_BYTES_PER_IDENTITY`, so a plot-heavy workbook can
-  bring an identity close to its storage cap.
+- Run plots count toward `MAX_BYTES_PER_IDENTITY`; the byte budget above keeps
+  the workbook to a quarter of it.
 - Signing in moves an anonymous workbook into the account only when the account
   has no runs. If it has its own, the account's workbook wins and the anonymous
   runs expire with the anonymous workspace; the two are not merged.
@@ -255,6 +265,8 @@ inherits entries by column name, a new column shows a default entry, and a
 dropped column disappears and comes back on undo. A sha256-keyed archive
 (`.codebook__<sha>.json`, the 50 newest kept) restores the user, pdf and llm
 layers when the same content is uploaded again, even under another name.
+Archives move with the workspace at sign-in, except one the account already
+holds for the same content.
 
 Routes: `GET /codebook`, `PUT /codebook` (partial: only the fields sent become
 user fields), `POST /codebook/import` and `GET /codebook/export`. The export is
@@ -262,11 +274,16 @@ the `statlee-codebook` document that import accepts back, and that the bundle
 ships as `codebook.json`. Responses carry an explicit `columns` list because
 `jsonify` sorts object keys. Every field is length-clamped (labels 2000
 characters, 200 value labels, 50 missing codes), and writes are locked
-read-modify-write cycles with an atomic replace.
+read-modify-write cycles with an atomic replace. The stored codebook (all
+layers, as JSON) is capped at 4 MB (`codebook.CODEBOOK_BYTES_MAX`): a write that
+would grow it past that is refused with a `413` and nothing is stored; one that
+shrinks an oversized codebook still goes through.
 
 Prompts read only the server codebook. A client-sent `codebook` or `pdf_mapping`
 is accepted but ignored (logged at debug). The text is user- or model-supplied,
-so it sits inside the untrusted-data delimiters and under the prompt clamps. The
+so it sits inside the untrusted-data delimiters and under the prompt clamps
+(`prompts.untrusted` shortens any `<<<` or `>>>` run in its payload, so no text
+can close or forge a block). The
 draft prompt also gets the field rules (missing codes are treated as missing; id
 and ignore columns are never modelled; a weight column is applied for weighted
 estimates; scale groups) and a `CODEBOOK ROLES` block naming them.
@@ -325,16 +342,24 @@ outputs/run_0001/            one folder per included run:
 
 - `analysis.py|R` is the script of the latest run within the selected set, so its
   `script_sha256` matches a provenance run step and `report.md` describes the
-  same run. With no selected run it falls back to the reviewed editor code, else
-  the newest approved script. `cleaning.py` is written only when there are
+  same run. With no selected run that kept a script, it falls back to the
+  reviewed editor code, else the newer of the latest run's script and the newest
+  approved script, but only ones that belong to the exported dataset (an
+  approval whose context names it, a run that recorded it). With none, no script
+  is bundled and the README says no analysis has been run on the dataset yet.
+  `report.md` likewise carries only that dataset's latest run; a client-sent
+  interpretation is never used. `cleaning.py` is written only when there are
   recorded steps and both dataset files are in the zip (a revert restarts the
   lineage, undone steps are left out, and a step that predates code recording
   omits it).
 - The export dialog sends `runs` (`all`, `starred` or `latest`; default `all`) and
   `include_prompts` (a boolean; default true). Any other value is a `400`. Runs
-  are scoped to the exported dataset by its stored name, then capped at
-  `MAX_RUNS_PER_IDENTITY`. Runs saved before this release did not record a
-  dataset name and are left out of dataset exports.
+  are scoped to the exported dataset by its stored name and by content: a run
+  whose recorded `dataset_sha256` is not one of the versions in this bundle's
+  lineage (it read earlier content of a re-uploaded same-name dataset) is left
+  out, and the README counts those. The rest are capped at
+  `MAX_RUNS_PER_IDENTITY`. Runs saved before 1.6.0 did not record a dataset and
+  are left out of dataset exports; the README says so.
 - `provenance.json` is `{generated_at, app_version, llm_provider, steps}`. Steps
   are ordered by time and are of four kinds: `upload` (`dataset_sha256_after`),
   `wrangle` (instruction, model, role, before and after hashes, the transform's
@@ -605,9 +630,10 @@ SQLite file. The whole HTTP surface is exercised **offline**: no API key, no
 network. The suite is hermetic: importing the `statlee` package never loads
 `.env` (only `wsgi.py` does, and never under `APP_ENV=testing`), and `conftest`
 sets `PYTHON_DOTENV_DISABLED=1` and scrubs provider keys plus `LLM_PROVIDER` /
-`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage spans uploads, the workbook and codebook, methods parsing, the export bundle, wrangling/versioning, the run-guard,
-converse, export, auth, CSRF, the rate-limit key function, the billing seam, and
-Pro-mode routing. `tests/test_e2e_ui.py` drives the real frontend in Chromium
+`MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage
+spans uploads, the workbook and codebook, methods parsing, the export bundle,
+wrangling/versioning, the run-guard, converse, auth, CSRF, the rate-limit key
+function, the billing seam, and Pro-mode routing. `tests/test_e2e_ui.py` drives the real frontend in Chromium
 (Playwright) against a live localhost server that uses the same fake model; it
 skips when Playwright is not installed. `ruff` lints; CI runs ruff +
 byte-compile + pytest on push.

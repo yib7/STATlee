@@ -8,14 +8,17 @@ It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic
 
 ## Key Features
 
-* **Intelligent Codebook:** Samples uploaded data to classify variables as Nominal, Ordinal, or Continuous, preventing statistical errors (e.g. linear regression on nominal data). Codebooks can also be extracted from a PDF data dictionary or *inferred from a survey questionnaire*.
+* **Editable codebook:** The Codebook tab lists every variable with its type, label, value labels, missing codes, role (analyze, ID, survey weight, ignore) and scale group. It is seeded from `.sav`/`.dta` labels, a PDF data dictionary or survey questionnaire, and a model classification of a data sample; your edits always win, survive cleaning, and export and import as JSON. The model is told about missing codes, weights and ID columns.
+* **Run workbook:** Every run is kept in a numbered run rail in Results: star or rename a run, reopen an older one read-only (output, plots, its own interpretation), load its script back into the editor, and choose which runs the report is grounded in.
+* **Methods and assumptions card:** Each script prints a short summary of the test, N used, assumption checks (pass, warn, fail) and effect sizes, shown as a card above the terminal and cited in the interpretation. If a script prints none, the card says so.
 * **Multi-format ingestion:** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and SPSS (`.sav`), normalized to CSV internally, with native variable labels seeding the codebook for free.
 * **Role-based model routing:** Each step is addressed by a *role* (`pro`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
 * **Sandboxed execution:** Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
 * **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
 * **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo.
 * **AI interpretation & auto-debugging:** Translates dense terminal output and p-values into plain-English Markdown insights, and switches to a debugging assistant when a run fails.
-* **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits, and exports a reproducibility bundle (data, cleaning and analysis scripts, per-run outputs, codebook, provenance, environment, report) as a zip that runs as unzipped.
+* **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits.
+* **Reproducibility bundle:** The export zip runs as unzipped: the analysed data and the original upload, `cleaning.py` replaying your cleaning steps, the analysis script, `codebook.json`, `provenance.json` (every upload, cleaning step, run and interpretation with times, models and SHA-256 hashes), `environment.txt`, a README, and one folder per run. Choose all, starred or the latest run, and whether your typed prompts are included.
 * **Converse tab:** A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a rigorous, ready-to-run analysis prompt.
 * **Optional accounts:** Anonymous sandbox use by default (nothing persisted); optional email/password accounts persist datasets and analysis history.
 
@@ -30,12 +33,18 @@ pattern with focused modules (entry point: `wsgi:app`, which loads `.env` and ca
 | `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
 | `statlee/app.py` | App factory + cross-cutting middleware (sessions, CSRF, rate limits, request-id logging). |
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
+| `statlee/runs.py` | Session workbook: every run kept under `runs/<run_id>/`, with the run and byte caps. |
+| `statlee/codebook.py` | Layered, editable variable codebook (user > file > PDF > model). |
+| `statlee/methods.py` | Parser for the methods and assumptions block scripts print. |
+| `statlee/bundle.py`, `statlee/environment.py` | Reproducibility bundle: provenance, README, environment probe. |
+| `statlee/codecheck.py` | Non-LLM static pre-check (Python import allowlist, R regex denylist). |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
-| `statlee/llm.py` | Provider-agnostic LLM service with usage tracking. |
+| `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend) with usage tracking. |
+| `statlee/billing.py` | Monetization seam (off by default). |
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
 | `statlee/models.py` | SQLAlchemy models (users, runs, issue reports). |
-| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`. |
+| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`, `runs`, `codebook`. |
 
 A deeper architecture walkthrough is in [ARCHITECTURE.md](ARCHITECTURE.md).
 

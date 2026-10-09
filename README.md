@@ -72,8 +72,9 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   script prints none, the card says so instead of guessing.
 - **Secure sandbox.** Generated code runs in a throwaway working directory with
   a **secret-free environment**, screened first by a non-LLM **static pre-check**
-  (an AST denylist rejecting network access, process/shell spawning, `os`/env
-  exfiltration, and file reads outside the run dir) and a **run-guard** that
+  (an import allowlist for Python, so network, process/shell and `os`/env
+  modules never load, plus checks on file reads outside the run dir; a regex
+  denylist for R) and a **run-guard** that
   re-moderates any hand-edited script. The default `SANDBOX_MODE=subprocess`
   scrubs secrets from the environment but does **not** isolate the network or
   host filesystem, so those two gates are the boundary; `SANDBOX_MODE=docker`
@@ -168,8 +169,9 @@ pytest            # 1222 tests, fully offline (deterministic fake LLM, no API ke
 
 The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
 codebook, workbook, methods card, wrangling, run-guard, converse, export bundle,
-auth, CSRF, rate-limit keying, billing seam, Pro-mode routing) is exercised without network or API keys. CI runs
-ruff + byte-compile + pytest on every push (`.github/workflows/ci.yml`).
+auth, CSRF, rate-limit keying, billing seam, Pro-mode routing) is exercised
+without network or API keys. CI runs ruff + byte-compile + pytest on every push
+(`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
 
@@ -181,10 +183,11 @@ loads `.env` and calls `statlee.app.create_app()`).
 | `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
 | `statlee/app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
 | `statlee/storage.py` | Per-identity file isolation + dataset version control. |
-| `statlee/runs.py` | Session workbook: every run kept under `runs/<run_id>/`, with the run cap. |
+| `statlee/runs.py` | Session workbook: every run kept under `runs/<run_id>/`, with the run and byte caps. |
 | `statlee/codebook.py` | Layered, editable variable codebook (user > file > PDF > model). |
 | `statlee/methods.py` | Parser for the methods and assumptions block scripts print. |
 | `statlee/bundle.py`, `statlee/environment.py` | Reproducibility bundle: provenance, README, environment probe. |
+| `statlee/codecheck.py` | Non-LLM static pre-check (Python import allowlist, R regex denylist). |
 | `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
 | `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
 | `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (off by default; atomic debit + refund + monthly top-up when enabled). |
@@ -203,15 +206,17 @@ website, a deliberate, zero-cost choice. Self-hosted, its only real cost is the
 LLM provider's API (Gemini by default), and it ships with the controls to cap
 that spend at a number you choose: a global monthly ceiling on premium calls
 (enforced with billing on or off), per-identity rate limits, cheapest-tier
-defaults, and a production startup warning when no ceiling is set. The (illustrative) monetization model and how the
-billing seam backs it are in [Pricing](docs/PRICING.md).
+defaults, and a production startup warning when no ceiling is set. The
+(illustrative) monetization model and how the billing seam backs it are in
+[Pricing](docs/PRICING.md).
 
 ## Security
 
 Because STATlee executes model-generated (and user-editable) code, execution
-safety is layered. Every script passes a **non-LLM static pre-check** (an AST
-denylist rejecting network access, process/shell spawning, `os`/env
-exfiltration, and reads outside the run directory) and an LLM **run-guard** that
+safety is layered. Every script passes a **non-LLM static pre-check** (an
+import allowlist for Python, so network, process/shell and `os`/env modules
+never load, plus checks on reads outside the run directory; a regex denylist for
+R) and an LLM **run-guard** that
 re-moderates edited scripts, before running in a throwaway, secret-free working
 directory. In the default `SANDBOX_MODE=subprocess` those two gates *are* the
 boundary: the environment is scrubbed of secrets, but the network and host
@@ -219,8 +224,8 @@ filesystem remain reachable, so run that mode only where the host holds nothing
 sensitive. `SANDBOX_MODE=docker` makes the boundary kernel-enforced with a
 **network-less**, non-root, read-only, resource-capped container per run. Rate
 limits are keyed per-identity (client IP / account, not a resettable cookie) to
-protect against bill abuse. Responses carry
-a strict Content-Security-Policy and the usual hardening headers, CSRF is
+protect against bill abuse. Responses carry a strict Content-Security-Policy
+and the usual hardening headers, CSRF is
 double-submit with a constant-time check, and the schema is versioned with
 Alembic so an existing database upgrades cleanly instead of breaking on a new
 column.

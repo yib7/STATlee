@@ -49,13 +49,39 @@ reproducibility bundle that records what produced what.
   probe. The zip is built in a spooled temporary file instead of in memory.
 - Cleaning steps record the model and role that produced them.
 - The CSRF check also covers `PATCH`.
+- An export only ever bundles runs and a script that belong to the exported
+  dataset's current content. Editor code that was never generated, reviewed or
+  run for that dataset is no longer bundled; with nothing on record the README
+  says no analysis has been run on the dataset yet.
+- A run keeps at most 20 plots and 10 MB of plots (the output says how many were
+  not kept), and the workbook also evicts its oldest unstarred runs once it
+  holds more than a quarter of `MAX_BYTES_PER_IDENTITY`, so stored runs always
+  leave room for uploads.
+- A codebook write that would grow the stored codebook past 4 MB is refused with
+  a clear message (413) instead of stored.
+- Text placed inside an untrusted-data block of a prompt can no longer close or
+  forge a block with its own `<<<` or `>>>` markers.
 
 ### Fixed
 - Long terminal output scrolls inside the terminal box instead of being clipped
   in the fixed-height Results column.
+- Exporting a dataset with no run of its own no longer ships another dataset's
+  script, terminal output or interpretation, and `report.md` never uses an
+  interpretation sent by the browser.
+- Runs on earlier content of a re-uploaded same-name dataset are left out of its
+  export (the README counts them) instead of shipping with hashes that match
+  nothing in `provenance.json`.
+- A run records the dataset version and hash it actually read, even when a
+  cleaning step lands while it runs.
+- A file locked in an old single-run folder (Windows) no longer breaks the
+  workbook; the old run is adopted on a later visit.
+- Signing in now carries codebook archives into the account, so re-uploading the
+  same file there restores your codebook edits.
+- The run rail ends the read-only view of a run that left the workbook.
 
 ### Known limitations
-- Run plots count toward the per-identity storage cap.
+- Run plots count toward the per-identity storage cap (bounded by the workbook's
+  share of it, above).
 - Signing in does not merge an anonymous workbook into an account that already
   has runs; the account's runs win.
 - With prompts excluded from an export, text written by the model

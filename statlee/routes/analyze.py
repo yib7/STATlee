@@ -399,9 +399,10 @@ def run_code():
 
     # Static pre-check (P1-1a): the FINAL, non-LLM gate before execution, for
     # both the approved-from-chat and the edited-and-re-moderated paths. This
-    # AST denylist is defense-in-depth added to the LLM code_moderation above,
-    # not a replacement — an LLM gate is prompt-injection bypassable and the
-    # default subprocess sandbox has no network/filesystem isolation.
+    # import allowlist (Python) / regex denylist (R) is defense-in-depth
+    # added to the LLM code_moderation above, not a replacement: an LLM gate
+    # is prompt-injection bypassable and the default subprocess sandbox has
+    # no network/filesystem isolation.
     static_blocked, static_reason = codecheck.check_code(code, language)
     if static_blocked:
         return json_error(
