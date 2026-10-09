@@ -351,8 +351,12 @@ def _register_unlocked(filename, identity=None):
     return manifest
 
 
-def active_dataset_path(filename, identity=None):
-    """Resolve the ACTIVE version of a dataset (falls back to the plain file)."""
+def active_dataset_snapshot(filename, identity=None):
+    """``(path, version)`` of the ACTIVE version from ONE manifest read, so
+    the two always describe the same state (a /run records them before the
+    sandbox starts; a wrangle landing mid-run must not pair the new version
+    number with the old bytes). ``version`` is None for a dataset without a
+    manifest; ``path`` falls back to the plain file."""
     manifest = _load_manifest(filename, identity)
     if manifest:
         active = next((v for v in manifest['versions']
@@ -360,8 +364,16 @@ def active_dataset_path(filename, identity=None):
         if active:
             path = resolve_path(active['file'], identity)
             if path and os.path.exists(path):
-                return path
-    return resolve_path(filename, identity)
+                number = manifest.get('active')
+                if isinstance(number, bool) or not isinstance(number, int):
+                    number = None
+                return path, number
+    return resolve_path(filename, identity), None
+
+
+def active_dataset_path(filename, identity=None):
+    """Resolve the ACTIVE version of a dataset (falls back to the plain file)."""
+    return active_dataset_snapshot(filename, identity)[0]
 
 
 def _truncate_redo_branch(manifest):

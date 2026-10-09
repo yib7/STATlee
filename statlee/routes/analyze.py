@@ -388,8 +388,13 @@ def run_code():
 
     dataset_path = None
     dataset_name = None
+    dataset_version = None
     if filename:
-        dataset_path = storage.active_dataset_path(filename)
+        # One manifest read BEFORE the sandbox starts: the path it reads, its
+        # version number and (below) its hash describe the same state even
+        # if a wrangle lands while the script runs.
+        dataset_path, dataset_version = storage.active_dataset_snapshot(
+            filename)
         dataset_name = os.path.basename(storage.resolve_path(filename) or '') or None
 
     # Static pre-check (P1-1a): the FINAL, non-LLM gate before execution, for
@@ -403,6 +408,8 @@ def run_code():
             f'Script rejected by the safety check (static analysis). '
             f'{static_reason}', 403)
 
+    provenance = _run_provenance(code, language, filename, dataset_path,
+                                 dataset_version)
     cfg = _cfg()
     result = sandbox.run_in_sandbox(
         code, language, dataset_path=dataset_path, dataset_name=dataset_name,
@@ -416,8 +423,7 @@ def run_code():
     run_id = storage.save_run(
         result.output, result.plots, script=code, language=language,
         returncode=result.returncode, timed_out=result.timed_out,
-        methods=methods,
-        **_run_provenance(code, language, filename, dataset_path))
+        methods=methods, **provenance)
 
     # L9/S5: a timeout is an executed failure, not a server error. The script
     # ran and was stopped; its outcome is recorded above, so the reply is a 200
@@ -440,9 +446,11 @@ def _ctx_str(ctx, key):
     return value if isinstance(value, str) else None
 
 
-def _run_provenance(code, language, filename, dataset_path):
+def _run_provenance(code, language, filename, dataset_path, version):
     """What produced this run, from the server's own records (SP1), and the
-    exact dataset version and bytes the sandbox read.
+    exact dataset version and bytes the sandbox read. Called BEFORE the
+    sandbox runs, with ``dataset_path``/``version`` from one manifest read
+    (``storage.active_dataset_snapshot``).
 
     The question and drafting role/model come from, in order: the context
     /chat stored with this script's approval; else the most recent workbook
@@ -469,15 +477,16 @@ def _run_provenance(code, language, filename, dataset_path):
             prompt = _ctx_str((latest or {}).get('context'), 'prompt')
             role = model = None
             inherited = prompt is not None
-    stored_name = version = sha = None
+    stored_name = sha = None
     if filename and dataset_path and os.path.isfile(dataset_path):
         stored_name = os.path.basename(
             storage.resolve_path(filename) or '') or None
-        version = storage.active_version_number(filename)
         try:
             sha = datatools.file_sha256(dataset_path)
         except OSError:
             logger.warning("Could not hash the dataset for run provenance")
+    else:
+        version = None
     return {'prompt': prompt, 'filename': stored_name,
             'dataset_version': version, 'dataset_sha256': sha,
             'model': model, 'role': role, 'prompt_inherited': inherited}

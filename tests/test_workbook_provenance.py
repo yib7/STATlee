@@ -125,3 +125,35 @@ def test_patch_returns_404_when_run_vanishes(app, client, monkeypatch):
     resp = client.patch(f'/runs/{rid}', json={'starred': True},
                         headers={'X-CSRF-Token': csrf_token(client)})
     assert resp.status_code == 404
+
+
+def test_run_records_the_version_it_read_when_a_wrangle_lands_mid_run(
+        app, client, fake_llm, monkeypatch):
+    """Final review item 3: version and hash are snapshotted before the
+    sandbox starts, so a wrangle committed during the run cannot pair
+    version 2 with version 1's bytes."""
+    import hashlib
+
+    from statlee import sandbox
+    upload_csv(client, SAMPLE_CSV)
+    ident = _identity(client)
+    with app.app_context():
+        v1_path = storage.active_dataset_path('test.csv', identity=ident)
+    with open(v1_path, 'rb') as f:
+        v1_sha = hashlib.sha256(f.read()).hexdigest()
+    real = sandbox.run_in_sandbox
+
+    def wrangle_during_run(*args, **kwargs):
+        result = real(*args, **kwargs)
+        storage.add_dataset_version(
+            'test.csv', pd.DataFrame({'age': [1]}), 'mid-run edit',
+            identity=ident, code='df = df.head(1)')
+        return result
+    monkeypatch.setattr(sandbox, 'run_in_sandbox', wrangle_during_run)
+    _generate(client, fake_llm, "print('MID')", 'Q mid')
+    rid = _run(client, "print('MID')")
+    meta = _meta(app, client, rid)
+    with app.app_context():
+        assert storage.active_version_number('test.csv', identity=ident) == 2
+    assert meta['dataset_version'] == 1
+    assert meta['dataset_sha256'] == v1_sha
