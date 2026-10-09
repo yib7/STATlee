@@ -332,8 +332,15 @@ def _ensure_adopted(identity=None):
         run_id = _allocate(index)
         tmp = os.path.join(root, f'{_TMP_PREFIX}{uuid.uuid4().hex}')
         # A rename, not a copy: if it fails nothing moved, and once it worked
-        # the legacy dir is gone, so a run is never adopted twice.
-        os.rename(legacy, tmp)
+        # the legacy dir is gone, so a run is never adopted twice. A file
+        # held open in it (Windows) fails the rename: the legacy dir stays
+        # and a later access retries, instead of every workbook read failing.
+        try:
+            os.rename(legacy, tmp)
+        except OSError:
+            logger.warning("Could not adopt the legacy last run yet; will "
+                           "retry on a later access", exc_info=True)
+            return
         try:
             st._write_json_atomic(os.path.join(tmp, META_FILE),
                                   _new_meta(run_id, created_ts=created))

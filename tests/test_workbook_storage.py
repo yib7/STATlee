@@ -318,3 +318,31 @@ def test_byte_eviction_never_drops_the_new_run(ctx):
     storage.save_run('o', [big], identity=ident)
     new = storage.save_run('o', [big], identity=ident)
     assert storage.run_ids(identity=ident) == [new]
+
+
+def test_locked_legacy_dir_is_left_in_place_and_adopted_later(
+        ctx, monkeypatch):
+    """Final review item 6: a locked file in a legacy .last_run dir (Windows)
+    must not break every workbook read; adoption is retried later."""
+    from statlee import runs
+    ident = 'anon_wblocked'
+    legacy = os.path.join(storage.identity_root(ident), storage.LAST_RUN_DIR)
+    os.makedirs(legacy)
+    with open(os.path.join(legacy, 'output.txt'), 'w', encoding='utf-8') as f:
+        f.write('LOCKED LEGACY')
+    real_rename = os.rename
+
+    def locked(src, dst):
+        if os.path.basename(src) == storage.LAST_RUN_DIR:
+            raise PermissionError(32, 'file in use')
+        return real_rename(src, dst)
+    monkeypatch.setattr(runs.os, 'rename', locked)
+    assert storage.list_runs(identity=ident) == []
+    assert storage.latest_run_id(identity=ident) is None
+    assert os.path.isdir(legacy)
+    monkeypatch.setattr(runs.os, 'rename', real_rename)
+    assert [r['run_id'] for r in storage.list_runs(identity=ident)] == [
+        'r0001']
+    assert storage.load_run('r0001', identity=ident)['output'] == \
+        'LOCKED LEGACY'
+    assert not os.path.exists(legacy)
