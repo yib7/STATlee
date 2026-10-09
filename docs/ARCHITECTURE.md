@@ -633,9 +633,10 @@ sets `PYTHON_DOTENV_DISABLED=1` and scrubs provider keys plus `LLM_PROVIDER` /
 `MODEL_*`, so a developer's `.env` or shell cannot steer results. Coverage
 spans uploads, the workbook and codebook, methods parsing, the export bundle,
 wrangling/versioning, the run-guard, converse, auth, CSRF, the rate-limit key
-function, the billing seam, and Pro-mode routing. `tests/test_e2e_ui.py` drives the real frontend in Chromium
-(Playwright) against a live localhost server that uses the same fake model; it
-skips when Playwright is not installed. `ruff` lints; CI runs ruff +
+function, the billing seam, and Pro-mode routing. `tests/test_e2e_ui.py` and
+the other `test_e2e_*.py` files drive the real frontend in Chromium
+(Playwright) against a live localhost server that uses the same fake model; they
+skip when Playwright is not installed. `ruff` lints; CI runs ruff +
 byte-compile + pytest on push.
 
 ## Where to start reading
