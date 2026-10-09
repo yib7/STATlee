@@ -440,7 +440,18 @@
         const ids = new Set(wb.runs.map((r) => r.run_id));
         Object.keys(wb.picks).forEach((id) => { if (!ids.has(id)) delete wb.picks[id]; });
         if (wb.live && !ids.has(wb.live)) wb.live = null;
+        if (wb.viewing && !ids.has(wb.viewing)) {
+            // The run on view left the workbook (evicted, or a sign-in
+            // swapped the workbook): end the read-only view.
+            endView();
+            CC.announce('That run is no longer in the workbook.');
+        }
         renderAll();
+    }
+
+    function endView() {
+        wb.viewing = null;
+        wb.viewed = null;
     }
 
     CC.workbook = {
@@ -458,8 +469,7 @@
         },
         /** A new run is taking over Results. */
         leaveView() {
-            wb.viewing = null;
-            wb.viewed = null;
+            endView();
             renderViewBar();
             renderRail();
         },

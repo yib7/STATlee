@@ -374,3 +374,20 @@ def test_runs_endpoint_is_quiet_on_a_fresh_page(page):
     assert not page.is_visible('#runRail')
     assert page.locator('#reportRunList input').count() == 0
     assert json.loads(json.dumps(server_runs(page))) == {'runs': [], 'latest': None}
+
+
+def test_refresh_leaves_the_view_of_a_run_that_is_gone(page, fake):
+    """Final review item 8: when the viewed run leaves the workbook
+    (eviction, sign-in), refresh() ends the read-only view."""
+    first, second = two_runs(page, fake, 'wb-gone.csv')
+    page.click('#tabResults')
+    page.click(row(first) + ' .wb-run-open')
+    page.wait_for_selector('#runViewBar:not(.hidden)')
+    listing = server_runs(page)
+    listing['runs'] = [r for r in listing['runs'] if r['run_id'] != first]
+    page.route('**/runs', lambda route: route.fulfill(
+        status=200, content_type='application/json', body=json.dumps(listing)))
+    page.evaluate('() => CC.workbook.refresh()')
+    page.wait_for_selector('#runViewBar', state='hidden')
+    assert page.evaluate('() => CC.workbook.viewedRun()') is None
+    assert page.evaluate('() => CC.workbook.activeRunId()') != first
