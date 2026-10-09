@@ -517,3 +517,15 @@ def test_codebook_size_cap_applies_to_every_writer(app, client, monkeypatch):
         with pytest.raises(cb.CodebookTooLarge):
             cb.apply('test.csv', 'llm', {'age': {'label': 'x' * 600}},
                      identity=ident)
+
+
+def test_codebook_already_over_the_cap_can_still_shrink(client, monkeypatch):
+    upload_csv(client, SAMPLE_CSV)
+    assert _put(client, {'filename': 'test.csv', 'codebook': {
+        'age': {'label': 'a' * 1500}}}).status_code == 200
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 500)
+    resp = _put(client, {'filename': 'test.csv',
+                         'codebook': {'age': {'label': 'short'}}})
+    assert resp.status_code == 200
+    assert _put(client, {'filename': 'test.csv', 'codebook': {
+        'income': {'label': 'b' * 600}}}).status_code == 413

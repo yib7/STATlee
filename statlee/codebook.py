@@ -559,11 +559,16 @@ def _archive(meta, layers, identity):
         _st().save_codebook_archive(sha, {'layers': keep}, identity)
 
 
+def _json_size(layers):
+    return len(json.dumps(layers, ensure_ascii=False).encode('utf-8'))
+
+
 def apply(filename, source, updates, identity=None):
     """Merge cleaned ``{column: fields}`` into ``source``'s layer of the
     dataset's codebook, under the meta sidecar lock (atomic write), and mirror
     it to the sha256 archive. Returns the stored layers. Raises
-    ``CodebookTooLarge`` (nothing written) past ``CODEBOOK_BYTES_MAX``."""
+    ``CodebookTooLarge`` (nothing written) when the write would grow it past
+    ``CODEBOOK_BYTES_MAX``."""
     if source not in SOURCES:
         raise ValueError(f'unknown codebook source {source!r}')
     st = _st()
@@ -576,9 +581,12 @@ def apply(filename, source, updates, identity=None):
             raise CodebookStorageError(str(filename)) from exc
         layers = layers_from_meta(meta)
         if updates:
+            before = _json_size(layers)
             apply_to_layers(layers, source, updates)
-            size = len(json.dumps(layers, ensure_ascii=False).encode('utf-8'))
-            if size > CODEBOOK_BYTES_MAX:
+            size = _json_size(layers)
+            # Only growth past the cap is refused: a codebook stored before
+            # the cap existed can still be edited down.
+            if size > CODEBOOK_BYTES_MAX and size > before:
                 raise CodebookTooLarge(
                     'The codebook is too large to save: it would hold '
                     f'{size // 1024} KB, over the {CODEBOOK_BYTES_MAX // 1024} '
