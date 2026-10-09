@@ -134,6 +134,24 @@ def test_bundle_runs_unzipped_in_the_sandbox_and_ships_every_file(
     assert 'ROWS 2' in zf.read('outputs/run_0001/output.txt').decode('utf-8')
 
 
+def test_dataset_with_no_version_manifest_still_ships_its_data(
+        app, client, full_session):
+    """A legacy dataset has no readable ``.versions__<name>.json`` manifest, so
+    there is no lineage; the export must still carry the dataset and its
+    ``data/original_`` copy (and still return 200). codebook.json is not
+    asserted: the codebook needs the manifest's active version by design."""
+    manifests = glob.glob(os.path.join(
+        app.config['STATLEE'].upload_root, '**', '.versions__test.json'),
+        recursive=True)
+    assert len(manifests) == 1
+    os.remove(manifests[0])
+    zf = _export(client)
+    names = set(zf.namelist())
+    assert 'test.csv' in names
+    assert 'data/original_test.csv' in names
+    assert 'provenance.json' in names
+
+
 def test_run_outputs_hold_methods_card_and_interpretation(client, full_session):
     zf = _export(client)
     card = json.loads(zf.read('outputs/run_0001/methods.json'))

@@ -1179,7 +1179,7 @@ def export_project():
     spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MAX)
     try:
         with zipfile.ZipFile(spool, 'w', zipfile.ZIP_DEFLATED) as zf:
-            if lineage:
+            if active and os.path.exists(active) and staged:
                 # D4-9: /run stages the active version under the dataset's
                 # stored name (dataset_name in run_code), and the script
                 # reads it from its working directory -- so it goes at the
