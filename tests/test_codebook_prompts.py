@@ -6,6 +6,7 @@ caps hold for a wide dataset."""
 import json
 import re
 
+import pytest
 from conftest import SAMPLE_CSV, csrf_token, post_json, sse_events, upload_csv
 
 from statlee import codebook as cb
@@ -227,7 +228,11 @@ def _wide_with_maxed_codebook(app, client, n=300):
               'role': 'analyze', 'scale_group': 'g' * cb.SCALE_GROUP_MAX}
         for col in cols}
     big[cols[-1]]['label'] = 'L' * 100 + 'LAST_COLUMN_SENTINEL'
-    with app.app_context():
+    # Every field at its maximum on 300 columns is ~13 MB, past the 4 MB
+    # write cap: a sidecar stored before that cap existed. The prompt caps
+    # must still hold for it.
+    with app.app_context(), pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cb, 'CODEBOOK_BYTES_MAX', 64 * 1024 * 1024)
         cb.apply('test.csv', 'user', {c: cb.clean_fields(f)
                                       for c, f in big.items()}, identity=ident)
     return cols
