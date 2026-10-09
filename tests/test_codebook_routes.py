@@ -488,3 +488,32 @@ def test_import_needs_csrf(client):
                      {'filename': 'test.csv',
                       'codebook': {'age': {'label': 'x'}}}, token='')
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Final review item 4b: the stored codebook has a total size cap
+# ---------------------------------------------------------------------------
+
+def test_codebook_over_the_total_size_cap_is_rejected(client, monkeypatch):
+    upload_csv(client, SAMPLE_CSV)
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 3000)
+    ok = _put(client, {'filename': 'test.csv',
+                       'codebook': {'age': {'label': 'Age in years'}}})
+    assert ok.status_code == 200
+    resp = _put(client, {'filename': 'test.csv', 'codebook': {
+        'age': {'label': 'a' * 1500}, 'income': {'label': 'b' * 1500}}})
+    assert resp.status_code == 413
+    assert 'too large' in resp.get_json()['error']
+    # Nothing was written: the earlier label stands.
+    assert _get(client).get_json()['codebook']['age']['label'] == \
+        'Age in years'
+
+
+def test_codebook_size_cap_applies_to_every_writer(app, client, monkeypatch):
+    upload_csv(client, SAMPLE_CSV)
+    ident = _identity(client)
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 500)
+    with app.app_context():
+        with pytest.raises(cb.CodebookTooLarge):
+            cb.apply('test.csv', 'llm', {'age': {'label': 'x' * 600}},
+                     identity=ident)

@@ -60,6 +60,10 @@ VALUE_LABELS_MAX = 200
 MISSING_CODES_MAX = 50
 SCALE_GROUP_MAX = 80
 IMPORT_ENTRIES_MAX = 10000
+# Total size of one dataset's stored codebook (all layers, as JSON). It is
+# kept twice (meta sidecar + sha256 archive) and re-read on every /chat, so a
+# write that would grow it past this is refused (413) instead of stored.
+CODEBOOK_BYTES_MAX = 4 * 1024 * 1024
 PROMPT_VALUE_LABELS_MAX = 40
 SUMMARY_LINE_MAX = 200
 
@@ -74,6 +78,10 @@ _EXCLUDED_ROLES = ('id', 'ignore')
 
 class CodebookError(ValueError):
     """An invalid codebook payload. The message is client-safe (a 400)."""
+
+
+class CodebookTooLarge(CodebookError):
+    """The codebook would grow past CODEBOOK_BYTES_MAX. Client-safe (a 413)."""
 
 
 class CodebookStorageError(RuntimeError):
@@ -554,7 +562,8 @@ def _archive(meta, layers, identity):
 def apply(filename, source, updates, identity=None):
     """Merge cleaned ``{column: fields}`` into ``source``'s layer of the
     dataset's codebook, under the meta sidecar lock (atomic write), and mirror
-    it to the sha256 archive. Returns the stored layers."""
+    it to the sha256 archive. Returns the stored layers. Raises
+    ``CodebookTooLarge`` (nothing written) past ``CODEBOOK_BYTES_MAX``."""
     if source not in SOURCES:
         raise ValueError(f'unknown codebook source {source!r}')
     st = _st()
@@ -568,6 +577,12 @@ def apply(filename, source, updates, identity=None):
         layers = layers_from_meta(meta)
         if updates:
             apply_to_layers(layers, source, updates)
+            size = len(json.dumps(layers, ensure_ascii=False).encode('utf-8'))
+            if size > CODEBOOK_BYTES_MAX:
+                raise CodebookTooLarge(
+                    'The codebook is too large to save: it would hold '
+                    f'{size // 1024} KB, over the {CODEBOOK_BYTES_MAX // 1024} '
+                    'KB limit. Shorten labels or value labels and try again.')
             meta['codebook'] = {'layers': layers}
             st.save_dataset_meta(filename, meta, identity)
             _archive(meta, layers, identity)

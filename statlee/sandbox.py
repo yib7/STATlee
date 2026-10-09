@@ -9,7 +9,9 @@
 - 0.3 Optional true container isolation: SANDBOX_MODE=docker launches a
       sibling container (network-less, non-root, read-only, resource-capped)
       per execution using the image built from runner.Dockerfile.
-- 5.2 All ``plot*.png`` files produced by the run are collected, not just one.
+- 5.2 All ``plot*.png`` files produced by the run are collected, not just one,
+      up to ``PLOTS_MAX`` plots and ``PLOTS_BYTES_MAX`` bytes of them per run
+      (every run's plots are kept in the session workbook).
 """
 import base64
 import glob
@@ -23,6 +25,19 @@ import tempfile
 from dataclasses import dataclass, field
 
 logger = logging.getLogger('statlee.sandbox')
+
+# Plots kept per run (in name order). Each run's plots are stored in the
+# session workbook (statlee/runs.py), which counts toward the identity's
+# MAX_BYTES_PER_IDENTITY, so a script writing hundreds of images is cut off
+# here; the output says how many were not kept.
+PLOTS_MAX = 20
+PLOTS_BYTES_MAX = 10 * 1024 * 1024     # 10 MB of PNG bytes per run
+
+
+def plot_limit_note(skipped):
+    return (f'\n[{skipped} more plot(s) not kept: a run keeps at most '
+            f'{PLOTS_MAX} plots and {PLOTS_BYTES_MAX // (1024 * 1024)} MB '
+            'of plots.]\n')
 
 
 @dataclass
@@ -255,12 +270,25 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
                     result.output = _timeout_output(
                         stdout, stderr, timeout, output_limit)
 
+        plot_bytes = skipped = 0
         for plot_path in sorted(glob.glob(os.path.join(run_dir, 'plot*.png'))):
             try:
+                size = os.path.getsize(plot_path)
+                if (len(result.plots) >= PLOTS_MAX
+                        or plot_bytes + size > PLOTS_BYTES_MAX):
+                    skipped += 1
+                    continue
                 with open(plot_path, 'rb') as img:
-                    result.plots.append(base64.b64encode(img.read()).decode('utf-8'))
+                    data = img.read(PLOTS_BYTES_MAX - plot_bytes + 1)
+                if plot_bytes + len(data) > PLOTS_BYTES_MAX:
+                    skipped += 1     # grew while being read
+                    continue
+                plot_bytes += len(data)
+                result.plots.append(base64.b64encode(data).decode('utf-8'))
             except OSError:
                 logger.warning("Could not read plot file %s", plot_path)
+        if skipped:
+            result.output = (result.output or '') + plot_limit_note(skipped)
 
         for name in collect:
             path = os.path.join(run_dir, name)

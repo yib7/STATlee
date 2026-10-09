@@ -36,6 +36,9 @@ bp.register_error_handler(
                          'codebook was not saved. Upload the dataset again.',
                          500))
 
+bp.register_error_handler(cb.CodebookTooLarge,
+                          lambda e: json_error(str(e), 413))
+
 UNKNOWN_DATASET = 'Unknown dataset.'
 OPTIONS = {'types': list(cb.TYPES), 'roles': list(cb.ROLES),
            'sources': list(cb.SOURCES) + [cb.DEFAULT_SOURCE],

@@ -289,3 +289,20 @@ def test_docker_sandbox_has_no_network(tmp_path):
         code, 'Python', mode='docker', runner_image=RUNNER_IMAGE, timeout=120)
     assert 'NETWORK_BLOCKED' in res.output
     assert 'NETWORK_OPEN' not in res.output
+
+
+def test_plots_are_capped_by_count_and_total_bytes(monkeypatch):
+    """Final review item 4a: a script cannot flood the workbook with plots."""
+    code = (
+        "for i in range(1, 31):\n"
+        "    open(f'plot_{i:02d}.png', 'wb').write(b'x' * 10)\n"
+        "print('done')"
+    )
+    res = sandbox.run_in_sandbox(code, 'Python')
+    assert res.success
+    assert len(res.plots) == sandbox.PLOTS_MAX < 30
+    assert 'not kept' in res.output
+    monkeypatch.setattr(sandbox, 'PLOTS_BYTES_MAX', 25)
+    res = sandbox.run_in_sandbox(code, 'Python')
+    assert len(res.plots) == 2
+    assert 'not kept' in res.output

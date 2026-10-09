@@ -285,3 +285,36 @@ def test_adopt_workspace_keeps_an_account_workbook(ctx):
     storage.adopt_workspace('anon_wbadopt3', 'user_79')
     assert storage.load_run('r0001', identity='user_79')['output'] == \
         'ACCOUNT RUN'
+
+
+def test_save_run_caps_plots_per_run(ctx):
+    """Final review item 4a: the store keeps at most PLOTS_MAX plots and
+    PLOTS_BYTES_MAX plot bytes per run, whatever the caller passes."""
+    from statlee import sandbox
+    rid = storage.save_run('o', [PNG] * (sandbox.PLOTS_MAX + 5),
+                           identity='anon_plotcap')
+    assert len(storage.load_run(rid, identity='anon_plotcap')['plots']) == \
+        sandbox.PLOTS_MAX
+
+
+def test_eviction_keeps_the_workbook_under_its_byte_budget(ctx):
+    """Final review item 4a: runs count toward MAX_BYTES_PER_IDENTITY, so the
+    workbook evicts the oldest unstarred runs past its share of it."""
+    from statlee import runs
+    big = base64.b64encode(b'x' * 4000).decode('ascii')
+    ctx.config['STATLEE'].max_bytes_per_identity = 40_000
+    assert runs.byte_budget() == 40_000 * runs.RUNS_BYTES_SHARE_PERCENT // 100
+    ident = 'anon_wbbytes'
+    ids = [storage.save_run('o', [big], identity=ident) for _ in range(5)]
+    kept = storage.run_ids(identity=ident)
+    assert kept == ids[-2:]
+    assert ctx.config['STATLEE'].max_runs_per_identity > len(ids)
+
+
+def test_byte_eviction_never_drops_the_new_run(ctx):
+    big = base64.b64encode(b'x' * 4000).decode('ascii')
+    ctx.config['STATLEE'].max_bytes_per_identity = 4_000
+    ident = 'anon_wbbytes2'
+    storage.save_run('o', [big], identity=ident)
+    new = storage.save_run('o', [big], identity=ident)
+    assert storage.run_ids(identity=ident) == [new]

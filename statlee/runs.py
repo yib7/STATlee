@@ -53,6 +53,14 @@ META_FILE = 'meta.json'
 INTERPRETATION_FILE = 'interpretation.md'
 
 RUNS_MAX = 50              # default for MAX_RUNS_PER_IDENTITY
+# The workbook's share of MAX_BYTES_PER_IDENTITY (default 200 MB -> 50 MB of
+# runs). Past it the oldest unstarred runs are evicted, as past the run cap,
+# so stored plots never fill the quota an upload needs ("storage full" with
+# no visible cause). Plots per run are capped in statlee/sandbox.py
+# (PLOTS_MAX = 20, PLOTS_BYTES_MAX = 10 MB), and save_run applies the same
+# caps to what it is given.
+RUNS_BYTES_SHARE_PERCENT = 25
+RUNS_BYTES_DEFAULT = 50 * 1024 * 1024   # when MAX_BYTES_PER_IDENTITY is 0/unset
 RUN_NAME_MAX = 80
 RUN_PROMPT_MAX = 4000      # the question kept with a run
 RUN_FIELD_MAX = 64         # model / role
@@ -85,6 +93,29 @@ def _cap():
     except (KeyError, AttributeError, TypeError, ValueError):
         value = RUNS_MAX
     return value if value >= 1 else RUNS_MAX
+
+
+def byte_budget():
+    """Bytes the workbook may hold: RUNS_BYTES_SHARE_PERCENT of the identity's
+    MAX_BYTES_PER_IDENTITY, leaving the rest for uploads and versions."""
+    try:
+        total = int(current_app.config['STATLEE'].max_bytes_per_identity)
+    except (KeyError, AttributeError, TypeError, ValueError):
+        total = 0
+    if total <= 0:
+        return RUNS_BYTES_DEFAULT
+    return total * RUNS_BYTES_SHARE_PERCENT // 100
+
+
+def _dir_bytes(path):
+    total = 0
+    for dirpath, _dirs, files in os.walk(path):
+        for fn in files:
+            try:
+                total += os.stat(os.path.join(dirpath, fn)).st_size
+            except OSError:
+                continue
+    return total
 
 
 def _runs_root(identity=None):
@@ -333,8 +364,9 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
     ``prompt_inherited`` marks a prompt borrowed from another generation.
 
     Allocation, write, index update and eviction all happen under the index
-    lock. Over ``MAX_RUNS_PER_IDENTITY`` the oldest unstarred run is evicted
-    (the oldest run when all are starred); the new run is never the victim.
+    lock. Over ``MAX_RUNS_PER_IDENTITY`` runs or ``byte_budget()`` bytes the
+    oldest unstarred run is evicted (the oldest run when all are starred);
+    the new run is never the victim.
     """
     st = _st()
     _ensure_adopted(identity)
@@ -358,13 +390,7 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
                     os.path.join(tmp, STATUS_FILE),
                     {'returncode': int(returncode),
                      'timed_out': bool(timed_out)})
-            for i, b64 in enumerate(plots_b64 or [], start=1):
-                try:
-                    with open(os.path.join(tmp, f'plot_{i}.png'), 'wb') as f:
-                        f.write(base64.b64decode(b64))
-                except Exception:
-                    logger.warning("Could not persist plot %d of run %s",
-                                   i, run_id)
+            _write_plots(tmp, plots_b64, run_id)
             st._write_json_atomic(os.path.join(tmp, META_FILE), _new_meta(
                 run_id, prompt=prompt, filename=filename,
                 dataset_version=dataset_version,
@@ -383,10 +409,36 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
     return run_id
 
 
+def _write_plots(run_dir, plots_b64, run_id):
+    """Persist at most PLOTS_MAX plots and PLOTS_BYTES_MAX bytes of them (the
+    sandbox already caps what a run returns; this bounds any other caller)."""
+    from .sandbox import PLOTS_BYTES_MAX, PLOTS_MAX
+    written = 0
+    for i, b64 in enumerate((plots_b64 or [])[:PLOTS_MAX], start=1):
+        try:
+            data = base64.b64decode(b64)
+            if written + len(data) > PLOTS_BYTES_MAX:
+                logger.warning("Run %s: plot byte cap reached at plot %d",
+                               run_id, i)
+                break
+            with open(os.path.join(run_dir, f'plot_{i}.png'), 'wb') as f:
+                f.write(data)
+            written += len(data)
+        except Exception:
+            logger.warning("Could not persist plot %d of run %s", i, run_id)
+
+
 def _evictions(root, index):
+    """Runs to drop so the workbook holds at most ``_cap()`` runs and
+    ``byte_budget()`` bytes: the oldest unstarred run first (the oldest run
+    when all are starred); never the run just saved."""
     cap = _cap()
+    budget = byte_budget()
+    sizes = {r: _dir_bytes(os.path.join(root, r)) for r in index['runs']}
     doomed = []
-    while len(index['runs']) > cap:
+    while len(index['runs']) > 1 and (
+            len(index['runs']) > cap
+            or sum(sizes[r] for r in index['runs']) > budget):
         candidates = index['runs'][:-1]       # never the run just saved
         victim = next(
             (r for r in candidates

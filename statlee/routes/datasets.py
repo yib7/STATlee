@@ -526,7 +526,8 @@ def _seed_pdf_layer(dataset, columns, mapping):
             updates[column] = fields
     try:
         codebook_store.apply(dataset, 'pdf', updates)
-    except codebook_store.CodebookStorageError:
+    except (codebook_store.CodebookStorageError,
+            codebook_store.CodebookTooLarge):
         return 0
     return len(updates)
 
@@ -633,8 +634,9 @@ def _seed_llm_layer(filename, levels):
         codebook_store.apply(filename, 'llm', {
             column: {'type': level.lower()}
             for column, level in levels.items()})
-    except codebook_store.CodebookStorageError:
-        pass    # logged by apply; the classification is still returned
+    except (codebook_store.CodebookStorageError,
+            codebook_store.CodebookTooLarge):
+        pass    # the classification is still returned
 
 
 @bp.route('/classify_variables', methods=['POST'])
