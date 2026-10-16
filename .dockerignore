@@ -7,6 +7,12 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
 
 # Local databases, uploads and other instance data.
 instance/
@@ -24,6 +30,12 @@ instance/
 .superpowers/
 CLAUDE.md
 docs/DEPLOYMENT_PLAYBOOK.md
+docs/superpowers/
+docs/IMPLEMENTATION_PLAN.md
+docs/CLOSEOUT.md
+*_UPDATES.md
+*AUDIT*.md
+*FINDINGS*.md
 _repo-backup/
 _logo-work/
 .pre-commit-config.yaml
