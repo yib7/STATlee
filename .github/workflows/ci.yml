@@ -81,7 +81,7 @@ jobs:
       - name: Run test suite
         env:
           APP_ENV: testing
-        run: python -m pytest -q -rs
+        run: python -m pytest -rs   # pyproject addopts already adds -q; a second -q hides the summary line
 
   sandbox-docker:
     name: Sandbox (real Docker runner image)
