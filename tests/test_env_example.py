@@ -52,3 +52,13 @@ def test_every_documented_env_var_is_read_somewhere():
             assert name in fh.read()
         unused.discard(name)
     assert not unused, f'documented but never read: {sorted(unused)}'
+
+
+def test_gunicorn_worker_count_is_a_number():
+    # docker compose passes .env verbatim (env_file), and gunicorn's own config
+    # runs int(os.environ['WEB_CONCURRENCY']) at import: an empty value crashed
+    # the README Quickstart container before the app loaded.
+    with open(os.path.join(REPO, '.env.example'), encoding='utf-8') as fh:
+        values = re.findall(r'^WEB_CONCURRENCY=(.*)$', fh.read(), re.MULTILINE)
+    for value in values:
+        assert value.strip().isdigit(), f'WEB_CONCURRENCY={value!r}'
