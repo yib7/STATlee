@@ -3,8 +3,8 @@
 # docker mode and subprocess mode run the same library stack;
 # tests/test_container_files.py enforces that. numpy/scipy are transitive in
 # both and resolve from these pins.
-pandas==3.0.1
-statsmodels==0.14.6
-matplotlib==3.11.0
+pandas==3.0.6
+statsmodels==0.15.0
+matplotlib==3.11.2
 seaborn==0.13.2
 openpyxl==3.1.5

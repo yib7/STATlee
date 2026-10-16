@@ -1,4 +1,4 @@
 -r requirements.txt
-pytest==9.0.3
-ruff==0.15.17
+pytest==9.1.1
+ruff==0.17.1
 pip-audit==2.10.1     # dependency vulnerability audit (CI `audit` job)
