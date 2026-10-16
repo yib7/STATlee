@@ -1,6 +1,13 @@
-# Environment variables
+# Environment variables and secrets
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
 
 # Python cache files
 __pycache__/
@@ -12,6 +19,12 @@ __pycache__/
 venv/
 env/
 .venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+node_modules/
 
 # Test / tooling caches
 .pytest_cache/
