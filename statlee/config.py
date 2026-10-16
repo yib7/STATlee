@@ -53,7 +53,7 @@ class Config:
     anthropic_stream_max_tokens: int = 16000
     openai_api_key: str = ''
     # OpenAI's max_completion_tokens also covers hidden reasoning tokens on the
-    # gpt-5.x defaults (D3-16), so the budgets sit well above the visible
+    # gpt-6.x reasoning defaults (D3-16), so the budgets sit well above the visible
     # output a script needs. Streams (code drafts) get the larger one.
     openai_max_tokens: int = 16000
     openai_stream_max_tokens: int = 32000
@@ -120,23 +120,23 @@ class Config:
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
 
     # --- Model routing (3.4) --------------------------------------------------
-    # Default code generation runs on gemini-3.5-flash (cheap, fast, near-parity),
-    # with gemini-3.1-flash-lite for the lighter flash/lite roles. The in-app
-    # "Pro mode" toggle re-routes code generation to model_pro_max
-    # (gemini-3.1-pro-preview) for the hardest analyses — a bigger, stronger, costlier
-    # model. Cost ordering: pro_max (2.00/12.00) > pro=flash-default (1.50/9.00) >
-    # flash = lite (0.25/1.50). Override any role independently via MODEL_* env.
+    # Default code generation runs on gemini-3.8-flash (cheap, fast, the
+    # strongest Flash), with gemini-3.5-flash-lite for the lighter flash/lite
+    # roles. The in-app "Pro mode" toggle re-routes code generation to
+    # model_pro_max (gemini-4-argon, the GA flagship reasoning model) for the
+    # hardest analyses: a bigger, stronger, costlier model. Cost ordering:
+    # pro_max (4.00/20.00) > pro (1.50/7.50) > flash = lite (0.30/2.50).
+    # Override any role independently via MODEL_* env.
     # FOOTGUN (P2-4): model_pro is the DEFAULT code-gen tier (roles 'pro' AND
     # 'draft' both resolve to it in llm._resolve) — it is NOT the "Pro mode"
     # model. Setting MODEL_PRO changes every normal generation; to change what
     # the in-app Pro-mode toggle runs, set MODEL_PRO_MAX (model_pro_max) below.
-    model_pro: str = 'gemini-3.5-flash'        # default code-gen / 'draft' role
-    # "Pro mode" code-gen upgrade. Pinned to the -preview snapshot deliberately:
-    # gemini-3.1-pro ships only under the -preview id (no non-preview GA alias),
-    # so this is the current supported snapshot for that tier, not a stale pin.
-    model_pro_max: str = 'gemini-3.1-pro-preview'
-    model_flash: str = 'gemini-3.1-flash-lite'
-    model_flash_lite: str = 'gemini-3.1-flash-lite'
+    model_pro: str = 'gemini-3.8-flash'        # default code-gen / 'draft' role
+    # "Pro mode" code-gen upgrade. gemini-4-argon is a stable (GA) id, which
+    # replaces the old gemini-3.1-pro-preview pin (3.1 Pro never left preview).
+    model_pro_max: str = 'gemini-4-argon'
+    model_flash: str = 'gemini-3.5-flash-lite'
+    model_flash_lite: str = 'gemini-3.5-flash-lite'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
     # Conversational data-cleaning ("wrangle") tier. Defaults to the cheapest
     # model since these are short, structured transforms ("delete column 2",
@@ -144,26 +144,29 @@ class Config:
     wrangle_role: str = 'lite'
 
     # Per-model price estimates (USD per 1M tokens) for the in-app session cost
-    # display (3.4). Web-verified Gemini paid-tier rates (ai.google.dev, Jun
+    # display (3.4). Web-verified Gemini paid-tier rates (ai.google.dev, Oct
     # 2026). DISPLAY ONLY — these never gate, trigger, or change any spend; they
     # only let the client show an approximate session cost. Override by editing
     # this map or constructing Config with your own.
-    # Non-Gemini rows are published per-1M rates (verified Jun 2026) for the
+    # Introductory discounts (gemini-3.8-flash and gemini-4-argon run at half
+    # these rates until Dec 2026 / Jan 2027) are ignored: the rows are the
+    # standard rates, so the estimate errs high, never low.
+    # Non-Gemini rows are published per-1M rates (verified Oct 2026) for the
     # per-provider default models below — DISPLAY ONLY, never gate spend.
     # Override MODEL_* and this map together if you pin different models.
     model_prices: dict = field(default_factory=lambda: {
-        'gemini-3.1-pro-preview': {'input': 2.00, 'output': 12.00},
-        'gemini-3.5-flash': {'input': 1.50, 'output': 9.00},
-        'gemini-3.1-flash-lite': {'input': 0.25, 'output': 1.50},
-        # Anthropic / Claude defaults
-        'claude-opus-4-8': {'input': 5.00, 'output': 25.00},
-        'claude-sonnet-4-6': {'input': 3.00, 'output': 15.00},
-        'claude-haiku-4-5': {'input': 1.00, 'output': 5.00},
+        'gemini-4-argon': {'input': 4.00, 'output': 20.00},
+        'gemini-3.8-flash': {'input': 1.50, 'output': 7.50},
+        'gemini-3.5-flash-lite': {'input': 0.30, 'output': 2.50},
+        # Anthropic / Claude defaults (haiku-5-5: the <=100k-token prompt rate)
+        'claude-fable-5-1': {'input': 10.00, 'output': 50.00},
+        'claude-opus-5-5': {'input': 4.00, 'output': 20.00},
+        'claude-sonnet-5-5': {'input': 2.00, 'output': 10.00},
+        'claude-haiku-5-5': {'input': 0.10, 'output': 0.50},
         # OpenAI defaults
-        'gpt-5.5': {'input': 5.00, 'output': 30.00},
-        'gpt-5.4': {'input': 2.50, 'output': 15.00},
-        'gpt-5.4-mini': {'input': 0.75, 'output': 4.50},
-        'gpt-5.4-nano': {'input': 0.20, 'output': 1.25},
+        'gpt-6-astra': {'input': 10.00, 'output': 50.00},
+        'gpt-6.1-sol': {'input': 2.00, 'output': 10.00},
+        'gpt-6-luna': {'input': 0.10, 'output': 0.50},
     })
 
     # --- Analysis tunables -----------------------------------------------------
@@ -250,10 +253,10 @@ class Config:
     # operator hasn't pinned MODEL_* explicitly. Keeps "set LLM_PROVIDER + key"
     # working out of the box for each vendor.
     _PROVIDER_MODEL_DEFAULTS = {
-        'anthropic': {'pro': 'claude-opus-4-8', 'pro_max': 'claude-opus-4-8',
-                      'flash': 'claude-sonnet-4-6', 'lite': 'claude-haiku-4-5'},
-        'openai': {'pro': 'gpt-5.4', 'pro_max': 'gpt-5.5',
-                   'flash': 'gpt-5.4-mini', 'lite': 'gpt-5.4-nano'},
+        'anthropic': {'pro': 'claude-opus-5-5', 'pro_max': 'claude-fable-5-1',
+                      'flash': 'claude-sonnet-5-5', 'lite': 'claude-haiku-5-5'},
+        'openai': {'pro': 'gpt-6.1-sol', 'pro_max': 'gpt-6-astra',
+                   'flash': 'gpt-6-luna', 'lite': 'gpt-6-luna'},
     }
 
     # ------------------------------------------------------------------

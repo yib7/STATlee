@@ -435,7 +435,7 @@ failing closed.
 
 The in-app **Pro mode** toggle threads a `pro` flag from the UI into the analysis
 path: when set, code generation runs on the larger `pro_max` model
-(e.g. `gemini-3.1-pro-preview`) instead of the standard code model, and the request still
+(e.g. `gemini-4-argon`) instead of the standard code model, and the request still
 passes through `billing.check_and_debit`.
 
 ## LLM service (`llm.py`)

@@ -96,7 +96,7 @@ runnable analysis, charts, and a plain-English write-up you can defend.
   a `provenance.json` of what produced what (hashes, models, timestamps), an
   `environment.txt` of the sandbox's package versions, and a README. Choose which
   runs go in and whether your prompts are included.
-- **Pro mode** toggle generates code with a larger model (`gemini-3.1-pro-preview` by
+- **Pro mode** toggle generates code with a larger model (`gemini-4-argon` by
   default) for hard or unusual analyses, instead of the standard code model.
 
 ## How it works

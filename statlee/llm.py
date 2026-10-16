@@ -534,8 +534,8 @@ class AnthropicBackend:
 # ---------------------------------------------------------------------------
 class OpenAIBackend:
     """OpenAI backend (Chat Completions). ``MediaPart`` maps to ``image_url``
-    parts (images) and ``file`` parts (base64 PDFs). Some newer models (gpt-5,
-    o-series) reject non-default sampling params, so a ``temperature`` 400
+    parts (images) and ``file`` parts (base64 PDFs). Reasoning models (gpt-5.x,
+    gpt-6.x, o-series) reject non-default sampling params, so a ``temperature`` 400
     triggers one retry without it, and the model is remembered so later calls
     skip the failing round-trip (D3-12). Determinism for cached temp-0 calls is
     preserved by ``LLMService``'s cache regardless."""
@@ -622,7 +622,7 @@ class OpenAIBackend:
         try:
             return self._client_().chat.completions.create(**kwargs)
         except Exception as exc:
-            # gpt-5 / o-series only accept the default temperature: drop it,
+            # Reasoning models only accept the default temperature: drop it,
             # remember the model, and retry once rather than failing the call.
             if 'temperature' in kwargs and _rejects_temperature(exc):
                 with self._lock:

@@ -63,12 +63,14 @@ def test_index_injects_model_price_map(client):
     # reads into window.CC_BOOT (no executable inline script).
     assert 'id="cc-boot-data"' in html
     assert 'prices' in html
-    assert 'gemini-3.5-flash' in html
-    assert 'gemini-3.1-flash-lite' in html
-    assert 'gemini-3.1-pro' in html          # Pro mode model is priced for the cost display
-    # Retired models must not linger in the injected price map.
+    assert 'gemini-3.8-flash' in html
+    assert 'gemini-3.5-flash-lite' in html
+    assert 'gemini-4-argon' in html          # Pro mode model is priced for the cost display
+    # Retired or superseded models must not linger in the injected price map.
     assert 'gemini-3-flash-preview' not in html
     assert 'gemini-3.1-flash-lite-preview' not in html
+    assert 'gemini-3.1-pro-preview' not in html
+    assert '"gemini-3.5-flash"' not in html
 
 
 # --- SP3: data-viewer zoom controls -----------------------------------------

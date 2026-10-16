@@ -190,7 +190,7 @@ def test_empty_stream_raises_empty_but_reports_zero_usage():
     usage = {}
     with pytest.raises(llm.EmptyGenerationError):
         list(svc.stream('draft', 'p', usage_out=usage))
-    assert usage == {'model': 'gemini-3.5-flash', 'input': 0, 'output': 0}
+    assert usage == {'model': 'gemini-3.8-flash', 'input': 0, 'output': 0}
 
 
 def test_output_errors_share_a_base_with_a_user_message():
@@ -212,7 +212,7 @@ def test_gemini_usage_includes_thinking_tokens():
     assert res.usage['output'] == 1000
     assert res.usage['thinking'] == 900
     assert res.usage['cached'] == 200
-    assert svc.usage_snapshot()['gemini-3.5-flash']['output'] == 1000
+    assert svc.usage_snapshot()['gemini-3.8-flash']['output'] == 1000
 
 
 def test_openai_usage_reports_cached_prompt_tokens():
@@ -245,7 +245,7 @@ def test_truncated_stream_is_still_recorded_in_metrics():
            candidates=[NS(finish_reason=_enum('MAX_TOKENS'))])])
     with pytest.raises(llm.TruncatedGenerationError):
         list(svc.stream('draft', 'p'))
-    snap = svc.usage_snapshot()['gemini-3.5-flash']
+    snap = svc.usage_snapshot()['gemini-3.8-flash']
     assert snap == {'calls': 1, 'input': 5, 'output': 8}
 
 
@@ -258,7 +258,7 @@ def test_client_disconnect_mid_stream_is_recorded():
     g = svc.stream('draft', 'p')
     assert next(g) == 'a'
     g.close()                     # GeneratorExit, as on a client disconnect
-    snap = svc.usage_snapshot()['gemini-3.5-flash']
+    snap = svc.usage_snapshot()['gemini-3.8-flash']
     assert snap['calls'] == 1 and snap['input'] == 5
 
 

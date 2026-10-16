@@ -243,15 +243,16 @@ def test_explicit_model_env_overrides_default(monkeypatch):
     assert cfg.model_pro == 'gemini-custom'
 
 
-def test_pro_model_default_is_3_5_flash(monkeypatch):
-    # Default code generation runs on the cheaper/faster 3.5-flash; the bigger
-    # 3.1-pro is reserved for the on-demand "Pro mode" toggle (model_pro_max).
+def test_pro_model_default_is_3_8_flash(monkeypatch):
+    # Default code generation runs on the cheaper/faster 3.8-flash; the bigger
+    # gemini-4-argon is reserved for the on-demand "Pro mode" toggle
+    # (model_pro_max).
     monkeypatch.setenv('APP_ENV', 'testing')
     monkeypatch.delenv('MODEL_PRO', raising=False)
     monkeypatch.delenv('MODEL_PRO_MAX', raising=False)
     cfg = Config.from_env()
-    assert cfg.model_pro == 'gemini-3.5-flash'
-    assert cfg.model_pro_max == 'gemini-3.1-pro-preview'
+    assert cfg.model_pro == 'gemini-3.8-flash'
+    assert cfg.model_pro_max == 'gemini-4-argon'
 
 
 def test_active_model_prices_cover_every_active_model():
@@ -454,10 +455,10 @@ def test_provider_model_defaults_anthropic(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     cfg = Config.from_env()
     assert cfg.llm_provider == 'anthropic'
-    assert cfg.model_pro == 'claude-opus-4-8'
-    assert cfg.model_pro_max == 'claude-opus-4-8'
-    assert cfg.model_flash == 'claude-sonnet-4-6'
-    assert cfg.model_flash_lite == 'claude-haiku-4-5'
+    assert cfg.model_pro == 'claude-opus-5-5'
+    assert cfg.model_pro_max == 'claude-fable-5-1'
+    assert cfg.model_flash == 'claude-sonnet-5-5'
+    assert cfg.model_flash_lite == 'claude-haiku-5-5'
 
 
 def test_provider_model_defaults_openai(monkeypatch):
@@ -466,10 +467,10 @@ def test_provider_model_defaults_openai(monkeypatch):
     for var in ('MODEL_PRO', 'MODEL_PRO_MAX', 'MODEL_FLASH', 'MODEL_FLASH_LITE'):
         monkeypatch.delenv(var, raising=False)
     cfg = Config.from_env()
-    assert cfg.model_pro == 'gpt-5.4'
-    assert cfg.model_pro_max == 'gpt-5.5'
-    assert cfg.model_flash == 'gpt-5.4-mini'
-    assert cfg.model_flash_lite == 'gpt-5.4-nano'
+    assert cfg.model_pro == 'gpt-6.1-sol'
+    assert cfg.model_pro_max == 'gpt-6-astra'
+    assert cfg.model_flash == 'gpt-6-luna'
+    assert cfg.model_flash_lite == 'gpt-6-luna'
 
 
 def test_model_env_overrides_provider_default(monkeypatch):
@@ -479,12 +480,12 @@ def test_model_env_overrides_provider_default(monkeypatch):
     monkeypatch.delenv('MODEL_FLASH', raising=False)
     cfg = Config.from_env()
     assert cfg.model_pro == 'gpt-custom'        # explicit override wins
-    assert cfg.model_flash == 'gpt-5.4-mini'    # unset roles keep provider default
+    assert cfg.model_flash == 'gpt-6-luna'      # unset roles keep provider default
 
 
 @pytest.mark.parametrize('provider, expected_pro', [
-    ('anthropic', 'claude-opus-4-8'),
-    ('openai', 'gpt-5.4'),
+    ('anthropic', 'claude-opus-5-5'),
+    ('openai', 'gpt-6.1-sol'),
 ])
 def test_active_prices_cover_provider_defaults(monkeypatch, provider, expected_pro):
     monkeypatch.setenv('APP_ENV', 'testing')

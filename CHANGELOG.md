@@ -61,8 +61,23 @@ reproducibility bundle that records what produced what.
   a clear message (413) instead of stored.
 - Text placed inside an untrusted-data block of a prompt can no longer close or
   forge a block with its own `<<<` or `>>>` markers.
+- Default models moved to current stable snapshots. Gemini: `gemini-3.8-flash`
+  for code, `gemini-4-argon` for Pro mode (a GA id, replacing
+  `gemini-3.1-pro-preview`), `gemini-3.5-flash-lite` for the light roles
+  (`gemini-3.5-flash` now routes to 3.6 and `gemini-3.1-flash-lite` shuts down
+  May 2027). Anthropic: `claude-opus-5-5`, `claude-fable-5-1` (Pro mode),
+  `claude-sonnet-5-5`, `claude-haiku-5-5`. OpenAI: `gpt-6.1-sol`, `gpt-6-astra`
+  (Pro mode), `gpt-6-luna` (`gpt-5.4-nano` is deprecated). The cost display
+  prices each one.
+- Dependencies bumped to current stable: google-genai 2.31.0, anthropic 1.15.0,
+  openai 3.32.0, pandas 3.0.6, statsmodels 0.15.0, matplotlib 3.11.2,
+  filelock 4.2.0, gunicorn 26.2.0, fpdf2 2.8.9, pypdf 6.21.0, alembic 1.20.0,
+  redis 8.1.0, pyreadstat 1.3.6, python-dotenv 1.2.4.
 
 ### Fixed
+- The Anthropic provider works with SDK 1.x, which removed `temperature` from
+  `messages.create`: the temperature is sent only to models before Claude 4.7
+  (later ones reject it) and travels in the request body.
 - Long terminal output scrolls inside the terminal box instead of being clipped
   in the fixed-height Results column.
 - Exporting a dataset with no run of its own no longer ships another dataset's
