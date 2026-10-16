@@ -20,28 +20,43 @@ malware/illegal requests.
 
 ## Backend (Python)
 
-| Library | Purpose | License |
-|---|---|---|
-| [Flask](https://flask.palletsprojects.com/) | Web framework (app factory + blueprints) | BSD-3-Clause |
-| [Werkzeug](https://werkzeug.palletsprojects.com/) | WSGI utilities, security helpers, ProxyFix | BSD-3-Clause |
-| [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/) / [SQLAlchemy](https://www.sqlalchemy.org/) | ORM + models | BSD / MIT |
-| [Flask-Migrate](https://flask-migrate.readthedocs.io/) / [Alembic](https://alembic.sqlalchemy.org/) | Database schema migrations | MIT |
-| [Flask-Login](https://flask-login.readthedocs.io/) | Session/auth management | MIT |
-| [Flask-Limiter](https://flask-limiter.readthedocs.io/) | Per-identity rate limiting | MIT |
-| [filelock](https://github.com/tox-dev/filelock) | Cross-worker lock on the dataset version manifest | Unlicense (public domain) |
-| [pandas](https://pandas.pydata.org/) | Data loading and manipulation | BSD-3-Clause |
-| [statsmodels](https://www.statsmodels.org/) | Statistical models | BSD-3-Clause |
-| [matplotlib](https://matplotlib.org/) | Plotting | matplotlib (BSD-style) |
-| [seaborn](https://seaborn.pydata.org/) | Statistical visualization | BSD-3-Clause |
-| [openpyxl](https://openpyxl.readthedocs.io/) | Excel (`.xlsx`) ingestion | MIT |
-| [xlrd](https://github.com/python-excel/xlrd) | Legacy Excel (`.xls`) ingestion | BSD-style |
-| [redis-py](https://github.com/redis/redis-py) | Shared rate-limit store (`RATELIMIT_STORAGE_URI=redis://`) | MIT |
-| [psycopg 3](https://www.psycopg.org/psycopg3/) | PostgreSQL driver (`requirements-postgres.txt`, production DB) | LGPL-3.0 |
-| [pyreadstat](https://github.com/Roche/pyreadstat) | Stata (`.dta`) / SPSS (`.sav`) ingestion | Apache-2.0 |
-| [pypdf](https://pypdf.readthedocs.io/) | PDF codebook reading | BSD-3-Clause |
-| [fpdf2](https://py-pdf.github.io/fpdf2/) | TXT→PDF codebook conversion | LGPL-3.0 |
-| [python-dotenv](https://github.com/theskumar/python-dotenv) | `.env` loading | BSD-3-Clause |
-| [gunicorn](https://gunicorn.org/) | Production WSGI server | MIT |
+Direct dependencies, at the versions pinned in `requirements.txt` and
+`requirements-postgres.txt` (`tests/test_credits.py` keeps this table and the
+pins in step).
+
+| Library | Version | Purpose | License |
+|---|---|---|---|
+| [Flask](https://flask.palletsprojects.com/) | 3.1.3 | Web framework (app factory + blueprints) | BSD-3-Clause |
+| [Werkzeug](https://werkzeug.palletsprojects.com/) | 3.1.9 | WSGI utilities, security helpers, ProxyFix | BSD-3-Clause |
+| [google-genai](https://github.com/googleapis/python-genai) | 2.31.0 | Gemini SDK (default provider) | Apache-2.0 |
+| [anthropic](https://github.com/anthropics/anthropic-sdk-python) | 1.15.0 | Claude SDK (optional provider) | MIT |
+| [openai](https://github.com/openai/openai-python) | 3.32.0 | OpenAI SDK (optional provider) | Apache-2.0 |
+| [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/) | 3.1.1 | ORM + models (on [SQLAlchemy](https://www.sqlalchemy.org/), MIT) | BSD-3-Clause |
+| [Flask-Migrate](https://flask-migrate.readthedocs.io/) | 4.1.0 | Database schema migrations | MIT |
+| [Alembic](https://alembic.sqlalchemy.org/) | 1.20.0 | Migration engine under Flask-Migrate | MIT |
+| [Flask-Login](https://flask-login.readthedocs.io/) | 0.6.3 | Session/auth management | MIT |
+| [Flask-Limiter](https://flask-limiter.readthedocs.io/) | 4.1.1 | Per-identity rate limiting | MIT |
+| [filelock](https://github.com/tox-dev/filelock) | 4.2.0 | Cross-worker lock on the dataset version manifest | MIT |
+| [pandas](https://pandas.pydata.org/) | 3.0.6 | Data loading and manipulation | BSD-3-Clause |
+| [statsmodels](https://www.statsmodels.org/) | 0.15.0 | Statistical models | BSD-3-Clause |
+| [matplotlib](https://matplotlib.org/) | 3.11.2 | Plotting | Matplotlib License (PSF-based) |
+| [seaborn](https://seaborn.pydata.org/) | 0.13.2 | Statistical visualization | BSD-3-Clause |
+| [openpyxl](https://openpyxl.readthedocs.io/) | 3.1.5 | Excel (`.xlsx`) ingestion | MIT |
+| [xlrd](https://github.com/python-excel/xlrd) | 2.0.2 | Legacy Excel (`.xls`) ingestion | BSD-3-Clause |
+| [redis-py](https://github.com/redis/redis-py) | 8.1.0 | Shared rate-limit store (`RATELIMIT_STORAGE_URI=redis://`) | MIT |
+| [psycopg 3](https://www.psycopg.org/psycopg3/) | 3.3.6 | PostgreSQL driver (`requirements-postgres.txt`, production DB) | LGPL-3.0 |
+| [pyreadstat](https://github.com/Roche/pyreadstat) | 1.3.6 | Stata (`.dta`) / SPSS (`.sav`) ingestion | Apache-2.0 |
+| [pypdf](https://pypdf.readthedocs.io/) | 6.21.0 | PDF codebook reading | BSD-3-Clause |
+| [fpdf2](https://py-pdf.github.io/fpdf2/) | 2.8.9 | TXT→PDF codebook conversion | LGPL-3.0 |
+| [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.4 | `.env` loading | BSD-3-Clause |
+| [gunicorn](https://gunicorn.org/) | 26.2.0 | Production WSGI server | MIT |
+
+psycopg and fpdf2 (LGPL-3.0) are used unmodified as separately installed
+packages that a user can replace, which the LGPL permits under any license for
+the calling code, including the Elastic License 2.0. No dependency is GPL or
+AGPL. Notable transitive licenses: certifi (MPL-2.0), numpy (BSD-3-Clause with
+bundled 0BSD/MIT/Zlib/CC0 parts), pillow (MIT-CMU), cryptography
+(Apache-2.0 or BSD-3-Clause).
 
 ## Frontend (vendored & pinned)
 
@@ -64,7 +79,9 @@ synthetic sample dataset in `docs/examples/` are original to this project.
 |---|---|
 | [Docker](https://www.docker.com/) / Docker Compose | Containerized app + sandbox runner |
 | [Render](https://render.com/) | Reference host for a hosted deploy (not currently deployed) |
+| [R](https://www.r-project.org/) with dplyr, ggplot2 and MASS (Debian `r-base`, `r-cran-*`) | R analyses in the Docker images, run as a separate `Rscript` process (R and MASS are GPL-2/GPL-3, dplyr and ggplot2 MIT; installed at image build, not linked into STATlee) |
 | [pytest](https://pytest.org/) + [ruff](https://docs.astral.sh/ruff/) | Test runner + linter (dev) |
+| [Playwright](https://playwright.dev/python/) | Browser end-to-end tests (dev/CI, Apache-2.0) |
 | [pip-audit](https://github.com/pypa/pip-audit) | Dependency vulnerability audit (dev/CI) |
 
 ---
