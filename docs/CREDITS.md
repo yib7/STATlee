@@ -47,18 +47,23 @@ malware/illegal requests.
 
 | Library | Purpose | License |
 |---|---|---|
-| [Tailwind CSS](https://tailwindcss.com/) | Utility-first styling (built, purged) | MIT |
-| [CodeMirror 5](https://codemirror.net/5/) | In-app code editor | MIT |
-| [marked](https://marked.js.org/) | Markdown rendering | MIT |
-| [DOMPurify](https://github.com/cure53/DOMPurify) | HTML sanitization (XSS defense for all LLM output) | Apache-2.0 / MPL-2.0 |
-| [Inter](https://rsms.me/inter/), [Syne](https://fonts.google.com/specimen/Syne), [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | Typefaces (Google Fonts) | SIL Open Font License 1.1 |
+| [Tailwind CSS](https://tailwindcss.com/) | Utility-first styling (built, purged) | MIT, (c) Tailwind Labs, Inc. |
+| [CodeMirror 5](https://codemirror.net/5/) 5.65.16, incl. the Python and R modes and the material-darker theme (`statlee/static/vendor/codemirror.min.*`, `cm-*.min.*`) | In-app code editor | MIT, (c) Marijn Haverbeke and others |
+| [marked](https://marked.js.org/) 12.0.2 (`statlee/static/vendor/marked.min.js`) | Markdown rendering | MIT, (c) Christopher Jeffrey and MarkedJS |
+| [DOMPurify](https://github.com/cure53/DOMPurify) 3.1.7 (`statlee/static/vendor/purify.min.js`) | HTML sanitization (XSS defense for all LLM output) | Apache-2.0 / MPL-2.0, (c) Cure53 and contributors |
+| [Heroicons](https://heroicons.com/) v1 | Inline SVG icons in the templates and JS (some redrawn or trimmed) | MIT, (c) Tailwind Labs, Inc. |
+| [Feather](https://feathericons.com/) | Inline SVG icons (shield, book) | MIT, (c) Cole Bemis |
+| [Inter](https://rsms.me/inter/), [Syne](https://fonts.google.com/specimen/Syne), [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | Typefaces, loaded from Google Fonts at runtime (not bundled) | SIL Open Font License 1.1 |
+
+The STATlee logo (`statlee/static/images/`), the README screenshots in `docs/images/`, and the
+synthetic sample dataset in `docs/examples/` are original to this project.
 
 ## Infrastructure
 
 | Tool | Purpose |
 |---|---|
 | [Docker](https://www.docker.com/) / Docker Compose | Containerized app + sandbox runner |
-| [Render](https://render.com/) | Reference host in the deployment playbook (not currently deployed) |
+| [Render](https://render.com/) | Reference host for a hosted deploy (not currently deployed) |
 | [pytest](https://pytest.org/) + [ruff](https://docs.astral.sh/ruff/) | Test runner + linter (dev) |
 | [pip-audit](https://github.com/pypa/pip-audit) | Dependency vulnerability audit (dev/CI) |
 
