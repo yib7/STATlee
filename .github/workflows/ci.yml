@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # main plus the autopilot release/work branches, so a pushed branch gets
+    # the full run before it is merged.
+    branches: [main, 'autopilot/**']
   pull_request:
 
 # Cancel superseded runs on the same ref to save CI minutes.
@@ -15,8 +17,8 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install ruff
@@ -28,8 +30,8 @@ jobs:
     name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install pip-audit
@@ -40,17 +42,26 @@ jobs:
         run: |
           pip-audit --no-deps --disable-pip -r requirements.txt
           pip-audit --no-deps --disable-pip -r requirements-postgres.txt
+          pip-audit --no-deps --disable-pip -r requirements-dev.txt
 
   test:
-    name: Tests (pytest)
-    runs-on: ubuntu-latest
+    # The platforms the README claims: Linux (3.11 + 3.12) and Windows (3.12).
+    name: Tests (pytest, ${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ['3.11', '3.12']
+        include:
+          - os: windows-latest
+            python-version: '3.12'
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -58,19 +69,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+      - name: Install Chromium for the Playwright end-to-end tests
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python -m playwright install --with-deps chromium
+          else
+            python -m playwright install chromium
+          fi
       - name: Byte-compile all modules
         run: python -m compileall -q statlee wsgi.py
       - name: Run test suite
         env:
           APP_ENV: testing
-        run: pytest -q
+        run: python -m pytest -q -rs
 
   sandbox-docker:
     name: Sandbox (real Docker runner image)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -93,7 +111,7 @@ jobs:
     name: App image builds, runs non-root, carries no secrets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Build the app image
         run: docker build -t statlee-web .
       - name: Check the runtime user and the build context
@@ -120,8 +138,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -143,8 +161,8 @@ jobs:
     name: Migrations match the models
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -159,3 +177,70 @@ jobs:
           flask --app wsgi db upgrade
           flask --app wsgi db check
           flask --app wsgi statlee-doctor
+
+  readme-setup:
+    # MIRRORS THE README "Quickstart" STEPS. Edit this job and that README
+    # section together: each step below is one README line, run on a clean
+    # runner with the .env.example placeholder key (no real secret). Booting
+    # for /health never calls an LLM: provider clients are created lazily on
+    # the first generation request.
+    name: README setup steps (${{ matrix.path }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        path: [docker-compose, local-venv]
+    steps:
+      - uses: actions/checkout@v7
+
+      # --- README: Quickstart (Docker) ------------------------------------
+      - name: "cp .env.example .env"
+        if: matrix.path == 'docker-compose'
+        run: cp .env.example .env
+      - name: "docker compose up --build"
+        if: matrix.path == 'docker-compose'
+        run: docker compose up -d --build
+      - name: "open http://localhost:5000"
+        if: matrix.path == 'docker-compose'
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5000/health; then
+              echo
+              curl -fsS -o /dev/null -w 'GET / -> %{http_code}' http://localhost:5000/
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose ps
+          docker compose logs
+          exit 1
+      - name: Stop the compose stack
+        if: always() && matrix.path == 'docker-compose'
+        run: docker compose down -v
+
+      # --- README: run locally without Docker ------------------------------
+      - uses: actions/setup-python@v7
+        if: matrix.path == 'local-venv'
+        with:
+          python-version-file: .python-version
+      - name: "python -m venv venv && source venv/bin/activate; pip install -r requirements.txt"
+        if: matrix.path == 'local-venv'
+        run: |
+          python -m venv venv && source venv/bin/activate
+          pip install -r requirements.txt
+      - name: "APP_ENV=development python wsgi.py, then open http://localhost:5000"
+        if: matrix.path == 'local-venv'
+        run: |
+          source venv/bin/activate
+          APP_ENV=development python wsgi.py > wsgi.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5000/health; then
+              echo
+              curl -fsS -o /dev/null -w 'GET / -> %{http_code}' http://localhost:5000/
+              kill %1
+              exit 0
+            fi
+            sleep 2
+          done
+          cat wsgi.log
+          exit 1
