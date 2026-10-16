@@ -396,7 +396,7 @@ def _anthropic_capture(model_lite='claude-haiku-4-5', fail_temperature=False):
 
     def create(**k):
         calls.append(k)
-        if fail_temperature and 'temperature' in k:
+        if fail_temperature and 'temperature' in (k.get('extra_body') or {}):
             raise BadRequest('temperature is not supported for this model')
         return NS(content=[NS(type='text', text='ok')], stop_reason='end_turn',
                   usage=NS(input_tokens=1, output_tokens=1))
@@ -406,15 +406,31 @@ def _anthropic_capture(model_lite='claude-haiku-4-5', fail_temperature=False):
 
 
 def test_anthropic_sends_temperature_to_models_that_accept_it():
+    # Claude before 4.7 still takes a temperature; SDK 1.x removed the kwarg,
+    # so it travels in extra_body.
     svc, calls = _anthropic_capture('claude-haiku-4-5')
     svc.generate('lite', 'p', temperature=0.0)
-    assert calls[-1]['temperature'] == 0.0
+    assert calls[-1]['extra_body'] == {'temperature': 0.0}
+    assert 'temperature' not in calls[-1]
 
 
-def test_anthropic_omits_temperature_for_known_rejecting_models():
-    svc, calls = _anthropic_capture('claude-opus-4-8')
+@pytest.mark.parametrize('model', [
+    'claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5-5',
+    'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'])
+def test_anthropic_omits_temperature_for_known_rejecting_models(model):
+    # Anthropic deprecated sampling params for Claude 4.7 and later (400 on a
+    # non-default value).
+    svc, calls = _anthropic_capture(model)
     svc.generate('lite', 'p', temperature=0.0)
     assert 'temperature' not in calls[-1]
+    assert 'extra_body' not in calls[-1]
+
+
+@pytest.mark.parametrize('model', [
+    'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-5-20251101',
+    'claude-opus-4-20250514'])
+def test_anthropic_pre_4_7_models_accept_temperature(model):
+    assert not llm.AnthropicBackend._sampling_deprecated(model)
 
 
 def test_anthropic_temperature_rejection_retries_once_and_memoizes():
@@ -422,7 +438,7 @@ def test_anthropic_temperature_rejection_retries_once_and_memoizes():
     assert svc.generate('lite', 'a', temperature=0.2).text == 'ok'
     svc.generate('lite', 'b', temperature=0.2)
     assert len(calls) == 3
-    assert 'temperature' not in calls[-1]
+    assert 'extra_body' not in calls[-1]
 
 
 # ---------------------------------------------------------------------------

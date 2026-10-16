@@ -16,6 +16,7 @@ import contextlib
 import copy
 import hashlib
 import logging
+import re
 import threading
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
@@ -370,10 +371,15 @@ class AnthropicBackend:
     JSON_SYSTEM = ("Output only a single valid JSON value — no markdown, "
                    "no code fences, no prose.")
 
-    # Models known to reject sampling parameters (D3-13). Every other model
-    # gets the requested temperature; an unknown model that rejects it is
-    # learned from its first 400 and remembered.
-    NO_TEMPERATURE_PREFIXES = ('claude-opus-4-7', 'claude-opus-4-8')
+    # Sampling parameters (D3-13). Anthropic deprecated temperature/top_p/top_k
+    # for Claude 4.7 and later models (a non-default value is a 400), and the
+    # Python SDK 1.x dropped them from messages.create/stream (passing one is a
+    # TypeError), so the temperature travels in ``extra_body`` and only for
+    # models before 4.7. An unknown id that still rejects it is learned from
+    # its first 400 and remembered.
+    _VERSIONED_ID = re.compile(
+        r'^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$')
+    SAMPLING_DEPRECATED_FROM = (4, 7)
 
     def __init__(self, config):
         self.config = config
@@ -397,8 +403,18 @@ class AnthropicBackend:
                     **common)
         return self._client
 
+    @classmethod
+    def _sampling_deprecated(cls, model):
+        """True for a Claude id at or after the version that rejects sampling
+        parameters (claude-opus-4-7, claude-sonnet-5-5, claude-fable-5-1...)."""
+        m = cls._VERSIONED_ID.match(str(model))
+        if not m:
+            return False
+        version = (int(m.group(1)), int(m.group(2) or 0))
+        return version >= cls.SAMPLING_DEPRECATED_FROM
+
     def _accepts_temperature(self, model):
-        if any(str(model).startswith(p) for p in self.NO_TEMPERATURE_PREFIXES):
+        if self._sampling_deprecated(model):
             return False
         with self._lock:
             return model not in self._no_temperature
@@ -449,8 +465,12 @@ class AnthropicBackend:
             'timeout': self._timeouts.for_model(model),
         }
         if temperature is not None and self._accepts_temperature(model):
-            kwargs['temperature'] = temperature
+            kwargs['extra_body'] = {'temperature': temperature}
         return kwargs
+
+    @staticmethod
+    def _has_temperature(kwargs):
+        return 'temperature' in (kwargs.get('extra_body') or {})
 
     def _call(self, fn, kwargs):
         """Call ``fn(**kwargs)``; on a 'temperature not supported' 400, retry
@@ -458,10 +478,10 @@ class AnthropicBackend:
         try:
             return fn(**kwargs)
         except Exception as exc:
-            if 'temperature' in kwargs and _rejects_temperature(exc):
+            if self._has_temperature(kwargs) and _rejects_temperature(exc):
                 with self._lock:
                     self._no_temperature.add(kwargs['model'])
-                kwargs = {k: v for k, v in kwargs.items() if k != 'temperature'}
+                kwargs = {k: v for k, v in kwargs.items() if k != 'extra_body'}
                 return fn(**kwargs)
             raise
 

@@ -146,9 +146,13 @@ def test_anthropic_generate_maps_text_and_usage():
     assert res.text == 'hi there'
     assert res.usage['input'] == 11 and res.usage['output'] == 4
     assert svc.usage_snapshot()[svc._resolve('lite')]['output'] == 4
-    # D3-13: models that accept sampling params get the requested
-    # temperature (only the known-rejecting ones drop it).
-    assert captured['temperature'] == 0.0
+    # D3-13: SDK 1.x has no temperature kwarg, so it never goes top-level; it
+    # rides in extra_body only for models before Claude 4.7.
+    assert 'temperature' not in captured
+    if llm.AnthropicBackend._sampling_deprecated(svc._resolve('lite')):
+        assert 'extra_body' not in captured
+    else:
+        assert captured['extra_body'] == {'temperature': 0.0}
 
 
 def test_anthropic_json_mode_sets_system():
