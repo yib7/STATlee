@@ -71,7 +71,8 @@ def test_app_image_installs_the_postgres_driver():
     """D5-11: the documented production DATABASE_URL (postgresql+psycopg://)
     failed at boot with ModuleNotFoundError: psycopg."""
     assert 'psycopg' in _read('requirements/postgres.txt')
-    assert re.search(r'pip install[^\n]*-r requirements/postgres\.txt',
+    assert re.search(r'^psycopg==', _read('requirements/app.lock'), re.MULTILINE)
+    assert re.search(r'pip install[^\n]*-r requirements/app\.lock',
                      _read('docker/app.Dockerfile'))
 
 
@@ -83,7 +84,8 @@ def test_runner_image_pins_match_the_app():
     assert runner_pins, 'requirements/runner.txt has no pins'
     for pkg, version in runner_pins.items():
         assert app_pins.get(pkg) == version, (pkg, version, app_pins.get(pkg))
-    assert 'requirements/runner.txt' in _read('docker/runner.Dockerfile')
+    assert re.search(r'pip install[^\n]*-r /tmp/runner\.lock',
+                     _read('docker/runner.Dockerfile'))
 
 
 def test_ruff_version_is_the_same_in_ci_pre_commit_and_requirements_dev():

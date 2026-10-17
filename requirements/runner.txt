@@ -2,7 +2,8 @@
 # (docker/runner.Dockerfile). Every pin here must equal its pin in base.txt so
 # docker mode and subprocess mode run the same library stack;
 # tests/test_container_files.py enforces that. numpy/scipy are transitive in
-# both and resolve from these pins.
+# both; requirements/runner.lock pins them to the same versions as
+# requirements/app.lock (compiled with app.lock as a constraint).
 pandas==3.0.6
 statsmodels==0.15.0
 matplotlib==3.11.2

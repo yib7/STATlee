@@ -1,5 +1,5 @@
 # PostgreSQL driver for DATABASE_URL=postgresql+psycopg://... (the documented
-# production database). Installed by the app image; for a non-Docker deploy run
-#   pip install -r requirements/base.txt -r requirements/postgres.txt
-# The SQLite default needs nothing extra.
+# production database). Compiled into requirements/app.lock, so the app image
+# and a local `pip install -r requirements/app.lock` both get it. The SQLite
+# default does not use it.
 psycopg[binary]==3.3.6

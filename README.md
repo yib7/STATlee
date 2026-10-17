@@ -134,7 +134,7 @@ Or run locally without Docker (dev only, generated code runs on your host):
 
 ```bash
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements/base.txt
+pip install -r requirements/app.lock
 APP_ENV=development python wsgi.py                 # http://localhost:5000
 ```
 
@@ -162,7 +162,7 @@ and the documented [`.env.example`](.env.example).
 ## Development
 
 ```bash
-pip install -r requirements/dev.txt
+pip install -r requirements/dev.lock
 ruff check .      # lint
 pytest            # 1240 tests, fully offline (deterministic fake LLM, no API key)
 ```

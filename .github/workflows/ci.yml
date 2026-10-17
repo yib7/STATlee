@@ -36,13 +36,33 @@ jobs:
           python-version: '3.12'
       - name: Install pip-audit
         run: pip install pip-audit==2.10.1
-      - name: Audit the pinned requirements
-        # --no-deps: audit exactly the pins (transitive deps are unpinned, so
-        # resolving them would audit whatever the index serves that day).
+      - name: Audit every package in the lockfiles
+        # The locks pin every transitive dependency, so this audits exactly
+        # what the images, CI and the README install. pip-audit skips entries
+        # whose environment marker does not match this runner (the Python 3.11
+        # numpy/scipy forks, Windows-only tzdata) and refuses a package listed
+        # twice, so each lock is first split into marker-free lists holding
+        # one version per package; every locked version lands in one of them.
         run: |
-          pip-audit --no-deps --disable-pip -r requirements/base.txt
-          pip-audit --no-deps --disable-pip -r requirements/postgres.txt
-          pip-audit --no-deps --disable-pip -r requirements/dev.txt
+          python - <<'EOF'
+          import os, pathlib, re
+          out = pathlib.Path(os.environ['RUNNER_TEMP'])
+          for lock in ['requirements/app.lock', 'requirements/dev.lock', 'requirements/runner.lock']:
+              layers = []
+              for name, version in re.findall(r'^([A-Za-z0-9_.-]+)==([^\s;]+)',
+                                              pathlib.Path(lock).read_text(), re.M):
+                  layer = next((l for l in layers if name not in l), None)
+                  if layer is None:
+                      layers.append(layer := {})
+                  layer[name] = version
+              for i, layer in enumerate(layers):
+                  (out / f'audit-{pathlib.Path(lock).stem}-{i}.txt').write_text(
+                      ''.join(f'{n}=={v}\n' for n, v in layer.items()))
+          EOF
+          for f in "$RUNNER_TEMP"/audit-*.txt; do
+            echo "== $(basename "$f"): $(wc -l < "$f") packages"
+            pip-audit --no-deps --disable-pip -r "$f"
+          done
 
   test:
     # The platforms the README claims: Linux (3.11 + 3.12) and Windows (3.12).
@@ -65,11 +85,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements/*.txt
+          cache-dependency-path: requirements/*.lock
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/dev.txt
+          pip install -r requirements/dev.lock
       - name: Install Chromium for the Playwright end-to-end tests
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -93,9 +113,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements/*.txt
+          cache-dependency-path: requirements/*.lock
       - name: Install dependencies
-        run: pip install -r requirements/dev.txt
+        run: pip install -r requirements/dev.lock
       - name: Build the runner image
         run: docker build -f docker/runner.Dockerfile -t statlee-runner .
       - name: Run the sandbox tests, real-Docker ones included
@@ -152,9 +172,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements/*.txt
+          cache-dependency-path: requirements/*.lock
       - name: Install dependencies
-        run: pip install -r requirements/dev.txt -r requirements/postgres.txt
+        run: pip install -r requirements/dev.lock
       - name: Boot migrations against PostgreSQL
         env:
           APP_ENV: testing
@@ -176,9 +196,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements/*.txt
+          cache-dependency-path: requirements/*.lock
       - name: Install dependencies
-        run: pip install -r requirements/base.txt
+        run: pip install -r requirements/app.lock
       - name: Upgrade a scratch DB to head and diff it against the models
         env:
           APP_ENV: development
@@ -234,11 +254,11 @@ jobs:
         if: matrix.path == 'local-venv'
         with:
           python-version-file: .python-version
-      - name: "python -m venv venv && source venv/bin/activate; pip install -r requirements/base.txt"
+      - name: "python -m venv venv && source venv/bin/activate; pip install -r requirements/app.lock"
         if: matrix.path == 'local-venv'
         run: |
           python -m venv venv && source venv/bin/activate
-          pip install -r requirements/base.txt
+          pip install -r requirements/app.lock
       - name: "APP_ENV=development python wsgi.py, then open http://localhost:5000"
         if: matrix.path == 'local-venv'
         run: |

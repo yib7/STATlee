@@ -25,10 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# requirements/postgres.txt adds the psycopg driver for the documented
-# production DATABASE_URL=postgresql+psycopg://... (D5-11).
-COPY requirements/base.txt requirements/postgres.txt ./requirements/
-RUN pip install --no-cache-dir -r requirements/base.txt -r requirements/postgres.txt
+# requirements/app.lock is base.txt + postgres.txt compiled with every
+# transitive dependency pinned and hashed, so each build installs the same
+# packages. postgres.txt adds the psycopg driver for the documented production
+# DATABASE_URL=postgresql+psycopg://... (D5-11).
+COPY requirements/app.lock ./requirements/
+RUN pip install --no-cache-dir -r requirements/app.lock
 
 COPY . .
 

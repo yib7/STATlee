@@ -14,11 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-mass \
     && rm -rf /var/lib/apt/lists/*
 
-# Same analysis-library pins as the app (requirements/base.txt), so docker
-# mode and subprocess mode run identical stacks.
-COPY requirements/runner.txt /tmp/runner.txt
-RUN pip install --no-cache-dir -r /tmp/runner.txt \
-    && rm /tmp/runner.txt
+# Same analysis-library versions as the app: requirements/runner.lock is
+# runner.txt compiled against requirements/app.lock, every package pinned and
+# hashed, so docker mode and subprocess mode run identical stacks.
+COPY requirements/runner.lock /tmp/runner.lock
+RUN pip install --no-cache-dir -r /tmp/runner.lock \
+    && rm /tmp/runner.lock
 
 # Non-root by default; matches the --user 1000:1000 launch flag.
 RUN useradd --uid 1000 --create-home runner

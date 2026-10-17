@@ -25,7 +25,8 @@ statlee/            the Flask package: app factory, routes, services
 tests/              pytest suite: fake LLM, route and unit tests, Playwright e2e
 docs/               this guide, credits, pricing, the sample dataset, README media
 docker/             app.Dockerfile (web image), runner.Dockerfile (sandbox image)
-requirements/       pinned dependencies: base, dev, postgres, runner
+requirements/       pinned direct deps (base, dev, postgres, runner .txt) and the
+                    hashed lockfiles installs use (app, dev, runner .lock)
 wsgi.py             entry point: loads .env, builds the app
 docker-compose.yml  the one-command local stack
 ```
@@ -683,8 +684,9 @@ sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
 
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
   read-only, resource-capped sibling container built from `docker/runner.Dockerfile`
-  (whose analysis-library pins come from `requirements/runner.txt` and must
-  match `requirements/base.txt`; a test enforces it). The shipped app image has **no
+  (whose analysis libraries come from `requirements/runner.lock`, compiled
+  against `requirements/app.lock` so they match the app's versions; tests
+  enforce it). The shipped app image has **no
   `docker` CLI**, so docker mode needs the app on a host (or a derived image)
   with the CLI and daemon access; from the stock image every run fails with
   "Interpreter not available". The two real-Docker integration tests in

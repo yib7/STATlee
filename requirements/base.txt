@@ -1,5 +1,16 @@
-# Pinned direct dependencies (roadmap 2.2). Transitive dependencies are not
-# pinned or hashed; CI runs pip-audit on these pins (see .github/workflows/ci.yml).
+# Direct dependencies, pinned with ==. This is the human-edited input; installs
+# use the compiled lockfiles, which pin and hash every transitive dependency:
+#   requirements/app.lock     base.txt + postgres.txt (app image, local install)
+#   requirements/dev.lock     dev.txt + postgres.txt (CI, contributors)
+#   requirements/runner.lock  runner.txt (SANDBOX_MODE=docker runner image)
+# After editing any requirements/*.txt, regenerate all three from the repo root
+# (needs uv: `pip install uv`), app.lock first since the other two take it as a
+# constraint so shared packages resolve to the same versions:
+#   uv pip compile requirements/base.txt requirements/postgres.txt --universal --python-version 3.11 --generate-hashes -o requirements/app.lock
+#   uv pip compile requirements/dev.txt requirements/postgres.txt -c requirements/app.lock --universal --python-version 3.11 --generate-hashes -o requirements/dev.lock
+#   uv pip compile requirements/runner.txt -c requirements/app.lock --universal --python-version 3.11 --generate-hashes -o requirements/runner.lock
+# tests/test_lockfiles.py fails when a lock drifts from these pins; CI runs
+# pip-audit on the locks (see .github/workflows/ci.yml).
 Flask==3.1.3
 Werkzeug==3.1.9          # CVE-2026-102598 fixed in 3.1.9
 pandas==3.0.6
