@@ -62,7 +62,7 @@ bundled 0BSD/MIT/Zlib/CC0 parts), pillow (MIT-CMU), cryptography
 
 | Library | Purpose | License |
 |---|---|---|
-| [Tailwind CSS](https://tailwindcss.com/) | Utility-first styling (built, purged) | MIT, (c) Tailwind Labs, Inc. |
+| [Tailwind CSS](https://tailwindcss.com/) 3.2.7 (`statlee/static/css/tailwind.css`, built from `tailwind.src.css`) | Utility-first styling (built, purged) | MIT, (c) Tailwind Labs, Inc. |
 | [CodeMirror 5](https://codemirror.net/5/) 5.65.21 (latest 5.x; the app's editor code targets the v5 API, v6 is a rewrite), incl. the Python and R modes and the material-darker theme (`statlee/static/vendor/codemirror.min.*`, `cm-*.min.*`, jsDelivr-minified from the npm package) | In-app code editor | MIT, (c) Marijn Haverbeke and others |
 | [marked](https://marked.js.org/) 18.1.1 (`statlee/static/vendor/marked.min.js`, the package's `lib/marked.umd.js`) | Markdown rendering | MIT, (c) Christopher Jeffrey and MarkedJS |
 | [DOMPurify](https://github.com/cure53/DOMPurify) 3.4.17 (`statlee/static/vendor/purify.min.js`) | HTML sanitization (XSS defense for all LLM output) | Apache-2.0 / MPL-2.0, (c) Cure53 and contributors |
@@ -70,7 +70,8 @@ bundled 0BSD/MIT/Zlib/CC0 parts), pillow (MIT-CMU), cryptography
 | [Feather](https://feathericons.com/) | Inline SVG icons (shield, book) | MIT, (c) Cole Bemis |
 | [Inter](https://rsms.me/inter/), [Syne](https://gitlab.com/bonjour-monde/fonderie/syne-typeface), [JetBrains Mono](https://www.jetbrains.com/lp/mono/), variable-weight latin and latin-ext subsets from the npm packages `@fontsource-variable/{inter,syne,jetbrains-mono}` 5.3.0 (`statlee/static/fonts/*.woff2`, unmodified) | Typefaces, self-hosted so a page view sends nothing to a font CDN | SIL Open Font License 1.1; (c) 2016 The Inter Project Authors, (c) 2019 The Syne Project Authors, (c) 2020 The JetBrains Mono Project Authors; license texts in `statlee/static/fonts/OFL-*.txt` |
 
-The STATlee logo (`statlee/static/images/`), the README screenshots in `docs/images/`, and the
+The STATlee logo (`statlee/static/images/`), the star and pencil icons in the run rail
+(`statlee/static/js/workbook.js`), the README screenshots and demo GIF in `docs/images/`, and the
 synthetic sample dataset in `docs/examples/` are original to this project.
 
 ## Infrastructure
@@ -83,6 +84,7 @@ synthetic sample dataset in `docs/examples/` are original to this project.
 | [pytest](https://pytest.org/) + [ruff](https://docs.astral.sh/ruff/) | Test runner + linter (dev) |
 | [Playwright](https://playwright.dev/python/) | Browser end-to-end tests (dev/CI, Apache-2.0) |
 | [pip-audit](https://github.com/pypa/pip-audit) | Dependency vulnerability audit (dev/CI) |
+| [uv](https://docs.astral.sh/uv/) | Compiles the hashed `requirements/*.lock` files (maintainers only, not installed by the app) |
 
 ---
 
