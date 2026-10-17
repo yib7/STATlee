@@ -828,8 +828,8 @@ def test_export_dialog_copy_is_plain_and_has_no_em_dashes(client):
     modal = _export_modal(_visible(_index_html(client)))
     text = re.sub(r'<[^>]+>', ' ', modal)
     assert '—' not in text and '–' not in text
-    for words in ('Include my prompts', 'Runs to include', 'All runs',
-                  'Starred runs', 'Latest run only'):
+    for words in ('Include my prompts', 'Runs to include', 'All runs on this dataset',
+                  'Starred runs', 'Latest run only', 'earlier upload of this one'):
         assert words in text, words
 
 
