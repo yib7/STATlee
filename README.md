@@ -41,7 +41,7 @@ An LLM writes the analysis code. What STATlee adds around it:
 <table>
   <tr>
     <td><img src="docs/images/screenshot-workspace.png" width="440" alt="Workspace with the sample survey loaded: suggested analyses and the plain-English prompt in the sidebar, and the generated Python script in the code editor"></td>
-    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the run rail titled with the question, the Methods and assumptions card with two passing assumption checks and the odds ratio, and the sandbox terminal output with the logistic regression table"></td>
+    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the run rail titled with the question, the Methods and assumptions card with three passing assumption checks and the odds ratio, and the sandbox terminal output with the logistic regression table"></td>
   </tr>
   <tr>
     <td><img src="docs/images/screenshot-codebook.png" width="440" alt="Codebook tab: an editable table of every variable with its type, label, value labels, missing codes and role"></td>
