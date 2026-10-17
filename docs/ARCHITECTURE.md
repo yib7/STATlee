@@ -704,7 +704,7 @@ built is a payment processor: wiring Stripe Checkout + a webhook to sell credits
 is the remaining step, and it is deliberately left as a human action because it
 is the point where real money and secrets enter.
 
-## Database schema & migrations (`migrations/`, `app.py`)
+## Database schema & migrations (`statlee/migrations/`, `app.py`)
 
 The schema is versioned with Alembic (Flask-Migrate). At boot `create_app`
 brings the database up to date:
@@ -732,7 +732,7 @@ DB the boot upgrade cannot handle. The testing env keeps plain `create_all()`
 for fast throwaway DBs; `test_models_match_migration_head` and the CI
 `flask db check` step fail when the models and the migration head drift. Add a
 schema change with `flask --app wsgi db migrate -m "..."`, review the generated
-file under `migrations/versions/`, and the boot upgrade applies it on the next
+file under `statlee/migrations/versions/`, and the boot upgrade applies it on the next
 deploy.
 
 ## Frontend (`static/js/`, `templates/index.html`)

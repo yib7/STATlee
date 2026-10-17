@@ -92,10 +92,10 @@ BASELINE_REVISION = '171777e71dff'
 # re-run migrations against a DB it already handled.
 _upgraded_uris = set()
 
-# migrations/ lives at the repo root, a sibling of the statlee/ package, so the
-# boot upgrade works regardless of the current working directory.
-_MIGRATIONS_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'migrations'))
+# The Alembic scripts live inside the package (statlee/migrations/), resolved
+# from this file, so the boot upgrade works from any working directory.
+_MIGRATIONS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'migrations')
 
 
 # CLI sub-commands that inspect or repair the schema themselves. Importing
@@ -252,7 +252,7 @@ def _init_schema(app, cfg):
     from sqlalchemy import inspect as sa_inspect
 
     tables = set(sa_inspect(db.engine).get_table_names())
-    # Tell migrations/env.py this is the in-process boot path so it leaves the
+    # Tell statlee/migrations/env.py this is the in-process boot path so it leaves the
     # app's root-logger setup (RequestIdFilter, INFO level) alone; alembic.ini's
     # fileConfig would otherwise reconfigure root and silence app logging.
     os.environ['STATLEE_INPROCESS_MIGRATION'] = '1'

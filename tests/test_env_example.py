@@ -11,7 +11,7 @@ import re
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Read by code but not operator settings: PATH is forwarded to the sandbox
-# child; STATLEE_INPROCESS_MIGRATION is a flag app.py sets for migrations/env.py.
+# child; STATLEE_INPROCESS_MIGRATION is a flag app.py sets for statlee/migrations/env.py.
 _INTERNAL = {'PATH', 'STATLEE_INPROCESS_MIGRATION'}
 # Documented, consumed outside the Python package (the app image's CMD).
 _CONSUMED_ELSEWHERE = {'WEB_CONCURRENCY': 'docker/app.Dockerfile'}
