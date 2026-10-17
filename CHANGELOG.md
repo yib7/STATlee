@@ -73,6 +73,12 @@ reproducibility bundle that records what produced what.
   openai 3.32.0, pandas 3.0.6, statsmodels 0.15.0, matplotlib 3.11.2,
   filelock 4.2.0, gunicorn 26.2.0, fpdf2 2.8.9, pypdf 6.21.0, alembic 1.20.0,
   redis 8.1.0, pyreadstat 1.3.6, python-dotenv 1.2.4.
+- Repository layout: the pins moved to `requirements/` (`base.txt`, `dev.txt`,
+  `postgres.txt`, `runner.txt`; install with
+  `pip install -r requirements/base.txt`), the Dockerfiles to `docker/`
+  (`app.Dockerfile`, `runner.Dockerfile`; build from the repo root with
+  `-f docker/...`), migrations into `statlee/migrations/`, and the security
+  policy into `.github/SECURITY.md`. `docker compose up --build` is unchanged.
 
 ### Fixed
 - The Anthropic provider works with SDK 1.x, which removed `temperature` from
