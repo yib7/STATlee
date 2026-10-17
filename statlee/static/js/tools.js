@@ -817,7 +817,10 @@
     // Boot
     // =====================================================================
     document.addEventListener('DOMContentLoaded', () => {
-        checkAuth();
+        // Settles once the boot sign-in state is applied (checkAuth never
+        // rejects). Anything that reads or seeds CC.state.user, the browser
+        // tests included, can await it instead of racing the reply.
+        CC.authReady = checkAuth();
         initLegacyPasswordOverlay();
         renderCatalog();
 

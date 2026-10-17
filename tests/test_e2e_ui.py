@@ -110,7 +110,8 @@ def fake(e2e_server):
     return f
 
 
-def _new_page(browser, base_url, width=1440, height=900, scheme='light'):
+def _new_page(browser, base_url, width=1440, height=900, scheme='light',
+              init_script=None):
     ctx = browser.new_context(viewport={'width': width, 'height': height},
                               color_scheme=scheme)
 
@@ -124,10 +125,15 @@ def _new_page(browser, base_url, width=1440, height=900, scheme='light'):
 
     ctx.route('**/*', _local_only)
     ctx.add_init_script(FETCH_SPY)
+    if init_script:                 # runs after FETCH_SPY, e.g. to set __fetchDelay
+        ctx.add_init_script(init_script)
     page = ctx.new_page()
     page.on('dialog', lambda d: d.accept())   # window.confirm on dataset switch
     page.goto(base_url + '/')
-    page.wait_for_function('() => window.CC && CC.editor')
+    page.wait_for_function('() => window.CC && CC.editor && CC.authReady')
+    # The boot /check_auth must have landed before a test reads or seeds
+    # CC.state.user, or its reply can overwrite the test's state (3A C-01).
+    page.evaluate('() => CC.authReady')
     return page
 
 
@@ -845,9 +851,25 @@ def test_sign_in_keeps_the_loaded_dataset(page):
     assert page.locator('#dataTableBody td').count() > 0
 
 
-def test_credits_remaining_refreshes_the_balance(page):
+@pytest.mark.parametrize('delays', [{}, {'/check_auth': 800, '/method_prompt': 1600}],
+                         ids=['fast-auth', 'slow-auth'])
+def test_credits_remaining_refreshes_the_balance(browser, e2e_server, fake, delays):
     # Upcoming LLM-layer field: credit-spending replies may carry
     # `credits_remaining`; when present it is the balance to show.
+    # 3A C-01: the page's own boot /check_auth used to race the state this
+    # test seeds: an anonymous reply landing late reset CC.state.user to null
+    # and the predicate threw. 'slow-auth' makes that ordering certain (the
+    # boot auth lands while /method_prompt is still in flight), so it only
+    # passes because the page helper awaits CC.authReady first.
+    page = _new_page(browser, e2e_server['url'], init_script=(
+        f'Object.assign(window.__fetchDelay, {json.dumps(delays)});'))
+    try:
+        _credits_flow(page)
+    finally:
+        page.context.close()
+
+
+def _credits_flow(page):
     page.evaluate("""() => { CC_BOOT.billing = true;
         CC.state.user = {email: 'x@example.test', credits: 50}; }""")
     page.context.route('**/method_prompt', lambda route: route.fulfill(
@@ -855,7 +877,7 @@ def test_credits_remaining_refreshes_the_balance(page):
         body=json.dumps({'status': 'success', 'prompt': 'p', 'rationale': 'r',
                          'credits_remaining': 41})))
     page.evaluate("() => CC.post('/method_prompt', {})")
-    page.wait_for_function("() => CC.state.user.credits === 41")
+    page.wait_for_function("() => CC.state.user && CC.state.user.credits === 41")
     assert page.text_content('#accountCredits').strip() == '41 credits'
     page.context.route('**/converse', lambda route: route.fulfill(
         status=200, content_type='text/event-stream',
@@ -864,7 +886,7 @@ def test_credits_remaining_refreshes_the_balance(page):
     page.click('#tabConverse')
     page.fill('#chatInput', 'question')
     page.press('#chatInput', 'Enter')
-    page.wait_for_function("() => CC.state.user.credits === 40")
+    page.wait_for_function("() => CC.state.user && CC.state.user.credits === 40")
     assert page.text_content('#accountCredits').strip() == '40 credits'
 
 
