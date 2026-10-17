@@ -536,7 +536,7 @@ def test_export_bundles_last_run_script_not_wrangle_snippet(client, fake_llm):
     sse_events(post_json(client, '/chat',
                          {'filename': 'test.csv', 'prompt': 'summarize'}))
 
-    # /run the exact approved analysis script -> save_last_run records it.
+    # /run the exact approved analysis script -> save_run records it.
     run = post_json(client, '/run',
                     {'filename': 'test.csv', 'code': "print('ANALYSIS_MARKER')",
                      'language': 'Python'})

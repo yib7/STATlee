@@ -25,8 +25,8 @@ def _interpret(client):
 def test_r_error_with_nonzero_returncode_is_debug(app, client, fake_llm):
     identity = _identity(client)
     with app.app_context():
-        storage.save_last_run(R_ERROR, [], script='lm(y ~ x)', language='R',
-                              returncode=1, timed_out=False, identity=identity)
+        storage.save_run(R_ERROR, [], script='lm(y ~ x)', language='R',
+                         returncode=1, timed_out=False, identity=identity)
     assert _interpret(client) is True
     assert any(c[1] == 'interpret_debug' for c in fake_llm.calls)
 
@@ -34,20 +34,20 @@ def test_r_error_with_nonzero_returncode_is_debug(app, client, fake_llm):
 def test_timeout_is_debug(app, client):
     identity = _identity(client)
     with app.app_context():
-        storage.save_last_run('Execution timed out after 60 seconds. Code took '
-                              'too long to run.', [], script='while True: pass',
-                              language='Python', returncode=-1, timed_out=True,
-                              identity=identity)
+        storage.save_run('Execution timed out after 60 seconds. Code took '
+                         'too long to run.', [], script='while True: pass',
+                         language='Python', returncode=-1, timed_out=True,
+                         identity=identity)
     assert _interpret(client) is True
 
 
 def test_successful_output_starting_with_error_is_not_debug(app, client):
     identity = _identity(client)
     with app.app_context():
-        storage.save_last_run('Error rate: 4.2%\nAccuracy: 0.958', [],
-                              script="print('Error rate: 4.2%')",
-                              language='Python', returncode=0,
-                              timed_out=False, identity=identity)
+        storage.save_run('Error rate: 4.2%\nAccuracy: 0.958', [],
+                         script="print('Error rate: 4.2%')",
+                         language='Python', returncode=0,
+                         timed_out=False, identity=identity)
     assert _interpret(client) is False
 
 
@@ -56,7 +56,7 @@ def test_legacy_run_without_status_detects_r_error(app, client):
     heuristic, which now also recognises R errors anywhere in the output."""
     identity = _identity(client)
     with app.app_context():
-        storage.save_last_run(R_ERROR, [], identity=identity)
+        storage.save_run(R_ERROR, [], identity=identity)
     assert _interpret(client) is True
 
 

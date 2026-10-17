@@ -123,8 +123,8 @@ def test_generate_report_no_background_skips_moderation(app, client, fake_llm):
     with client.session_transaction() as sess:
         ident = f"anon_{sess['sid']}"
     with app.app_context():
-        storage.save_last_run('coef=1.2', [], identity=ident, returncode=0)
-        storage.save_last_interpretation('ok', identity=ident)
+        storage.save_run('coef=1.2', [], identity=ident, returncode=0)
+        storage.save_interpretation('ok', identity=ident)
     resp = post_json(client, '/generate_report',
                      {'output': 'coef=1.2', 'interpretation': 'ok'})
     assert resp.status_code == 200

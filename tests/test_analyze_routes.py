@@ -302,8 +302,8 @@ def test_interpret_grounds_on_server_run_ignoring_spoofed_output(app, client):
 
     identity = _identity_for(client)
     with app.app_context():
-        storage.save_last_run('SERVER_TRUTH: coef=1.23, p=0.001', [],
-                              identity=identity)
+        storage.save_run('SERVER_TRUTH: coef=1.23, p=0.001', [],
+                         identity=identity)
 
     fake = app.config['_FAKE_LLM']
     fake.calls.clear()
@@ -330,8 +330,8 @@ def test_interpret_grounded_ignores_spoofed_client_code(app, client, fake_llm):
     with app.app_context():
         # A failing run persists a Traceback (grounded + failed=True) and the
         # run-guard records the executed script.
-        storage.save_last_run('Traceback (most recent call last): NameError: x',
-                              [], identity=identity)
+        storage.save_run('Traceback (most recent call last): NameError: x',
+                         [], identity=identity)
         storage.save_approved_script("print('SERVER_CODE_MARKER')", 'Python',
                                      identity=identity)
 
@@ -355,7 +355,7 @@ def test_interpret_grounded_prefers_last_run_script_over_wrangle(app, client, fa
 
     identity = _identity_for(client)
     with app.app_context():
-        storage.save_last_run(
+        storage.save_run(
             'Traceback (most recent call last): NameError: x', [],
             script="print('ANALYSIS_MARKER')", language='Python',
             identity=identity)

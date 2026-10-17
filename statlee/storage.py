@@ -806,29 +806,6 @@ def load_approved_script(identity=None, exclude_sources=(), match=None):
 
 # Session workbook (SP1): the run store lives in ``runs.py`` and is
 # re-exported at the bottom of this module.
-#
-# The three pre-workbook wrappers below have no caller in ``statlee/``. They
-# remain only until the tests outside the workbook area that still use them
-# are ported to ``save_run`` / ``save_interpretation`` / ``run_interpretation``
-# (3A A6, cross-area); then delete them.
-
-def save_last_run(output, plots_b64, script=None, language=None, identity=None,
-                  returncode=None, timed_out=False):
-    """Deprecated, tests only: ``runs.save_run``."""
-    return save_run(output, plots_b64, script=script, language=language,
-                    identity=identity, returncode=returncode,
-                    timed_out=timed_out)
-
-
-def save_last_interpretation(text, identity=None):
-    """Deprecated, tests only: ``runs.save_interpretation`` (latest run)."""
-    save_interpretation(text, identity=identity)
-
-
-def last_interpretation(identity=None):
-    """Deprecated, tests only: the latest run's interpretation, or ''."""
-    run_id = latest_run_id(identity)
-    return run_interpretation(run_id, identity) if run_id else ''
 
 
 # ---------------------------------------------------------------------------

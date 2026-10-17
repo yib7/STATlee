@@ -14,15 +14,20 @@ def _identity(client):
         return f"anon_{sess['sid']}"
 
 
+def _latest_interpretation(ident):
+    """The newest run's interpretation, or '' when it has none."""
+    return storage.run_interpretation(storage.latest_run_id(ident), ident)
+
+
 def _seed_run(app, client, output='SERVER_OUTPUT coef=1.23', interp=None,
               script="print('SERVER_SCRIPT')"):
     ident = _identity(client)
     with app.app_context():
-        storage.save_last_run(output, [], script=script, language='Python',
-                              identity=ident, returncode=0)
+        storage.save_run(output, [], script=script, language='Python',
+                         identity=ident, returncode=0)
         storage.save_approved_script(script, 'Python', identity=ident)
         if interp is not None:
-            storage.save_last_interpretation(interp, identity=ident)
+            storage.save_interpretation(interp, identity=ident)
     return ident
 
 
@@ -129,14 +134,14 @@ def test_interpret_saves_its_text_for_converse_and_report(app, client, fake_llm)
     fake_llm.set('interpret', '### Summary\nINTERP_TEXT')
     sse_events(post_json(client, '/interpret', {}))
     with app.app_context():
-        assert 'INTERP_TEXT' in storage.last_interpretation(identity=ident)
+        assert 'INTERP_TEXT' in _latest_interpretation(ident)
 
 
 def test_new_run_clears_the_old_interpretation(app, client):
     ident = _seed_run(app, client, interp='OLD')
     with app.app_context():
-        storage.save_last_run('new', [], identity=ident, returncode=0)
-        assert storage.last_interpretation(identity=ident) == ''
+        storage.save_run('new', [], identity=ident, returncode=0)
+        assert _latest_interpretation(ident) == ''
 
 
 def test_interpret_prompt_has_question_columns_labels_and_n(
@@ -155,8 +160,8 @@ def test_interpret_prompt_has_question_columns_labels_and_n(
         'filename': 'test.csv', 'prompt': 'Does income differ by group?'}))
     code = next(e for e in events if e.get('type') == 'done')['code']
     with app.app_context():
-        storage.save_last_run('t = 2.1, p = 0.04', [], script=code,
-                              language='Python', identity=ident, returncode=0)
+        storage.save_run('t = 2.1, p = 0.04', [], script=code,
+                         language='Python', identity=ident, returncode=0)
     sse_events(post_json(client, '/interpret', {}))
     prompt = _prompt(fake_llm, 'interpret')
     assert 'Does income differ by group?' in prompt
