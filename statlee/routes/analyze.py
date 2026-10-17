@@ -445,7 +445,9 @@ def run_code():
     # SP3: the methods block the script printed, parsed once and kept with
     # the run (the raw block stays in the output).
     methods = methods_card.parse(result.output)
-    run_id = storage.save_run(
+    # 3A A3: the runs this save pushed out of the workbook go back to the
+    # client, so the user hears about it (a starred run included).
+    run_id, evicted = storage.record_run(
         result.output, result.plots, script=code, language=language,
         returncode=result.returncode, timed_out=result.timed_out,
         methods=methods, **provenance)
@@ -463,6 +465,7 @@ def run_code():
         'language': language,
         'run_id': run_id,
         'methods': methods,
+        'evicted': evicted,
     })
 
 

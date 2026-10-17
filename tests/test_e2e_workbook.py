@@ -349,6 +349,59 @@ def test_load_script_of_an_r_run_switches_language_and_runs_as_r(page, fake):
     assert bodies[-1]['code'] == r_code
 
 
+def _with_evicted(evicted):
+    """Route handler: the real /run reply, with ``evicted`` replaced."""
+    def handler(route):
+        reply = route.fetch().json()
+        reply['evicted'] = evicted
+        route.fulfill(status=200, content_type='application/json',
+                      body=json.dumps(reply))
+    return handler
+
+
+def test_a_run_that_evicts_a_starred_run_says_so(page, fake):
+    """3A A3: /run reports the runs the cap pushed out; a starred one is
+    named, so the user learns starring did not keep it."""
+    first, _second = two_runs(page, fake, 'wb-evict.csv')
+    page.route('**/run', _with_evicted(
+        [{'run_id': first, 'name': 'Baseline model', 'starred': True}]))
+    page.click('#tabGenerate')
+    run_script(page)
+    page.wait_for_selector('.cc-toast.info')
+    text = page.locator('.cc-toast.info').last.inner_text()
+    assert 'starred run "Baseline model"' in text, text
+    assert 'workbook is full' in text, text
+
+
+def test_a_run_that_evicts_unstarred_runs_counts_them(page, fake):
+    first, second = two_runs(page, fake, 'wb-evict2.csv')
+    page.route('**/run', _with_evicted(
+        [{'run_id': first, 'name': None, 'starred': False},
+         {'run_id': second, 'name': None, 'starred': False}]))
+    page.click('#tabGenerate')
+    run_script(page)
+    page.wait_for_selector('.cc-toast.info')
+    text = page.locator('.cc-toast.info').last.inner_text()
+    assert '2 older runs were removed' in text, text
+    assert 'starred' not in text, text
+
+
+def test_a_run_with_nothing_evicted_shows_no_toast(page, fake):
+    two_runs(page, fake, 'wb-evict3.csv')
+    assert page.locator('.cc-toast').count() == 0
+
+
+def test_star_tooltip_does_not_promise_the_run_is_kept(page, fake):
+    first, _second = two_runs(page, fake, 'wb-star-tip.csv')
+    page.click('#tabResults')
+    star = row(first) + ' .wb-run-star'
+    page.click(star)
+    page.wait_for_selector(star + '[aria-pressed="true"]')
+    tip = page.get_attribute(star, 'title')
+    assert 'report' in tip, tip
+    assert 'not' in tip and 'full' in tip, tip
+
+
 # ---------------------------------------------------------------------------
 # History restore brings back output + plots while the run exists
 # ---------------------------------------------------------------------------

@@ -659,7 +659,7 @@
                 const plots = Array.isArray(data.plots) ? data.plots : [];
                 const runId = data.run_id || null;
                 CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code, run_id: runId };
-                if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
+                if (CC.workbook && runId) CC.workbook.noteLiveRun(runId, data.evicted);
                 renderTerminal(out, true);
                 if (CC.renderMethods) CC.renderMethods(data.methods, { failed: true });
                 execFinished(true, null, 'timed out', { noFix: true });
@@ -686,7 +686,7 @@
                 output: data.output || '', plots: data.plots || [], success: !!data.success, code,
                 run_id: runId,
             };
-            if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
+            if (CC.workbook && runId) CC.workbook.noteLiveRun(runId, data.evicted);
             const failed = !data.success;
             renderTerminal(data.output, failed);
             // SP3: the server's parsed methods block, above the terminal.

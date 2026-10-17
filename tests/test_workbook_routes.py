@@ -94,6 +94,29 @@ def test_run_pro_mode_records_pro_max_role(app, client, fake_llm):
     assert meta['model'] == app.config['STATLEE'].model_pro_max
 
 
+def test_run_reports_no_evictions_under_the_cap(client):
+    resp = post_json(client, '/run', {'code': "print(1)"})
+    assert resp.get_json()['evicted'] == []
+
+
+def test_run_reports_the_runs_it_evicted_including_a_starred_one(app, client):
+    """3A A3: /run says which runs the cap pushed out, so the UI can tell the
+    user, and flags a starred victim (starring does not protect a run when
+    every run is starred)."""
+    rid = _seed(app, client, 'old')
+    with app.app_context():
+        storage.update_run_meta(rid, name='Baseline', starred=True,
+                                identity=_identity(client))
+    app.config['STATLEE'].max_runs_per_identity = 1
+    resp = post_json(client, '/run', {'code': "print(1)"})
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body['evicted'] == [{'run_id': rid, 'name': 'Baseline',
+                                'starred': True}]
+    with app.app_context():
+        assert storage.run_ids(identity=_identity(client)) == [body['run_id']]
+
+
 def test_run_without_dataset_has_null_dataset_fields(app, client):
     resp = post_json(client, '/run', {'code': "print(1)"})
     rid = resp.get_json()['run_id']

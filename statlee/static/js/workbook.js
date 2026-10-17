@@ -137,7 +137,12 @@
         star.type = 'button';
         star.setAttribute('aria-pressed', run.starred ? 'true' : 'false');
         star.setAttribute('aria-label', 'Star run ' + n);
-        star.title = run.starred ? 'Starred: selected for reports by default' : 'Star this run';
+        // 3A A3: starring picks a run for reports. It only moves the run to
+        // the back of the eviction queue; a full workbook can still drop it.
+        star.title = run.starred
+            ? 'Starred: selected for reports by default. When the workbook is full, '
+                + 'unstarred runs are removed first, but a starred run is not kept forever.'
+            : 'Star this run to select it for reports';
         star.appendChild(icon(STAR, !!run.starred));
         star.addEventListener('click', () => toggleStar(run.run_id));
 
@@ -454,13 +459,37 @@
         wb.viewed = null;
     }
 
+    /** Tell the user when a new run pushed older ones out of the workbook,
+     *  naming any starred one (3A A3). Labels are read before the refresh
+     *  drops the evicted rows. */
+    function announceEvictions(evicted) {
+        const gone = Array.isArray(evicted) ? evicted.filter((r) => r && r.run_id) : [];
+        if (!gone.length) return;
+        const label = (r) => {
+            const name = typeof r.name === 'string' ? r.name.trim() : '';
+            const known = find(r.run_id);
+            return name || (known ? runLabel(known) : 'Run ' + runNumber(r.run_id));
+        };
+        let msg = gone.length === 1
+            ? 'An older run was removed to make room: the workbook is full.'
+            : gone.length + ' older runs were removed to make room: the workbook is full.';
+        const starred = gone.filter((r) => r.starred).map((r) => '"' + label(r) + '"');
+        if (starred.length) {
+            msg += ' This included starred run' + (starred.length > 1 ? 's ' : ' ')
+                + starred.join(', ') + '. Starring picks runs for reports; it does not keep them.';
+        }
+        CC.toast(msg, 'info');
+    }
+
     CC.workbook = {
         refresh,
         view,
         fetchRun,
         /** A run this page just executed or restored: it becomes the current
          *  row, and any saved-run view ends. */
-        noteLiveRun(id) {
+        /** `evicted` is /run's list of runs this save pushed out. */
+        noteLiveRun(id, evicted) {
+            announceEvictions(evicted);
             wb.live = id || null;
             wb.viewing = null;
             wb.viewed = null;
