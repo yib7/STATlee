@@ -269,6 +269,86 @@ def test_rename_inline_saves_and_escape_cancels(page, fake):
     assert server_runs(page)['runs'][1]['name'] is None
 
 
+def test_clearing_a_run_name_restores_the_question_label(page, fake):
+    first, _second = two_runs(page, fake, 'wb-clear.csv')
+    page.click('#tabResults')
+    field = row(first) + ' .wb-run-name-input'
+    page.click(row(first) + ' .wb-run-rename')
+    page.fill(field, 'Named for now')
+    page.press(field, 'Enter')
+    page.wait_for_function(
+        f"() => document.querySelector('{row(first)} .wb-run-name').textContent === 'Named for now'")
+
+    bodies = []
+    page.on('request', lambda req: bodies.append(json.loads(req.post_data or '{}'))
+            if req.method == 'PATCH' and req.url.endswith('/runs/' + first) else None)
+    page.click(row(first) + ' .wb-run-rename')
+    page.fill(field, '   ')
+    page.press(field, 'Enter')
+    page.wait_for_function(
+        f"() => document.querySelector('{row(first)} .wb-run-name').textContent"
+        " === 'First question about age'")
+    assert bodies[-1] == {'name': None}
+    names = {r['run_id']: r['name'] for r in server_runs(page)['runs']}
+    assert names[first] is None
+
+
+def test_star_failure_reverts_the_star_and_toasts(page, fake):
+    first, _second = two_runs(page, fake, 'wb-star-fail.csv')
+    page.click('#tabResults')
+
+    def _patch_fails(route):
+        if route.request.method == 'PATCH':
+            route.fulfill(status=500, content_type='application/json',
+                          body=json.dumps({'error': 'Internal server error.'}))
+        else:
+            route.continue_()
+
+    page.route('**/runs/' + first, _patch_fails)
+    star = row(first) + ' .wb-run-star'
+    assert page.get_attribute(star, 'aria-pressed') == 'false'
+    page.click(star)
+    page.wait_for_selector('.cc-toast.error')
+    page.wait_for_selector(star + '[aria-pressed="false"]')
+    assert {r['run_id']: r['starred'] for r in server_runs(page)['runs']}[first] is False
+    # Not checked by default in the report list either.
+    page.click('#tabReport')
+    assert not page.locator('#reportRunList input[type="checkbox"]').nth(0).is_checked()
+
+
+def test_load_script_of_an_r_run_switches_language_and_runs_as_r(page, fake):
+    first, _second = two_runs(page, fake, 'wb-r.csv')
+    page.click('#tabResults')
+    r_code = 'summary(df)\nprint("from R")'
+
+    def _as_r_run(route):
+        if route.request.method != 'GET':
+            route.continue_()
+            return
+        run = route.fetch().json()
+        run.update(language='R', code=r_code)
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(run))
+
+    page.route('**/runs/' + first, _as_r_run)
+    page.click(row(first) + ' .wb-run-open')
+    page.wait_for_selector('#runViewBar:not(.hidden)')
+    page.click('#runLoadScriptBtn')            # the replace confirm is accepted
+    page.wait_for_function("() => CC.getCode().includes('from R')")
+    assert page.input_value('#languageSelect') == 'R'
+    assert page.evaluate('() => CC.state.generated.language') == 'R'
+
+    # Run sends it as R. The sandbox's R is not needed: the reply is canned.
+    bodies = _capture_bodies(page, '/run')
+    page.route('**/run', lambda route: route.fulfill(
+        status=200, content_type='application/json',
+        body=json.dumps({'output': 'from R', 'plots': [], 'success': True,
+                         'returncode': 0, 'language': 'R'})))
+    page.click('#runBtn')
+    page.wait_for_function("() => document.getElementById('runOutput').innerText.includes('from R')")
+    assert bodies[-1]['language'] == 'R'
+    assert bodies[-1]['code'] == r_code
+
+
 # ---------------------------------------------------------------------------
 # History restore brings back output + plots while the run exists
 # ---------------------------------------------------------------------------

@@ -6,7 +6,6 @@ Same harness as ``test_e2e_ui.py`` (live app on a free localhost port, every
 model call answered by the deterministic ``FakeLLMService``, Chromium through
 Playwright): $0, no real provider. Skips cleanly without Playwright.
 """
-import json
 
 import pytest
 
@@ -28,7 +27,6 @@ from test_e2e_ui import (  # noqa: E402,F401  (fixtures are used by name)
     upload,
     wait_codebook_prompt,
 )
-
 
 # ---------------------------------------------------------------------------
 # C-16: a background re-classify of dataset A must not land on dataset B
