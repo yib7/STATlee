@@ -457,10 +457,26 @@ class AnthropicBackend:
             (getattr(u, 'input_tokens', 0) or 0) + cache_read + cache_write,
             getattr(u, 'output_tokens', 0) or 0, cached=cache_read)
 
+    # B-14 (defensive, not live-verified: confirming it needs a paid call).
+    # The Pro-mode model on Anthropic (claude-fable-5-1 by default) thinks on
+    # every call, and thinking tokens count against max_tokens, so a long Pro
+    # draft or report draft could stop at the configured budget and fail as
+    # truncated. The 'pro_max' model gets at least this budget when it is a
+    # current (4.7+) Claude id, all of which accept far larger outputs; the
+    # cap is a ceiling, so it costs nothing unless the model uses it. OpenAI
+    # streams already get 32000 for the same reason (D3-16).
+    PRO_MAX_MIN_TOKENS = 32000
+
+    def _max_tokens(self, model, base):
+        if (model == getattr(self.config, 'model_pro_max', None)
+                and self._sampling_deprecated(model)):
+            return max(int(base), self.PRO_MAX_MIN_TOKENS)
+        return base
+
     def _kwargs(self, model, contents, temperature, max_tokens):
         kwargs = {
             'model': model,
-            'max_tokens': max_tokens,
+            'max_tokens': self._max_tokens(model, max_tokens),
             'messages': [{'role': 'user', 'content': self._content(contents)}],
             'timeout': self._timeouts.for_model(model),
         }
@@ -504,13 +520,36 @@ class AnthropicBackend:
                 raise EmptyGenerationError('Anthropic', model)
         return LLMResult(text=text, usage=usage)
 
+    def _open_stream(self, kwargs):
+        """Enter ``messages.stream`` and return ``(exit_stack, stream)``.
+
+        ``messages.stream()`` only builds a manager; the HTTP request (and a
+        'temperature not supported' 400) happens on ENTER, so the D3-13
+        retry-without-temperature must wrap the enter, not the call (B-07).
+        No delta has been yielded at that point, so a retry is invisible."""
+        stack = contextlib.ExitStack()
+        try:
+            stream = stack.enter_context(
+                self._client_().messages.stream(**kwargs))
+        except Exception as exc:
+            stack.close()
+            if not (self._has_temperature(kwargs) and _rejects_temperature(exc)):
+                raise
+            with self._lock:
+                self._no_temperature.add(kwargs['model'])
+            kwargs = {k: v for k, v in kwargs.items() if k != 'extra_body'}
+            stack = contextlib.ExitStack()
+            stream = stack.enter_context(
+                self._client_().messages.stream(**kwargs))
+        return stack, stream
+
     def stream(self, model, contents, *, temperature, usage_out):
         kwargs = self._kwargs(model, contents, temperature,
                               self.config.anthropic_stream_max_tokens)
-        manager = self._call(self._client_().messages.stream, kwargs)
+        stack, stream = self._open_stream(kwargs)
         produced = False
         final = None
-        with manager as stream:
+        with stack:
             try:
                 for delta in stream.text_stream:
                     if delta:
