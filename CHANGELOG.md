@@ -4,10 +4,36 @@ All notable changes to STATlee are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-08
+## [1.6.0] - 2026-10-17
 
 A session workbook, an editable codebook, a methods and assumptions card, and a
-reproducibility bundle that records what produced what.
+reproducibility bundle that records what produced what. This release also
+ships everything listed under 1.5.0, which was never tagged on its own.
+
+### Upgrading from 1.4.x
+- Install and build commands moved with the files. `pip install -r
+  requirements.txt` is now `pip install -r requirements/app.lock` (or
+  `requirements/dev.lock` for tests and lint), and `docker build .` is now
+  `docker build -f docker/app.Dockerfile .`. `docker compose up --build` is
+  unchanged.
+- Docker Compose needs version 2.24 or newer (the compose file reads `.env`
+  with `env_file: path/required`), publishes port 5000 on `127.0.0.1` only, and
+  keeps the database and uploads in the `statlee-instance` volume. A 1.4.x
+  compose install kept its SQLite file in the host's `./instance/`; copy
+  `instance/statlee.db` into the volume (owned by uid 10001, the image's
+  non-root user) and restart, or accounts and history start empty.
+- Behind a reverse proxy, set `TRUST_PROXY_HOPS` (now 0 by default) and
+  `PUBLIC_BASE_URL` (reset and verification emails send no link without it in
+  production). `/metrics` answers 404 in production until `METRICS_TOKEN` is
+  set. `python wsgi.py` binds `127.0.0.1` unless `BIND_HOST` says otherwise.
+- `STORAGE_BACKEND=s3` now stops the app at startup (it was never
+  implemented); remove it and the `S3_*` settings if your `.env` has them.
+- The default models changed (see Changed). A model pinned in `.env` with
+  `MODEL_PRO`, `MODEL_PRO_MAX`, `MODEL_FLASH` or `MODEL_FLASH_LITE` still wins.
+- The database migrates itself at boot; the migration ids did not change when
+  the folder moved into `statlee/migrations/`.
+- Export zips use new names: `analysis.py` (or `analysis.R`), `README.md`, and
+  plots under `outputs/run_NNNN/`.
 
 ### Added
 - **Session workbook.** Every run is kept under `runs/<run_id>/` (output, plots,
@@ -63,8 +89,11 @@ reproducibility bundle that records what produced what.
   leave room for uploads.
 - A codebook write that would grow the stored codebook past 4 MB is refused with
   a clear message (413) instead of stored.
-- Text placed inside an untrusted-data block of a prompt can no longer close or
-  forge a block with its own `<<<` or `>>>` markers.
+- Text placed inside an untrusted-data block of a prompt can no longer close
+  it or forge another: a `<<<BEGIN` or `<<<END` in the text is defused, while
+  other `<<<`/`>>>` runs (`print('>>> Results')`, a column named `score>>>5`)
+  are kept exactly. Every prompt that carries such blocks tells the model they
+  are data, and the script under review is fenced as one.
 - Default models moved to current stable snapshots. Gemini: `gemini-3.8-flash`
   for code, `gemini-4-argon` for Pro mode (a GA id, replacing
   `gemini-3.1-pro-preview`), `gemini-3.5-flash-lite` for the light roles
@@ -137,6 +166,43 @@ reproducibility bundle that records what produced what.
   for an optional check that raises to be reported as "not computed" instead
   of stopping the script. The Methods card reads a "not computed" check as
   WARN, never PASS.
+- On Linux, sandboxed Python runs no longer fail with `pthread_create failed`
+  when the app's user already runs many processes (a browser, the test
+  suite): the process cap is the user's current count plus 64 instead of a
+  flat 128, and numerical libraries start one thread each.
+- The Docker Compose Quickstart no longer crashes at boot: `.env.example`
+  shipped an empty `WEB_CONCURRENCY`, which gunicorn cannot parse.
+- A missing API key or an unreachable provider is reported as such (`503`
+  with reason `not_configured` or `unreachable`, in plain words in the UI)
+  instead of a generic error. A production boot with missing settings exits
+  with one line naming them, not a traceback, and an out-of-range number in
+  `.env` falls back to its default with a warning.
+- Binary, header-only or NUL-filled `.csv`/`.tsv` files and damaged
+  `.xlsx`/`.xls`/`.dta`/`.sav` uploads get a `422` that says what to do;
+  header-only and NUL-filled CSVs used to be accepted.
+- The account routes answer wrong JSON field types with `400` instead of
+  `500`.
+- A new run that evicts older ones (starred included) says which, and the star
+  no longer suggests it keeps a run once the workbook is full.
+- Codebook: edits queued when the page closes are no longer lost past the
+  browser's keepalive limit, the archive just written survives a prune when
+  two archives share a timestamp, and the codebook still loads if the
+  dataset's version manifest is gone.
+- `/suggest` and `/method_prompt` bound the column list they send (a
+  2,000-column dataset produced a 242,000-character prompt) and name the
+  columns left out.
+- Interface: a double click on a method or suggestion button makes one billed
+  request, not two; a late re-classification reply for a removed dataset is
+  dropped; Undo, Redo and Original work in the popped-out cleaning tool; Copy
+  restores its label after quick repeat clicks; a non-JSON reply to a password
+  reset shows its HTTP status.
+- Export: the bundle README's left-out lines follow the runs you picked and
+  give the real reason, and the "All runs" option says which runs it ships.
+- The Pro report draft streams, and a Claude Pro model that thinks on every
+  call gets a large enough output budget not to truncate. An Anthropic stream
+  rejected for its temperature is retried without one.
+- Adopting a pre-workbook last-run folder backs off after a failure instead of
+  locking and logging on every read.
 
 ### Security
 - Outgoing email verifies the SMTP server's certificate before logging in;
@@ -154,6 +220,30 @@ reproducibility bundle that records what produced what.
   and install, temp and home dirs become labels such as `<site-packages>`.
 - Responses send `Referrer-Policy: same-origin`, production HTTPS responses
   send HSTS, and the remember-me cookie is `SameSite=Lax`.
+- Vendored front-end libraries updated: DOMPurify 3.1.7 to 3.4.17 (22 published
+  advisories against 3.1.7, among them the mutation-XSS CVE-2025-26791),
+  marked 12.0.2 to 18.1.1, CodeMirror 5.65.16 to 5.65.21.
+- The static check refuses a host module bound to a name any way other than a
+  plain import or `name = module` (walrus, tuple unpacking, default or lambda
+  arguments, loop variables, containers, `with ... as`), and refuses
+  `os.kill`, `killpg`, `mkfifo`, `mknod`, `symlink`, `link`, `chmod`, `chown`,
+  `rename`, `replace` and `truncate`.
+- The sandbox reads a script's output through bounded readers, so flooding
+  stdout cannot exhaust the app's memory; plots and files are read back only
+  when they are regular files, so a planted symlink or FIFO is skipped; each
+  written file is capped at `EXEC_FILE_LIMIT_MB` (default 256) and all writes
+  at twice that, in Docker mode too.
+- `/chat` moderates the chat history and an unapproved editor script along
+  with the prompt; `pro` must be a JSON boolean (the string `"false"` used to
+  select the Pro model and bill a priority call); `/run` runs the free static
+  check before the paid moderation call.
+- With `BILLING_ENABLED`, a metered request needs an account (`402`): an
+  anonymous caller used to run Pro mode and the report builder unbilled.
+- `/report_issue` is limited to 5 an hour, keeps the newest 1,000 reports and
+  emails at most 10 an hour.
+- `.dockerignore` patterns for keys and local databases now match in every
+  folder, not only the build root, and `.gitignore` covers `.env.*` variants
+  and key files.
 
 ### Known limitations
 - Run plots count toward the per-identity storage cap (bounded by the workbook's
@@ -170,13 +260,19 @@ reproducibility bundle that records what produced what.
   of dataset exports.
 
 ### Internal
-- New settings: `MAX_RUNS_PER_IDENTITY` (in `.env.example`). One migration adds
-  nullable `run_id`, `dataset_version` and `model` columns to `analysis_runs`.
+- New settings: `MAX_RUNS_PER_IDENTITY` and `EXEC_FILE_LIMIT_MB` (in
+  `.env.example`). One migration adds nullable `run_id`, `dataset_version` and
+  `model` columns to `analysis_runs`.
+- `/export` and the report builder moved into their own blueprints
+  (`routes/export.py`, `routes/report.py`); URLs, limits and responses are
+  unchanged.
 - Test suite grew from 884 to over 1,500 passing, including Playwright end-to-end
   tests for the run rail, codebook editor, methods card and export dialog, now
   run in CI on Linux and Windows.
+- CI adds a Windows test job and runs the README Quickstart and Development
+  steps as written; the pre-commit ruff hook is pinned to the CI version.
 
-## [1.5.0] - 2026-10-08
+## [1.5.0] - 2026-10-08 (not released separately; included in 1.6.0)
 
 A whole-project audit (backend, security, LLM layer, frontend, infrastructure,
 product) and the fixes that came out of it. The static pre-check is rebuilt as
@@ -635,6 +731,8 @@ dataset into generated, moderated, sandboxed, and explained statistics.
 - 178 tests covering the full HTTP surface with an injected fake LLM, so the
   suite runs offline with no API key.
 
+[1.6.0]: https://github.com/yib7/STATlee/releases/tag/v1.6.0
+[1.5.0]: https://github.com/yib7/STATlee/compare/v1.4.1...68d2fb4
 [1.4.1]: https://github.com/yib7/STATlee/releases/tag/v1.4.1
 [1.4.0]: https://github.com/yib7/STATlee/releases/tag/v1.4.0
 [1.3.2]: https://github.com/yib7/STATlee/releases/tag/v1.3.2
