@@ -3,8 +3,8 @@
 ``python wsgi.py`` and ``python -m flask --app wsgi`` stop with one line that
 names the missing variables. Under gunicorn the error is re-raised, so its
 "App failed to load" handling still applies. No ``.env`` is read
-(PYTHON_DOTENV_DISABLED) and no provider key is set, so nothing here can reach
-a model.
+(PYTHON_DOTENV_DISABLED for wsgi.py, FLASK_SKIP_DOTENV for the Flask CLI) and
+no provider key is set, so nothing here can reach a model.
 """
 import os
 import subprocess
@@ -31,7 +31,11 @@ runpy.run_path('wsgi.py', run_name='__main__')
 def _env(tmp_path, **extra):
     env = {k: v for k, v in os.environ.items()
            if k not in _KEYS and not k.startswith('EXEC_')}
+    # PYTHON_DOTENV_DISABLED stops wsgi.py's load_dotenv; the Flask CLI reads
+    # .env through dotenv_values, which ignores it, so it needs its own off
+    # switch. Without it a developer's real .env leaks into these runs.
     env.update({'PYTHONPATH': REPO, 'PYTHON_DOTENV_DISABLED': '1',
+                'FLASK_SKIP_DOTENV': '1',
                 'UPLOAD_ROOT': str(tmp_path / 'uploads'),
                 'DATABASE_URL': 'sqlite://'})
     env.update(extra)
