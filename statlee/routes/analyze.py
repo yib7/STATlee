@@ -279,12 +279,13 @@ def chat():
                 # closed exactly like an unparsable verdict.
                 logger.warning("Run-guard code-moderation unusable: %s", exc)
                 guard, guard_text = None, ''
-            except Exception:
+            except Exception as exc:
                 logger.exception("Run-guard code-moderation failed in /chat")
                 debit.refund()
-                yield sse_event(debit.with_balance({
-                    'type': 'error',
-                    'message': 'Could not verify the generated script. Please try again.'}))
+                # No key / provider unreachable says so (3.12).
+                yield sse_event(debit.with_balance(llm_error_payload(
+                    exc, 'Could not verify the generated script. Please try '
+                         'again.')))
                 return
             blocked, reason = moderation_blocked(guard_text)
             if blocked:
