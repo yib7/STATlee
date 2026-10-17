@@ -48,7 +48,14 @@ One `Config` dataclass is the single source of truth. `Config.from_env()` reads
 every environment variable **once**, then `validate()` fails fast on hard
 requirements (e.g. production must have the selected provider's API key +
 `FLASK_SECRET_KEY`) and warns loudly on soft ones (e.g. running the weaker
-`subprocess` sandbox in production). Routes never read `os.environ` directly;
+`subprocess` sandbox in production). A number that is not a whole number, or is
+below its minimum (`MAX_UPLOAD_MB`, `EXEC_TIMEOUT`, `EXEC_MEMORY_MB`,
+`EXEC_OUTPUT_LIMIT`, `EXEC_FILE_LIMIT_MB` under 1, a negative
+`TRUST_PROXY_HOPS`), is a startup warning that names the variable, the bad value
+and the default it falls back to. A hard failure raises `ConfigError`: `python
+wsgi.py` and the Flask CLI then exit with one line, `STATlee cannot start:
+<what is missing>`, instead of a traceback (under gunicorn it is re-raised so
+gunicorn reports the failed import). Routes never read `os.environ` directly;
 they read
 `current_app.config['STATLEE']`. `.env.example` documents every variable the
 app reads, and `tests/test_env_example.py` fails when one is read but not
@@ -72,6 +79,12 @@ Added with the session workbook:
 | Variable | Default | What it does |
 |---|---|---|
 | `MAX_RUNS_PER_IDENTITY` | 50 | Runs kept per identity. Over the cap the oldest unstarred run is deleted (the oldest run when every one is starred). Below 1 warns and resets to 50. |
+
+Added in the 2026-10-16 release pass:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EXEC_FILE_LIMIT_MB` | 256 | Largest single file a sandboxed run may write (`RLIMIT_FSIZE`); the run's files together may hold twice that. Below 1 warns and resets to 256. |
 
 ## Request lifecycle (`app.py`)
 
@@ -112,7 +125,11 @@ Three coexisting modes preserve the anonymous-sandbox promise:
 - **accounts**: optional email/password accounts (Flask-Login);
   `REQUIRE_LOGIN=true` makes them mandatory.
 
-`is_authorized()` is the single decision the app-level gate calls.
+`is_authorized()` is the single decision the app-level gate calls. The auth
+routes (`/login`, `/register`, the password-reset pair, `/history`) read their
+fields through the same typed helpers as the rest of the app, so a JSON body
+with a field of the wrong type (a number for `email`, an array body) is a `400`,
+not a `500`.
 
 Signing in (`/login`, a signed-in `/register`, `/verify_email`) moves the
 browser session's anonymous workspace into the account
@@ -146,6 +163,15 @@ The storage root is `UPLOAD_ROOT`, or `instance/uploads` when unset (testing
 uses a throwaway temp dir). In a container, keep it on a persistent volume (the
 Dockerfile sets `UPLOAD_ROOT=/app/instance/uploads` and compose mounts a named
 volume at `/app/instance`), or logged-in users' files go with the container.
+
+An upload that cannot be read is refused with a `422` that says what to do, and
+nothing is left in the workspace: an empty file of any type; a `.csv` or `.tsv`
+holding NUL bytes or more than 1% control bytes in its first 64 KB (binary data,
+often an Excel, Stata or SPSS file renamed, so the message asks for the real
+extension or a CSV export); a file with column names but no data rows; and a
+damaged `.xlsx`, `.xls`, `.dta` or `.sav`, named by format with the advice to
+re-save it or export CSV. A CSV with a UTF-16 byte-order mark is decoded rather
+than refused.
 
 `resolve_path()` is the safety chokepoint: it runs `secure_filename`, joins
 against the caller's own root, then does a `realpath` containment check, so no
@@ -220,7 +246,10 @@ default 200 MB, or 50 MB when that cap is off), so stored runs always leave room
 for uploads. Past either cap the oldest unstarred run is evicted (the oldest run
 when all are starred; never the run just saved). Each eviction is logged at
 INFO, naming a starred victim as such, and `runs.record_run` returns the evicted
-runs (`{run_id, name, starred}`) next to the new id. A run keeps at most 20 plots
+runs (`{run_id, name, starred}`) next to the new id. `/run` returns that list
+as `evicted`, and the client toasts it, naming any starred run: a star moves a
+run to the back of the eviction queue and picks it for reports, it does not
+exempt it. A run keeps at most 20 plots
 and 10 MB of plots (`sandbox.PLOTS_MAX`, `sandbox.PLOTS_BYTES_MAX`); the output
 says how many were not kept. `/run` reads the dataset's version number, path and
 hash from one manifest read before the sandbox starts, so a wrangle that lands
@@ -288,8 +317,9 @@ seed that the cap refuses is logged at warning level.
 Prompts read only the server codebook. A client-sent `codebook` or `pdf_mapping`
 is accepted but ignored (logged at debug). The text is user- or model-supplied,
 so it sits inside the untrusted-data delimiters and under the prompt clamps
-(`prompts.untrusted` shortens any `<<<` or `>>>` run in its payload, so no text
-can close or forge a block). The
+(codebook text has every `<<<` or `>>>` run shortened, and `prompts.untrusted`
+defuses a forged `<<<BEGIN` or `<<<END` in any payload, so no text can close or
+forge a block). The
 draft prompt also gets the field rules (missing codes are treated as missing; id
 and ignore columns are never modelled; a weight column is applied for weighted
 estimates; scale groups) and a `CODEBOOK ROLES` block naming them.
@@ -401,6 +431,9 @@ outputs/run_0001/            one folder per included run:
 `POST /chat` is the heart of the app. It streams over SSE:
 
 1. **Moderation** (`lite`, temp 0): synchronous; must 403 before any stream.
+   It reviews the prompt together with the client's conversation history and
+   any `current_code` the run-guard has not already approved, since both reach
+   the draft; a script the server approved is not reviewed again.
 2. **Feature selection** (`flash`): on wide datasets, pick the minimal columns.
 3. **Draft** (`draft`→pro): stream the first script, deltas shown live.
 4. **Validation** (`lite`): a second pass that replaces the draft client-side.
@@ -413,15 +446,27 @@ outputs/run_0001/            one folder per included run:
 7. **Save approved script**: only a script that passed both gates is remembered,
    so `/run` executes exactly what was produced and checked.
 
-`POST /run` enforces the **run-guard** (roadmap 0.4): it executes a script
-without a second review only when this session approved that exact
-`(language, code)` pair. Anything else (a hand-edit, a script restored from
-history into a fresh session, a paste) is **re-moderated** via
-`code_moderation` first: `403` on `BLOCK`, `503` when moderation is
-unavailable (fail closed). The static check then runs on every script, approved
-or not. The outcome (`returncode`, `timed_out`) is persisted with the run. A
+`POST /run` enforces the **run-guard** (roadmap 0.4). Its gates run in this
+order, each one before anything that costs more:
+
+1. A named dataset whose snapshot is gone (expired or deleted) is a `404` with
+   a re-upload message, before any gate or model call.
+2. The static check runs on every script, approved or not. It is free and
+   deterministic, so a script it refuses (`403`) costs no moderation call and
+   is never recorded as approved.
+3. A script this session approved as that exact `(language, code)` pair runs
+   without a second review. Anything else (a hand-edit, a script restored from
+   history into a fresh session, a paste) is **re-moderated** via
+   `code_moderation`: `403` on `BLOCK`, `503` when moderation is unavailable
+   (fail closed).
+4. Only then is the approval saved and the sandbox started.
+
+The outcome (`returncode`, `timed_out`) is persisted with the run, and the reply
+carries the `run_id`, the parsed methods card and the runs the save `evicted`. A
 timeout is an executed failure, so `/run` answers `200` with `success: false`,
-`timed_out: true` and whatever the script printed before it was stopped.
+`timed_out: true` and whatever the script printed before it was stopped. On
+`/chat` the `pro` flag must be a JSON boolean (`"false"` used to read as true);
+anything else is a `400`.
 `POST /interpret` streams a plain-English write-up, or switches to a debugging
 assistant when the persisted outcome says the run failed (a non-zero exit code
 or a timeout); it stores its text with the run.
@@ -441,7 +486,11 @@ selected run (the latest by default).
 Client copies are used only where no server record exists. Those copies, an
 edited or pasted script, the chat and converse history, and (for a revision)
 the selected passage and the report are moderated together with the request,
-failing closed.
+failing closed. In every interpret, converse and report prompt the data-borne
+sections (script, error output, results context, history, background, draft,
+selected passage) sit inside `prompts.untrusted` blocks under one
+`DATA_PREAMBLE` that tells the model never to follow instructions found inside
+them.
 
 The in-app **Pro mode** toggle threads a `pro` flag from the UI into the analysis
 path: when set, code generation runs on the larger `pro_max` model
@@ -469,10 +518,25 @@ Anthropic, or OpenAI behind one provider-neutral seam. Highlights:
   rest) with `error` and `reason`. The client words each reason with a next
   step. No empty or truncated `/chat` script is ever approved, and its credit
   is refunded.
+- **Typed availability errors.** A provider with no API key on this server
+  raises `LLMNotConfiguredError` (reason `not_configured`, and the message
+  names the missing variable); a network error or timeout raises
+  `LLMConnectionError` (reason `unreachable`). Transport failures are matched
+  by exception class name (`APIConnectionError`, `ConnectError`,
+  `ReadTimeout`, ...), so no SDK is imported to recognise them. JSON routes and
+  failed moderation answer `503` with `error` and `reason`; SSE routes send
+  them on the `error` event. The client shows the server's message for these
+  two reasons and has its own wording only for a reply that carries none.
+  Moderation still fails closed.
 - **Timeouts and retries.** Every request has a timeout (`LLM_TIMEOUT_SECONDS`,
   or `LLM_PRO_TIMEOUT_SECONDS` for `pro_max`) and up to `LLM_MAX_RETRIES` retries
   with backoff on transient errors. Retries wrap the request only: a stream that
-  dies midway is not replayed, which would bill twice.
+  dies midway is not replayed, which would bill twice. An Anthropic stream
+  whose open is rejected for `temperature` is retried once without it (nothing
+  has been yielded yet) and the model is remembered. The Pro report draft is
+  streamed, so it gets the stream budget, and on Anthropic a 4.7+ `pro_max`
+  model gets at least 32,000 output tokens because thinking counts against
+  them.
 - **Tolerant JSON.** `parse_json_reply` accepts a bare value, a fenced block or
   the first complete JSON value in the text, and each route shape-checks the
   result. Moderation still fails closed on anything it cannot read.
@@ -506,7 +570,16 @@ Execution safety is layered; the strength of the boundary depends on the mode:
     chain through another module (`pd.io.common.os.system`). Owners that are
     never legitimate (`subprocess`, `socket`, `ctypes`, `multiprocessing`, ...)
     are refused wholesale, as are primitives such as `Popen` and `urlopen` on
-    any owner;
+    any owner. The policed `os` members include process and file-system
+    changes such as `kill`, `killpg`, `mkfifo`, `mknod`, `symlink`, `link`,
+    `chmod`, `chown`, `rename`, `replace` and `truncate`;
+  - a host module (`os`, `sys`, `shutil`, ...) used as a value is refused
+    everywhere except as an attribute owner, a call, the first argument of
+    `getattr`/`setattr`/`delattr`/`hasattr`, or a plain name-to-name
+    assignment that alias tracking follows. That closes aliasing through a
+    walrus, tuple unpacking, a default argument, a loop variable, a dict or list
+    lookup, an annotated assignment, `with ... as` and a lambda. A variable that
+    merely shares a module's name (`nt`, `posix`) is not mistaken for it;
   - reflection escapes (`__globals__`, `__subclasses__`, `__dict__`,
     `__self__`, frame attributes, non-constant `getattr`/`setattr`,
     `operator.attrgetter`) are refused;
@@ -533,9 +606,27 @@ Execution safety is layered; the strength of the boundary depends on the mode:
 - **run-guard (LLM `code_moderation`)**: re-moderates the model's own generated
   script and any hand-edited script before execution (default-deny).
 - **`_safe_env`**: an explicit allowlist environment; **no app secret** (LLM
-  provider key, Flask secret, SMTP creds, DB URL) is ever present.
+  provider key, Flask secret, SMTP creds, DB URL) is ever present. It also pins
+  every numeric thread pool to one thread (`THREAD_ENV`: OpenBLAS, OpenMP, MKL,
+  numexpr, vecLib), because `RLIMIT_CPU` counts CPU across threads and each
+  thread counts against `RLIMIT_NPROC`.
 - **throwaway working dir**: contains only the one dataset, deleted after the run.
-- **POSIX rlimits**: cap memory/CPU/file-size/processes (no-op on Windows dev).
+- **POSIX rlimits** (no-op on Windows dev): memory and CPU; `RLIMIT_FSIZE` at
+  `EXEC_FILE_LIMIT_MB` per file; and `RLIMIT_NPROC` set relative to the app
+  user's current task count (read from `/proc`) plus `NPROC_HEADROOM` (64), or
+  `NPROC_FALLBACK` (128) when the count cannot be read, never above the hard
+  limit. An absolute cap failed whenever the user already ran that many tasks
+  (a desktop session, the e2e job's Chromium); the relative one still bounds a
+  fork loop. `RLIMIT_NPROC` does not bind root, so the app logs a warning once
+  when it runs as root.
+- **disk bound**: while a run is going the parent also watches its working dir,
+  and kills the run when its files together pass `RUN_DIR_FILES_FACTOR` (2)
+  times the per-file limit. A file-size kill (`SIGXFSZ`, "File too large") or
+  a dir overrun is reported in the output as a plain sentence.
+- **bounded capture**: stdout and stderr are read by reader threads that keep
+  the first `EXEC_OUTPUT_LIMIT` bytes and drain the rest, so a script that
+  floods its output cannot grow the app's memory. The parent polls the process
+  and kills it on a timeout or a disk overrun.
 
 In the default **`SANDBOX_MODE=subprocess`** the pre-check + run-guard are the
 boundary: the environment is scrubbed of secrets, but the process shares the
@@ -556,12 +647,21 @@ sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
   set `SANDBOX_WORK_ROOT` to a directory bind-mounted at the SAME absolute path
   into the app container (e.g. `/srv/statlee-runs`); run dirs are created under
   it and, on the POSIX docker path, widened to world-accessible so the pinned
-  `--user 1000:1000` runner can read `/work`.
+  `--user 1000:1000` runner can read `/work`. The container gets the same
+  thread caps, `--ulimit fsize` at the per-file limit, `MPLBACKEND=Agg` and a
+  writable `MPLCONFIGDIR`/`HOME` under `/tmp`. A timeout runs `docker kill` on
+  the container and then kills the client process (not its process group,
+  which the docker client shares with the app).
 - **process-group kill**: in subprocess mode on POSIX the child runs in a new
   session, so a timeout kills the whole process group (`os.killpg`), not just
   the direct child. On Windows the direct child is killed.
 
 All `plot*.png` files the run produces are collected and returned as base64.
+Artifacts (plots and the files a caller asks to collect, such as `/wrangle`'s
+output CSV) are read only when they are regular files: each is `lstat`ed, opened
+with `O_NOFOLLOW | O_NONBLOCK`, re-checked with `fstat` and read up to a size
+cap, so a symlink a script planted is never followed and a FIFO never blocks
+collection; both are skipped.
 On a timeout, the output the script printed before it was stopped is kept and
 the timeout notice is appended.
 
@@ -575,7 +675,11 @@ the global monthly ceiling on priority calls against the operator's key
 (`MONTHLY_PRIORITY_CALL_CEILING`, which applies with billing on or off). With
 billing on, it also does an atomic conditional credit debit (no double-spend or
 negative balance under concurrency), refunds the credit if the request then
-fails, and tops a free user up to `MONTHLY_FREE_CREDITS` once per calendar month. A
+fails, and tops a free user up to `MONTHLY_FREE_CREDITS` once per calendar month.
+With billing on, a metered request (Pro mode, the report builder) from an
+anonymous caller is refused (`402`, "Sign in to use Pro mode and the report
+builder") before the ceiling check, since there is no account to debit;
+`validate()` warns when `BILLING_ENABLED` is on without `REQUIRE_LOGIN`. A
 `flask grant-credits <email> <n>` CLI grants credits manually. What is *not*
 built is a payment processor: wiring Stripe Checkout + a webhook to sell credits
 is the remaining step, and it is deliberately left as a human action because it
@@ -619,7 +723,7 @@ deploy.
 | `api.js` | `CC` namespace: state, fetch/CSRF helpers, SSE parser (one terminal callback per stream, per-reason error wording), sanitized markdown, usage badge, credit balance, toasts, console-error ring buffer. |
 | `data.js` | Upload, data viewer paging, cleaning history (wrangle, undo/redo, the `409` reload). |
 | `codebook.js` | The Codebook tab editor: per-variable rows (type, label, role, scale group, missing codes, value labels), debounced partial saves, import and export. |
-| `workbook.js` | The run rail in Results: list, star, inline rename, read-only view of an older run, Load script, Interpret this run; the report's run checklist. |
+| `workbook.js` | The run rail in Results: list, star, inline rename, read-only view of an older run, Load script, Interpret this run, the toast when a new run evicted older ones; the report's run checklist. |
 | `methods.js` | The methods and assumptions card above the terminal. |
 | `analyze.js` | Editor (CodeMirror), streamed generation, run + interpret, Pro mode toggle. |
 | `converse.js` | Converse tab (mentor + guide mode). |
