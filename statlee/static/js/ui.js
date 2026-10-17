@@ -9,7 +9,6 @@
     CC.store = {
         get(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } },
         set(key, val) { try { window.localStorage.setItem(key, val); return true; } catch (e) { return false; } },
-        remove(key) { try { window.localStorage.removeItem(key); } catch (e) { /* blocked */ } },
     };
 
     // --- theme -------------------------------------------------------------
@@ -171,8 +170,6 @@
     function cap(name) { return name.charAt(0).toUpperCase() + name.slice(1); }
     function contentEl(name) { return document.getElementById('content' + cap(name)); }
 
-    CC.activeTab = function () { return activeA; };
-
     CC.switchTab = function (tabName) {
         if (paneBView === tabName) return; // already visible in pane B
         VIEWS.forEach(n => {
@@ -209,7 +206,7 @@
         }
         if (CC.editor && tabName === 'generate') setTimeout(() => CC.editor.refresh(), 30);
     };
-    window.switchTab = CC.switchTab; // keep inline onclick handlers working
+    window.switchTab = CC.switchTab; // boot.js's data-action dispatch resolves it on window
 
     /** WAI-ARIA tabs keyboard model: Left/Right (and Home/End) move focus and
      *  select; a tab whose view sits in the split pane is skipped. */

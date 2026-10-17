@@ -168,7 +168,6 @@
             releaseComposer();
         }
     }
-    CC.fetchCodebook = fetchCodebook;
 
     /** /suggest accepts at most 10 `previous` ideas of 500 chars each (S1-B
      *  contract 9). The ideas on screen come first, so a reroll never repeats
@@ -602,10 +601,8 @@
     /** Re-read the dataset after a 409 (L1), or after sign-in kept the
      *  account's copy of this name: the cleaning history and the active
      *  version's columns from /dataset_versions (S5: it returns `headers` in
-     *  the frame's own order), then the table. A server without `headers`
-     *  gets the old one-row /data_page probe as a fallback: known columns
-     *  keep their order and new ones are appended. Returns the fresh
-     *  changelog, or null. */
+     *  the frame's own order), then the table. Returns the fresh changelog,
+     *  or null. */
     async function reloadDatasetState() {
         const filename = CC.state.filename;
         if (!filename) return null;
@@ -616,17 +613,8 @@
                 changelog = data.changelog;
                 renderChangelog(changelog);
             }
-            if (ok && Array.isArray(data.headers)) {
-                if (filename === CC.state.filename) adoptHeaders(filename, data.headers);
-            } else {
-                const probe = await CC.post('/data_page', { filename, page: 1, per_page: 1, filters: {} });
-                const row = probe.ok && probe.data && Array.isArray(probe.data.data) ? probe.data.data[0] : null;
-                if (row && filename === CC.state.filename) {
-                    const cols = Object.keys(row);
-                    const known = CC.state.headers.filter(h => cols.indexOf(h) !== -1);
-                    const added = cols.filter(c => CC.state.headers.indexOf(c) === -1);
-                    adoptHeaders(filename, known.concat(added));
-                }
+            if (ok && Array.isArray(data.headers) && filename === CC.state.filename) {
+                adoptHeaders(filename, data.headers);
             }
         } catch (e) { /* the caller's toast still tells the user to reload */ }
         await CC.fetchDataPage(1);

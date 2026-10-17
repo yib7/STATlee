@@ -714,9 +714,6 @@
     CC.codebookEditor = {
         refresh,
         show,
-        flush,
-        /** The rows as the editor holds them (for tests and debugging). */
-        columns() { return cb.columns.slice(); },
     };
 
     document.addEventListener('DOMContentLoaded', () => {
