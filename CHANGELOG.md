@@ -41,6 +41,10 @@ reproducibility bundle that records what produced what.
   `outputs/run_NNNN/` folder. The export dialog chooses all, starred or the
   latest run, and whether your prompts are included.
 
+- **Sample dataset on first run.** With no dataset loaded, the upload area
+  links to the synthetic sample survey (`GET /sample_survey.csv`, served from
+  `docs/examples/`), so a new install has data to try.
+
 ### Changed
 - In the export, `script.py` is now `analysis.py` (or `analysis.R`, the script of
   the latest included run), `README.txt` is `README.md`, and plots live in each
@@ -74,11 +78,18 @@ reproducibility bundle that records what produced what.
   filelock 4.2.0, gunicorn 26.2.0, fpdf2 2.8.9, pypdf 6.21.0, alembic 1.20.0,
   redis 8.1.0, pyreadstat 1.3.6, python-dotenv 1.2.4.
 - Repository layout: the pins moved to `requirements/` (`base.txt`, `dev.txt`,
-  `postgres.txt`, `runner.txt`; install with
-  `pip install -r requirements/base.txt`), the Dockerfiles to `docker/`
+  `postgres.txt`, `runner.txt`), the Dockerfiles to `docker/`
   (`app.Dockerfile`, `runner.Dockerfile`; build from the repo root with
   `-f docker/...`), migrations into `statlee/migrations/`, and the security
   policy into `.github/SECURITY.md`. `docker compose up --build` is unchanged.
+- Dependencies are locked: `requirements/app.lock`, `dev.lock` and
+  `runner.lock` pin and hash every transitive package (compiled from the
+  `.txt` pins with `uv pip compile --universal`), and the Docker images, CI and
+  the README install from them. Install locally with
+  `pip install -r requirements/dev.lock` (or `app.lock` for the app alone).
+  CI's pip-audit now covers every locked package, transitive ones included.
+- The README setup is two numbered recipes: Quickstart (Docker Compose) and
+  Development (a local virtual environment), and CI runs both as written.
 
 ### Fixed
 - The Anthropic provider works with SDK 1.x, which removed `temperature` from

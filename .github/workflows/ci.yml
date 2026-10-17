@@ -210,34 +210,43 @@ jobs:
           flask --app wsgi statlee-doctor
 
   readme-setup:
-    # MIRRORS THE README "Quickstart" STEPS. Edit this job and that README
-    # section together: each step below is one README line, run on a clean
-    # runner with the .env.example placeholder key (no real secret). Booting
-    # for /health never calls an LLM: provider clients are created lazily on
-    # the first generation request.
+    # MIRRORS THE README "Quickstart" AND "Development" STEPS. Edit this job and
+    # those README sections together: each step below is named after the README
+    # step it runs, on a clean runner, with the .env.example placeholder key
+    # (no real secret). Booting for /health and / never calls an LLM: provider
+    # clients are created lazily on the first generation request.
     name: README setup steps (${{ matrix.path }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        path: [docker-compose, local-venv]
+        path: [quickstart-docker, development]
     steps:
+      # Quickstart Step 1 / Development prerequisite: the clone.
       - uses: actions/checkout@v7
 
-      # --- README: Quickstart (Docker) ------------------------------------
-      - name: "cp .env.example .env"
-        if: matrix.path == 'docker-compose'
+      # --- README: Quickstart ----------------------------------------------
+      - name: "Quickstart Step 2: cp .env.example .env"
+        if: matrix.path == 'quickstart-docker'
         run: cp .env.example .env
-      - name: "docker compose up --build"
-        if: matrix.path == 'docker-compose'
-        run: docker compose up -d --build
-      - name: "open http://localhost:5000"
-        if: matrix.path == 'docker-compose'
+      - name: "Quickstart Step 3: the key line the README tells you to edit exists"
+        # CI keeps the placeholder: no real key ever reaches a runner.
+        if: matrix.path == 'quickstart-docker'
+        run: grep -qx 'GEMINI_API_KEY=your_api_key_here' .env
+      - name: "Quickstart Step 4: docker compose up --build"
+        if: matrix.path == 'quickstart-docker'
+        run: docker compose up -d --build   # -d: CI cannot keep a terminal attached
+      - name: "Quickstart Step 5: open http://localhost:5000 and get the sample"
+        if: matrix.path == 'quickstart-docker'
         run: |
           for i in $(seq 1 60); do
             if curl -fsS http://localhost:5000/health; then
               echo
-              curl -fsS -o /dev/null -w 'GET / -> %{http_code}' http://localhost:5000/
+              curl -fsS -o index.html -w 'GET / -> %{http_code}\n' http://localhost:5000/
+              grep -q 'Drop your dataset here' index.html
+              grep -q 'href="/sample_survey.csv"' index.html
+              curl -fsS -o sample.csv -w 'GET /sample_survey.csv -> %{http_code}\n' http://localhost:5000/sample_survey.csv
+              cmp sample.csv docs/examples/sample_survey.csv
               exit 0
             fi
             sleep 5
@@ -245,29 +254,55 @@ jobs:
           docker compose ps
           docker compose logs
           exit 1
-      - name: Stop the compose stack
-        if: always() && matrix.path == 'docker-compose'
-        run: docker compose down -v
-
-      # --- README: run locally without Docker ------------------------------
-      - uses: actions/setup-python@v7
-        if: matrix.path == 'local-venv'
-        with:
-          python-version-file: .python-version
-      - name: "python -m venv venv && source venv/bin/activate; pip install -r requirements/app.lock"
-        if: matrix.path == 'local-venv'
+      - name: "Quickstart Next time: Ctrl+C, then docker compose up"
+        if: matrix.path == 'quickstart-docker'
         run: |
-          python -m venv venv && source venv/bin/activate
-          pip install -r requirements/app.lock
-      - name: "APP_ENV=development python wsgi.py, then open http://localhost:5000"
-        if: matrix.path == 'local-venv'
-        run: |
-          source venv/bin/activate
-          APP_ENV=development python wsgi.py > wsgi.log 2>&1 &
+          docker compose stop
+          docker compose up -d
           for i in $(seq 1 60); do
             if curl -fsS http://localhost:5000/health; then
               echo
-              curl -fsS -o /dev/null -w 'GET / -> %{http_code}' http://localhost:5000/
+              curl -fsS -o /dev/null -w 'GET / -> %{http_code}\n' http://localhost:5000/
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs
+          exit 1
+      - name: Stop the compose stack
+        if: always() && matrix.path == 'quickstart-docker'
+        run: docker compose down -v
+
+      # --- README: Development ---------------------------------------------
+      - uses: actions/setup-python@v7
+        if: matrix.path == 'development'
+        with:
+          python-version-file: .python-version
+      - name: "Development Step 1: python -m venv venv; source venv/bin/activate"
+        if: matrix.path == 'development'
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+      - name: "Development Step 2: pip install -r requirements/dev.lock"
+        if: matrix.path == 'development'
+        run: |
+          source venv/bin/activate
+          pip install -r requirements/dev.lock
+      - name: "Development Step 3: python -m pytest; python -m ruff check ."
+        if: matrix.path == 'development'
+        run: |
+          source venv/bin/activate
+          python -m pytest
+          python -m ruff check .
+      - name: "Development Step 4: python wsgi.py, then open http://localhost:5000"
+        if: matrix.path == 'development'
+        run: |
+          source venv/bin/activate
+          python wsgi.py > wsgi.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5000/health; then
+              echo
+              curl -fsS -o /dev/null -w 'GET / -> %{http_code}\n' http://localhost:5000/
               kill %1
               exit 0
             fi

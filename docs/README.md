@@ -55,31 +55,18 @@ website; it runs locally.
 
 ## Getting Started
 
-Because STATlee executes dynamically generated code, running it via Docker is recommended for a secure, isolated sandbox.
+Install and first run are the numbered steps in the main README:
+[Quickstart](../README.md#quickstart) (Docker Compose, the supported way to run
+STATlee) and [Development](../README.md#development) (a local virtual
+environment for contributors). This section adds what those steps leave out.
 
-### Prerequisites
+### Settings beyond the API key
 
-* Docker Desktop installed and running.
-* An API key for your chosen LLM provider (Google Gemini by default).
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/yib7/STATlee.git
-cd STATlee
-```
-
-### 2. Configure environment variables
-
-Copy the example file and fill in your values (see [.env.example](../.env.example) for the full, documented list):
-
-```bash
-cp .env.example .env
-```
+`cp .env.example .env` gives you a working development config; the only value
+you must fill in is the selected provider's key. Every variable is documented in
+[.env.example](../.env.example). The ones people change first:
 
 ```env
-# Required
-GEMINI_API_KEY=your_api_key_here
 # development | production | testing. Keep development for a local compose run:
 # production enforces secrets and sets Secure cookies, which browsers drop over
 # plain http://localhost.
@@ -91,53 +78,41 @@ FLASK_SECRET_KEY=
 PASSWORD=
 ```
 
-### 3. Build and run with Docker
+Compose passes every variable in `.env` to the container through `env_file`,
+while the file itself stays masked inside it. It publishes on `127.0.0.1:5000`
+only. The SQLite DB and uploads persist in the `statlee-instance` named volume,
+and the container runs as an unprivileged user.
+
+### Docker sandbox mode
+
+By default (`SANDBOX_MODE=subprocess`) generated code runs as a limited child
+process inside the app container. `SANDBOX_MODE=docker` instead runs each
+analysis in a throwaway, network-less container built from
+`docker/runner.Dockerfile`:
 
 ```bash
-docker compose up --build
+docker build -f docker/runner.Dockerfile -t statlee-runner .
 ```
 
-Then open **http://localhost:5000** (compose publishes on `127.0.0.1` only).
-Every variable in `.env` is passed to the container through `env_file`, while
-the file itself stays masked inside it. The SQLite DB and uploads persist in the
-`statlee-instance` named volume. The container runs as an unprivileged user.
+The app image does **not** include the `docker` CLI, so docker mode only works
+when the app itself runs on a host (or a derived image) with the docker CLI and
+daemon access; from the shipped compose setup every run would fail with
+"Interpreter not available".
 
-**Docker sandbox mode.** `SANDBOX_MODE=docker` runs each analysis in a
-throwaway container built from `docker/runner.Dockerfile`
-(`docker build -f docker/runner.Dockerfile -t statlee-runner .`). The app image does
-**not** include the `docker` CLI, so docker mode only works when the app itself
-runs on a host (or a derived image) with the docker CLI and daemon access; from
-the shipped compose setup every run would fail with "Interpreter not available".
+### PostgreSQL
 
----
+SQLite is the default and needs nothing. For PostgreSQL set
+`DATABASE_URL=postgresql+psycopg://user:pass@host:5432/statlee`; the `psycopg`
+driver is already in the Docker image and in `requirements/app.lock`.
 
-## Local Developer Setup (Without Docker)
+### Running without Docker
 
-Running generated code directly on your host is *not recommended for untrusted input*, but is convenient for development.
-
-1. Ensure **Python 3.11+** (and **R**, if you want R execution) are installed.
-2. Create and activate a virtual environment:
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install -r requirements/base.txt
-   ```
-
-4. Run the app (development mode does not require an API key to boot, but LLM endpoints will error until one is set):
-
-   ```bash
-   # PowerShell:  $env:APP_ENV="development"; python wsgi.py
-   APP_ENV=development python wsgi.py
-   ```
-
-   The dev server listens on `127.0.0.1:5000` only. `BIND_HOST=0.0.0.0` exposes
-   it to your network, where anyone could run generated code billed to your key.
+The README's [Development](../README.md#development) steps run the app straight
+on your host. Generated code then runs on your machine, so this is *not
+recommended for untrusted input*. The dev server listens on `127.0.0.1:5000`
+only; `BIND_HOST=0.0.0.0` exposes it to your network, where anyone could run
+generated code billed to your key. To install only what the app needs (no test
+tools), use `pip install -r requirements/app.lock` instead of `dev.lock`.
 
 **LLM.** Pick a provider with `LLM_PROVIDER` (gemini default, anthropic, or
 openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
@@ -147,18 +122,18 @@ openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
 
 ## Development & Testing
 
-```bash
-# Install dev tooling (pytest + ruff, on top of the app requirements)
-pip install -r requirements/dev.txt
+The commands are in the README's [Development](../README.md#development)
+steps (`pip install -r requirements/dev.lock`, `python -m pytest`,
+`python -m ruff check .`).
 
-# Lint
-ruff check .
+The test suite injects a deterministic fake LLM service, so the entire HTTP surface (uploads, codebook, wrangling, run-guard, converse, export, auth, CSRF) is exercised offline. CI runs ruff, pip-audit on the lockfiles, pytest on Linux and Windows, both Docker images and the README setup steps on every push and PR (see `.github/workflows/ci.yml`). Optional local hooks are configured in `.pre-commit-config.yaml` (`pre-commit install`).
 
-# Run the test suite (uses a fake LLM client, no API key or network needed)
-pytest -q
-```
-
-The test suite injects a deterministic fake LLM service, so the entire HTTP surface (uploads, codebook, wrangling, run-guard, converse, export, auth, CSRF) is exercised offline. CI runs ruff + byte-compile + pytest on every push and PR (see `.github/workflows/ci.yml`). Optional local hooks are configured in `.pre-commit-config.yaml` (`pre-commit install`).
+**Dependencies.** `requirements/*.txt` hold the hand-edited direct pins;
+`requirements/app.lock`, `dev.lock` and `runner.lock` are compiled from them
+with every transitive package pinned and hashed, and everything installs from
+the locks. After editing a `.txt`, regenerate the locks with the `uv pip compile`
+commands at the top of `requirements/base.txt`; `tests/test_lockfiles.py` fails
+until you do.
 
 ## Tech Stack
 
@@ -170,5 +145,5 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 
 ## Hosting
 
-STATlee is not currently deployed; it runs locally (see the Docker quickstart
-above).
+STATlee is not currently deployed; it runs locally (see the
+[Quickstart](../README.md#quickstart) in the main README).

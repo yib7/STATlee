@@ -121,56 +121,131 @@ token usage is surfaced live in the UI.
 
 ## Quickstart
 
+STATlee runs in Docker, so generated analysis code runs inside a container
+rather than on your machine.
+
+**You need:**
+
+- [Docker](https://docs.docker.com/get-started/get-docker/) with Compose 2.24 or
+  newer, running (Docker Desktop on Windows and macOS; Docker Engine with the
+  Compose plugin on Linux).
+- An LLM API key. Gemini is the default; get a free key at
+  [Google AI Studio](https://aistudio.google.com/apikey).
+- Git.
+
+Tested on Linux and Windows. macOS is untested but should work, since
+everything runs inside Docker.
+
+**Step 1.** Clone the repository and enter it.
+
 ```bash
-cp .env.example .env          # add your GEMINI_API_KEY
-docker compose up --build     # then open http://localhost:5000
+git clone https://github.com/yib7/STATlee.git
+cd STATlee
 ```
 
-Every setting in `.env` reaches the container (`env_file`); the file itself is
-masked inside it. The SQLite DB and uploads live in the `statlee-instance`
-volume.
-
-Or run locally without Docker (dev only, generated code runs on your host):
+**Step 2.** Create your settings file from the template (`cp` works in
+PowerShell too).
 
 ```bash
-python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements/app.lock
-APP_ENV=development python wsgi.py                 # http://localhost:5000
+cp .env.example .env
 ```
 
-### LLM configuration
+**Step 3.** Open `.env` in any text editor and replace `your_api_key_here`
+with your Gemini key.
 
-STATlee has a **pluggable LLM provider**: pick one with `LLM_PROVIDER` and
-supply that vendor's key. Switching providers is a one-line config change; no
-route, prompt, or UI code changes (every call routes through one role-based
-service).
+```env
+GEMINI_API_KEY=your_api_key_here
+```
 
-| `LLM_PROVIDER` | API key | Notes |
-|---|---|---|
-| `gemini` *(default)* | `GEMINI_API_KEY` ([AI Studio](https://aistudio.google.com/apikey)) | Powers the multimodal paths (PDF codebook extraction, plot interpretation). |
-| `anthropic` | `ANTHROPIC_API_KEY` ([Console](https://console.anthropic.com/)) | Claude models; also accepts a local OAuth/subscription login for keyless dev. |
-| `openai` | `OPENAI_API_KEY` ([Platform](https://platform.openai.com/api-keys)) | GPT models. |
+**Step 4.** Build and start STATlee. The first build installs R and the
+analysis libraries into the image and takes a few minutes.
 
-The selected provider's key is required in production. Each role's model id
-defaults sensibly per provider and can be pinned independently with `MODEL_PRO`
-/ `MODEL_PRO_MAX` / `MODEL_FLASH` / `MODEL_FLASH_LITE` (see
-[`.env.example`](.env.example) for the per-provider defaults).
+```bash
+docker compose up --build
+```
 
-See [docs/README.md](docs/README.md) for the full setup, Docker sandbox build,
-and the documented [`.env.example`](.env.example).
+**Step 5.** Open <http://localhost:5000>, click **Download the sample survey**
+under the upload box, and drop the file into the box to run a first analysis.
+
+**Next time,** start it from the same folder with one command, and stop it
+with `Ctrl+C`. The database and uploads live in the `statlee-instance` Docker
+volume, so they survive restarts and rebuilds.
+
+```bash
+docker compose up
+```
+
+After pulling new code, run `docker compose up --build` once to rebuild.
+
+### Use Claude or OpenAI instead (optional)
+
+Skip this if you use Gemini. Set `LLM_PROVIDER` and that vendor's key in
+`.env`, then restart with `docker compose up`.
+
+| `LLM_PROVIDER` | Key in `.env` | Get a key | Notes |
+|---|---|---|---|
+| `gemini` *(default)* | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Powers the multimodal paths (PDF codebook extraction, plot interpretation). |
+| `anthropic` | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) | Claude models; also accepts a local OAuth/subscription login for keyless dev. |
+| `openai` | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) | GPT models. |
+
+Each role's model is chosen per provider and can be pinned with `MODEL_PRO`,
+`MODEL_PRO_MAX`, `MODEL_FLASH` and `MODEL_FLASH_LITE`.
+[`.env.example`](.env.example) documents every setting, including the monthly
+spend ceiling and the password lock. [docs/README.md](docs/README.md) covers
+the Docker sandbox mode and PostgreSQL.
 
 ## Development
 
+For contributors. This runs the app directly on your machine, where generated
+code runs on your host with no container around it, so use it for development
+only.
+
+**You need:** Python 3.11 or newer (3.12 is pinned in `.python-version`) and a
+clone of the repository (Quickstart Step 1). No API key: the tests use a
+deterministic fake LLM and run offline.
+
+**Step 1.** Create and activate a virtual environment in the repository folder.
+
 ```bash
-pip install -r requirements/dev.lock
-ruff check .      # lint
-pytest            # 1240 tests, fully offline (deterministic fake LLM, no API key)
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 ```
 
-The test suite injects a fake LLM service, so the entire HTTP surface (uploads,
-codebook, workbook, methods card, wrangling, run-guard, converse, export bundle,
-auth, CSRF, rate-limit keying, billing seam, Pro-mode routing) is exercised
-without network or API keys. CI runs ruff + byte-compile + pytest on every push
+**Step 2.** Install the locked dependencies (app, test and lint tools).
+
+```bash
+pip install -r requirements/dev.lock
+```
+
+**Step 3.** Run the tests and the linter.
+
+```bash
+python -m pytest
+python -m ruff check .
+```
+
+**Step 4.** Start the development server at <http://localhost:5000>. It boots
+without a key; add one to `.env` (Quickstart Steps 2 and 3) when you want live
+model calls.
+
+```bash
+python wsgi.py
+```
+
+**Optional extras:**
+
+- **Browser tests** (skip unless you change the UI; they skip themselves when
+  Chromium is missing): `python -m playwright install chromium`.
+- **R** (skip unless you work on R analyses): R scripts run with `Rscript` from
+  your PATH. Without it, Python analyses work as usual and an R run reports
+  "Interpreter not available". The Docker images include R.
+- **Node.js** (only to rebuild the committed Tailwind CSS after changing
+  classes): see "Styles" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Dependencies are pinned and hashed in `requirements/*.lock`, compiled from the
+hand-edited `requirements/*.txt`; the regeneration commands are at the top of
+`requirements/base.txt`. CI runs ruff, pytest on Linux and Windows, pip-audit,
+both Docker images and these README steps on every push
 (`.github/workflows/ci.yml`).
 
 ## Architecture at a glance
