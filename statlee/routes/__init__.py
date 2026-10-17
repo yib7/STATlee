@@ -347,6 +347,18 @@ def dataset_filename_field(data, key='filename'):
     return name
 
 
+def bool_field(data, key, default=False):
+    """A JSON boolean. Missing/null -> ``default``; anything else that is not
+    ``true``/``false`` is a ``FieldError`` (``bool("false")`` is True, so a
+    string must never be coerced)."""
+    value = data.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise FieldError(f"'{key}' must be true or false.")
+    return value
+
+
 def dict_field(data, key):
     """An object field. Falsy (null, '', [], {}) -> ``{}``; any other non-dict
     is a ``FieldError``."""

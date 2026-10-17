@@ -23,6 +23,7 @@ from . import (
     FREE_TEXT_MAX,
     STYLE_FIELD_MAX,
     DebitGuard,
+    bool_field,
     clamp,
     clamp_codebook,
     clamp_history,
@@ -64,19 +65,22 @@ def _cfg():
     return current_app.config['STATLEE']
 
 
-def _model_for_role(role):
-    return model_for_role(_cfg(), role)
-
-
-def _sum_usage(*usages):
-    # Delegate to the shared aggregator so every client payload also carries a
-    # per-model breakdown for the session-cost display (3.4).
-    return usage_breakdown(*usages)
-
-
 # ---------------------------------------------------------------------------
 # /chat — moderation → feature selection → streamed draft → streamed validation
 # ---------------------------------------------------------------------------
+
+def _chat_material(history, current_code, language):
+    """The client text besides the prompt that /chat sends to the draft: the
+    conversation history and a current script the run-guard has not already
+    approved. Reviewed with the request by Gate 1 (B-06)."""
+    material = []
+    if current_code and not storage.is_approved_script(current_code, language):
+        material.append('CURRENT SCRIPT:\n' + current_code)
+    history_text = '\n'.join(t['text'] for t in history if t.get('text'))
+    if history_text.strip():
+        material.append('CONVERSATION HISTORY:\n' + history_text)
+    return '\n\n'.join(material) or None
+
 
 @bp.route('/chat', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
@@ -96,9 +100,11 @@ def chat():
     if data.get('codebook'):
         logger.debug("/chat: ignoring the client-sent 'codebook' field")
     current_code = clamp(data.get('current_code'), FREE_TEXT_MAX).strip() or None  # 5.12
-    pro_mode = bool(data.get('pro'))  # "Pro mode": code-gen on the bigger model
+    # "Pro mode": code-gen on the bigger model. A strict boolean: bool("false")
+    # is True, which picked pro_max and billed a priority request.
+    pro_mode = bool_field(data, 'pro')
     draft_role = 'pro_max' if pro_mode else 'draft'
-    draft_model = _model_for_role(draft_role)
+    draft_model = model_for_role(_cfg(), draft_role)
 
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
@@ -107,8 +113,13 @@ def chat():
 
     # Gate 1: moderation (synchronous — must 403 before any stream starts).
     # Structured verdict + default-deny: a malformed/ambiguous reply blocks.
-    denied, mod = moderation_gate(service, prompts.moderation(user_prompt),
-                                  log_message="Moderation service failed")
+    # B-06: the chat history and an unapproved current script reach the paid
+    # draft (whose deltas stream straight back), so they are client text to
+    # review with the request, exactly as /converse does.
+    denied, mod = moderation_gate(
+        service, prompts.moderation(
+            user_prompt, _chat_material(history, current_code, target_language)),
+        log_message="Moderation service failed")
     if denied is not None:
         return denied
 
@@ -316,7 +327,7 @@ def chat():
                          # SP1 provenance: the role/model that drafted it.
                          'role': draft_role, 'model': draft_model})
 
-            usage = _sum_usage(mod.usage, selection_usage,
+            usage = usage_breakdown(mod.usage, selection_usage,
                                draft_usage, validation_usage, guard.usage)
             debit.delivered()
             yield sse_event(debit.with_balance({
@@ -348,6 +359,10 @@ def chat():
 # /run — guarded local execution (0.4 + Tier 0 sandbox + 5.2 multi-plot)
 # ---------------------------------------------------------------------------
 
+DATASET_GONE_MESSAGE = ('That dataset is no longer available (uploads expire '
+                        'after inactivity). Re-upload it and run again.')
+
+
 @bp.route('/run', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_run)
 def run_code():
@@ -366,6 +381,36 @@ def run_code():
     # neither language keeps the requested one and is reviewed for it below.
     language = storage.approved_language(code, language)
 
+    dataset_path = None
+    dataset_name = None
+    dataset_version = None
+    if filename:
+        # One manifest read BEFORE the sandbox starts: the path it reads, its
+        # version number and (below) its hash describe the same state even
+        # if a wrangle lands while the script runs.
+        dataset_path, dataset_version = storage.active_dataset_snapshot(
+            filename)
+        if not (dataset_path and os.path.isfile(dataset_path)):
+            # B-11: an expired or deleted upload. Running anyway only crashed
+            # the script on a missing file, saved that as a run, and invited a
+            # paid /interpret call to explain it.
+            return json_error(DATASET_GONE_MESSAGE, 404)
+        dataset_name = os.path.basename(storage.resolve_path(filename) or '') or None
+
+    # Static pre-check (P1-1a): the non-LLM gate before execution, for both
+    # the approved-from-chat and the edited paths. This import allowlist
+    # (Python) / regex denylist (R) is defense-in-depth added to the LLM
+    # code_moderation below, not a replacement: an LLM gate is prompt-injection
+    # bypassable and the default subprocess sandbox has no network/filesystem
+    # isolation. B-12: it runs FIRST, because it is free and deterministic: a
+    # script it refuses costs no moderation call and is never recorded as
+    # approved (an approval would let /converse skip reviewing it).
+    static_blocked, static_reason = codecheck.check_code(code, language)
+    if static_blocked:
+        return json_error(
+            f'Script rejected by the safety check (static analysis). '
+            f'{static_reason}', 403)
+
     # P2-2: membership over a hash-keyed store, not equality against one slot,
     # so a /wrangle that saved its own transform does not force a spurious
     # re-moderation of the unchanged, already-validated /chat script.
@@ -373,8 +418,8 @@ def run_code():
     # must be re-moderated before it may run under Rscript.
     # D4-10: a script restored into a fresh session (empty approved store) is
     # treated exactly like an edited one -- LLM code moderation (default-deny,
-    # failing closed) and then the static check below -- instead of a hard
-    # 403, so a reopened editor or a pasted export can run again.
+    # failing closed) after the static check above -- instead of a hard 403,
+    # so a reopened editor or a pasted export can run again.
     if not storage.is_approved_script(code, language):
         # User-edited or restored script (5.4): re-moderate first (0.4b).
         denied, _verdict = moderation_gate(
@@ -385,29 +430,6 @@ def run_code():
         if denied is not None:
             return denied
         storage.save_approved_script(code, language, source='run')
-
-    dataset_path = None
-    dataset_name = None
-    dataset_version = None
-    if filename:
-        # One manifest read BEFORE the sandbox starts: the path it reads, its
-        # version number and (below) its hash describe the same state even
-        # if a wrangle lands while the script runs.
-        dataset_path, dataset_version = storage.active_dataset_snapshot(
-            filename)
-        dataset_name = os.path.basename(storage.resolve_path(filename) or '') or None
-
-    # Static pre-check (P1-1a): the FINAL, non-LLM gate before execution, for
-    # both the approved-from-chat and the edited-and-re-moderated paths. This
-    # import allowlist (Python) / regex denylist (R) is defense-in-depth
-    # added to the LLM code_moderation above, not a replacement: an LLM gate
-    # is prompt-injection bypassable and the default subprocess sandbox has
-    # no network/filesystem isolation.
-    static_blocked, static_reason = codecheck.check_code(code, language)
-    if static_blocked:
-        return json_error(
-            f'Script rejected by the safety check (static analysis). '
-            f'{static_reason}', 403)
 
     provenance = _run_provenance(code, language, filename, dataset_path,
                                  dataset_version)
@@ -774,7 +796,7 @@ def interpret_results():
                                    exc_info=True)
             yield sse_event({'type': 'done', 'debug': failed,
                              'run_id': run_id,
-                             'usage': _sum_usage(usage)})
+                             'usage': usage_breakdown(usage)})
         except Exception as exc:
             logger.exception("Interpretation stream failed")
             yield sse_event(llm_error_payload(
