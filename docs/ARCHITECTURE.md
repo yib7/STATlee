@@ -6,11 +6,51 @@ security boundaries, and where each responsibility lives.
 
 ## Big picture
 
-STATlee is a **Flask app-factory** (`app.py`) wiring together focused modules and
-nine route blueprints. The frontend is **vanilla JavaScript** (no build step)
-organized under a single `CC` namespace, talking to the backend over JSON and
-**Server-Sent Events** (SSE) for streamed generation. There is no SPA framework
-and no client bundler; `static/js/*.js` files are served as-is.
+STATlee turns an uploaded survey file and a plain-English question into a
+checked, executed analysis script. It is a **Flask app factory**
+(`statlee/app.py`) wiring together focused modules and nine route blueprints.
+The frontend is **vanilla JavaScript** (no bundler, no SPA framework) organized
+under a single `CC` namespace, talking to the backend over JSON and
+**Server-Sent Events** (SSE) for streamed generation; `static/js/*.js` files are
+served as-is.
+
+### Repository layout
+
+```
+statlee/            the Flask package: app factory, routes, services
+  routes/           one blueprint per area of the app (map below)
+  migrations/       Alembic schema migrations, applied at boot
+  static/           JS, CSS (the Tailwind build and its inputs), vendored libs, fonts
+  templates/        the app shell, the landing page, the reset page
+tests/              pytest suite: fake LLM, route and unit tests, Playwright e2e
+docs/               this guide, credits, pricing, the sample dataset, README media
+docker/             app.Dockerfile (web image), runner.Dockerfile (sandbox image)
+requirements/       pinned dependencies: base, dev, postgres, runner
+wsgi.py             entry point: loads .env, builds the app
+docker-compose.yml  the one-command local stack
+```
+
+### Life of one analysis
+
+1. **Upload.** `POST /upload` (`routes/datasets.py`) parses the file
+   (`datatools.py`), stores it under the caller's own directory
+   (`storage.py`) and seeds its codebook (`codebook.py`).
+2. **Ask.** `POST /chat` (`routes/analyze.py`) streams a script from the model
+   (`llm.py`, `prompts.py`). The script is moderated by the model and checked
+   by the static allowlist (`codecheck.py`) before it is approved.
+3. **Run.** `POST /run` checks the script again and executes it in the sandbox
+   (`sandbox.py`). The output, charts and methods card (`methods.py`) are kept
+   as a workbook run (`runs.py`).
+4. **Explain and package.** `/interpret` writes up a run, `/generate_report`
+   (`routes/report.py`) drafts a report from the runs you pick, and `/export`
+   (`routes/export.py`) zips a bundle that reruns as unzipped (`bundle.py`).
+
+Every request first passes the middleware in [Request lifecycle](#request-lifecycle-apppy);
+the sections after it go one module at a time.
+
+### Module map
+
+Paths are under `statlee/`.
 
 ```
 Browser (static/js/*, templates/index.html)
@@ -41,52 +81,12 @@ Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate
         ├─ datatools.py  ingestion + profiling
         ├─ billing.py    monetization seam (off by default; real when enabled)
         ├─ models.py     SQLAlchemy: User / AnalysisRun / IssueReport
+        ├─ identity.py, usage.py, mailer.py, cli.py, extensions.py  small helpers
         └─ config.py     validated, env-driven settings
+
+routes/__init__.py holds the helpers every blueprint shares: field
+validation and clamping, the moderation gate, SSE streaming, credit debits.
 ```
-
-## Configuration (`config.py`)
-
-One `Config` dataclass is the single source of truth. `Config.from_env()` reads
-every environment variable **once**, then `validate()` fails fast on hard
-requirements (e.g. production must have the selected provider's API key +
-`FLASK_SECRET_KEY`) and warns loudly on soft ones (e.g. running the weaker
-`subprocess` sandbox in production). A number that is not a whole number, or is
-below its minimum (`MAX_UPLOAD_MB`, `EXEC_TIMEOUT`, `EXEC_MEMORY_MB`,
-`EXEC_OUTPUT_LIMIT`, `EXEC_FILE_LIMIT_MB` under 1, a negative
-`TRUST_PROXY_HOPS`), is a startup warning that names the variable, the bad value
-and the default it falls back to. A hard failure raises `ConfigError`: `python
-wsgi.py` and the Flask CLI then exit with one line, `STATlee cannot start:
-<what is missing>`, instead of a traceback (under gunicorn it is re-raised so
-gunicorn reports the failed import). Routes never read `os.environ` directly;
-they read
-`current_app.config['STATLEE']`. `.env.example` documents every variable the
-app reads, and `tests/test_env_example.py` fails when one is read but not
-documented (or documented but never read).
-
-Settings added in the 2026-10 audit cycle:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `PUBLIC_BASE_URL` | empty | Origin for emailed reset and verification links. Required in production for both. |
-| `BIND_HOST` | `127.0.0.1` | Interface `python wsgi.py` binds; `0.0.0.0` exposes it to the LAN. |
-| `METRICS_TOKEN` | empty | Bearer token for `/metrics`; empty disables it in production. |
-| `STATLEE_SKIP_BOOT_MIGRATE` | unset | Skip the boot schema upgrade (`flask db` and `statlee-doctor` skip it on their own). |
-| `LLM_TIMEOUT_SECONDS` / `LLM_PRO_TIMEOUT_SECONDS` | 120 / 300 | Per-request model timeout; the second applies to the `pro_max` role. |
-| `LLM_MAX_RETRIES` | 2 | Extra attempts on transient provider errors (408/429/5xx, timeouts). |
-| `MAX_UPLOAD_UNCOMPRESSED_MB` / `MAX_UPLOAD_CELLS` | 512 / 10,000,000 | Decompression-bomb and size bounds on an upload's parse. |
-| `RATE_LIMIT_DATA_PAGE` | `60 per minute` | Limit for the data viewer's paging route. |
-
-Added with the session workbook:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `MAX_RUNS_PER_IDENTITY` | 50 | Runs kept per identity. Over the cap the oldest unstarred run is deleted (the oldest run when every one is starred). Below 1 warns and resets to 50. |
-
-Added in the 2026-10-16 release pass:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `EXEC_FILE_LIMIT_MB` | 256 | Largest single file a sandboxed run may write (`RLIMIT_FSIZE`); the run's files together may hold twice that. Below 1 warns and resets to 256. |
 
 ## Request lifecycle (`app.py`)
 
@@ -122,6 +122,41 @@ read from `X-Forwarded-For` behind a proxy. It defaults to 0 everywhere, since
 trusting that header on a directly exposed app lets clients spoof it to dodge
 per-IP rate limits; a deploy behind Render's single proxy sets
 `TRUST_PROXY_HOPS=1`. The effective value is logged at startup.
+
+## Configuration (`config.py`)
+
+One `Config` dataclass is the single source of truth. `Config.from_env()` reads
+every environment variable **once**, then `validate()` fails fast on hard
+requirements (e.g. production must have the selected provider's API key +
+`FLASK_SECRET_KEY`) and warns loudly on soft ones (e.g. running the weaker
+`subprocess` sandbox in production). A number that is not a whole number, or is
+below its minimum (`MAX_UPLOAD_MB`, `EXEC_TIMEOUT`, `EXEC_MEMORY_MB`,
+`EXEC_OUTPUT_LIMIT`, `EXEC_FILE_LIMIT_MB` under 1, a negative
+`TRUST_PROXY_HOPS`), is a startup warning that names the variable, the bad value
+and the default it falls back to. A hard failure raises `ConfigError`: `python
+wsgi.py` and the Flask CLI then exit with one line, `STATlee cannot start:
+<what is missing>`, instead of a traceback (under gunicorn it is re-raised so
+gunicorn reports the failed import). Routes never read `os.environ` directly;
+they read
+`current_app.config['STATLEE']`. `.env.example` documents every variable the
+app reads, and `tests/test_env_example.py` fails when one is read but not
+documented (or documented but never read).
+
+Settings worth knowing about beyond the provider key (all documented in
+`.env.example`):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PUBLIC_BASE_URL` | empty | Origin for emailed reset and verification links. Required in production for both. |
+| `BIND_HOST` | `127.0.0.1` | Interface `python wsgi.py` binds; `0.0.0.0` exposes it to the LAN. |
+| `METRICS_TOKEN` | empty | Bearer token for `/metrics`; empty disables it in production. |
+| `STATLEE_SKIP_BOOT_MIGRATE` | unset | Skip the boot schema upgrade (`flask db` and `statlee-doctor` skip it on their own). |
+| `LLM_TIMEOUT_SECONDS` / `LLM_PRO_TIMEOUT_SECONDS` | 120 / 300 | Per-request model timeout; the second applies to the `pro_max` role. |
+| `LLM_MAX_RETRIES` | 2 | Extra attempts on transient provider errors (408/429/5xx, timeouts). |
+| `MAX_UPLOAD_UNCOMPRESSED_MB` / `MAX_UPLOAD_CELLS` | 512 / 10,000,000 | Decompression-bomb and size bounds on an upload's parse. |
+| `RATE_LIMIT_DATA_PAGE` | `60 per minute` | Limit for the data viewer's paging route. |
+| `MAX_RUNS_PER_IDENTITY` | 50 | Runs kept per identity. Over the cap the oldest unstarred run is deleted (the oldest run when every one is starred). Below 1 warns and resets to 50. |
+| `EXEC_FILE_LIMIT_MB` | 256 | Largest single file a sandboxed run may write (`RLIMIT_FSIZE`); the run's files together may hold twice that. Below 1 warns and resets to 256. |
 
 ## Auth modes (`routes/auth.py`)
 
