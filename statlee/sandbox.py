@@ -316,10 +316,14 @@ def _truncate(text, limit, force=False):
 
 
 def _combine_output(stdout, stderr, output_limit, truncated=False):
-    """Merge stdout/stderr into the single captured-output string the app shows."""
-    output = stdout or ''
+    """Merge stdout/stderr into the single captured-output string the app shows.
+
+    Line endings become "\\n": a script on a Windows host prints "\\r\\n",
+    and that would reach the UI, the run store and the export as written.
+    """
+    output = (stdout or '').replace('\r\n', '\n')
     if stderr:
-        output += f"\n--- Output/Warnings ---\n{stderr}"
+        output += "\n--- Output/Warnings ---\n" + stderr.replace('\r\n', '\n')
     return _truncate(output.strip(), output_limit, force=truncated)
 
 

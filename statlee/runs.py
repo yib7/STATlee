@@ -429,8 +429,10 @@ def record_run(output, plots_b64, script=None, language=None, identity=None,
         run_id = _allocate(index)
         tmp = _new_tmp_dir(root)
         try:
+            # newline='': written as given; text mode on Windows would turn
+            # each "\r\n" into "\r\r\n", which reads back as a blank line.
             with open(os.path.join(tmp, OUTPUT_FILE), 'w',
-                      encoding='utf-8') as f:
+                      encoding='utf-8', newline='') as f:
                 f.write(output or '')
             if script is not None:
                 st._write_json_atomic(
