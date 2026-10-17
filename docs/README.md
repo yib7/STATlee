@@ -142,7 +142,7 @@ until you do.
 * Frontend: Vanilla JavaScript (modular `CC` namespace), HTML5, Tailwind CSS, CodeMirror, vendored/pinned `marked` + `DOMPurify`.
 * Backend: Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
 * AI integration: Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
-* Data formats: pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
+* Data formats: pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf (PDF codebooks).
 * Infrastructure: Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements/postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
 
 ## Hosting

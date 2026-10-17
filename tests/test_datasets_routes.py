@@ -585,20 +585,21 @@ def test_reset_clears_workspace(client):
     assert resp.status_code == 400
 
 
-# --- P2-5: TXT->PDF size pre-check (before the slow fpdf conversion) ---------
+# --- TXT size pre-check (before the upload is staged or decoded) -------------
 
-def test_upload_pdf_rejects_oversized_txt_before_conversion(
+def test_upload_pdf_rejects_oversized_txt_before_staging(
         client, app, monkeypatch):
-    """P2-5: an oversized .txt is rejected on its raw byte size BEFORE the slow
-    fpdf conversion runs, so it cannot hold a worker rendering thousands of
-    pages. fpdf is trip-wired to prove the conversion path is never reached."""
+    """An oversized .txt is rejected on its raw byte size BEFORE it is written
+    to disk or decoded, so it cannot tie up a worker or the disk. Staging and
+    decoding are trip-wired to prove neither is reached."""
     app.config['STATLEE'].pdf_max_pages = 1   # budget = 1 * 4096 = 4096 bytes
-    import fpdf
+    from statlee import datatools, storage
 
     def boom(*a, **k):
-        raise AssertionError('fpdf must not run for an oversized .txt')
+        raise AssertionError('an oversized .txt must not be staged or decoded')
 
-    monkeypatch.setattr(fpdf, 'FPDF', boom)
+    monkeypatch.setattr(storage, 'incoming_path', boom)
+    monkeypatch.setattr(datatools, 'decode_text_bytes', boom)
     token = csrf_token(client)
     data = {'file': (io.BytesIO(b'x' * 5000), 'huge.txt')}   # > 4096-byte budget
     resp = client.post('/upload_pdf', data=data,

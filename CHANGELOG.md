@@ -103,7 +103,7 @@ ships everything listed under 1.5.0, which was never tagged on its own.
   prices each one.
 - Dependencies bumped to current stable: google-genai 2.31.0, anthropic 1.15.0,
   openai 3.32.0, pandas 3.0.6, statsmodels 0.15.0, matplotlib 3.11.2,
-  filelock 4.2.0, gunicorn 26.2.0, fpdf2 2.8.9, pypdf 6.21.0, alembic 1.20.0,
+  filelock 4.2.0, gunicorn 26.2.0, pypdf 6.21.0, alembic 1.20.0,
   redis 8.1.0, pyreadstat 1.3.6, python-dotenv 1.2.4.
 - Repository layout: the pins moved to `requirements/` (`base.txt`, `dev.txt`,
   `postgres.txt`, `runner.txt`), the Dockerfiles to `docker/`
@@ -121,6 +121,11 @@ ships everything listed under 1.5.0, which was never tagged on its own.
 - The README opens with how generated code is checked before it runs, traces
   the whole flow in a diagram, and adds Screenshots, Demo and Limitations
   sections. The module table and hosting notes moved to `docs/README.md`.
+
+### Removed
+- `fpdf2` is no longer a dependency. Nothing imported it since a TXT codebook
+  is kept as text instead of being rendered to PDF, and `defusedxml` leaves the
+  app lock with it.
 
 ### Fixed
 - The Anthropic provider works with SDK 1.x, which removed `temperature` from

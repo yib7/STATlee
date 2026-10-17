@@ -47,12 +47,11 @@ pins in step).
 | [psycopg 3](https://www.psycopg.org/psycopg3/) | 3.3.6 | PostgreSQL driver (`requirements/postgres.txt`, production DB) | LGPL-3.0 |
 | [pyreadstat](https://github.com/Roche/pyreadstat) | 1.3.6 | Stata (`.dta`) / SPSS (`.sav`) ingestion | Apache-2.0 |
 | [pypdf](https://pypdf.readthedocs.io/) | 6.21.0 | PDF codebook reading | BSD-3-Clause |
-| [fpdf2](https://py-pdf.github.io/fpdf2/) | 2.8.9 | TXT→PDF codebook conversion | LGPL-3.0 |
 | [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.4 | `.env` loading | BSD-3-Clause |
 | [gunicorn](https://gunicorn.org/) | 26.2.0 | Production WSGI server | MIT |
 
-psycopg and fpdf2 (LGPL-3.0) are used unmodified as separately installed
-packages that a user can replace, which the LGPL permits under any license for
+psycopg (LGPL-3.0) is used unmodified as a separately installed package that
+a user can replace, which the LGPL permits under any license for
 the calling code, including the Elastic License 2.0. No dependency is GPL or
 AGPL. Notable transitive licenses: certifi (MPL-2.0), numpy (BSD-3-Clause with
 bundled 0BSD/MIT/Zlib/CC0 parts), pillow (MIT-CMU), cryptography
