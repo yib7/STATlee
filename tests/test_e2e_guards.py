@@ -15,8 +15,6 @@ from test_e2e_ui import (  # noqa: E402,F401  (fixtures are used by name)
     CODEBOOK_A,
     CSV_A,
     CSV_B,
-    _capture_bodies,
-    _new_page,
     browser,
     calls,
     e2e_server,
