@@ -94,6 +94,23 @@ reproducibility bundle that records what produced what.
   same file there restores your codebook edits.
 - The run rail ends the read-only view of a run that left the workbook.
 
+### Security
+- Outgoing email verifies the SMTP server's certificate before logging in;
+  `starttls()` without a context had accepted any certificate.
+- Fonts are served by the app itself instead of Google Fonts, so a page view
+  no longer sends the visitor's IP address to a third party. The README says
+  what does leave the server.
+- An email address over 254 characters is refused before the format check,
+  which backtracked for seconds to minutes on a long run of dots.
+- `/run` refuses a script over 200,000 characters (`413`) before the paid
+  moderation call.
+- `/wrangle` runs the static check on the full script it executes, not only on
+  the model's transform.
+- Run output no longer names host paths: tracebacks read `File "script.py"`
+  and install, temp and home dirs become labels such as `<site-packages>`.
+- Responses send `Referrer-Policy: same-origin`, production HTTPS responses
+  send HSTS, and the remember-me cookie is `SameSite=Lax`.
+
 ### Known limitations
 - Run plots count toward the per-identity storage cap (bounded by the workbook's
   share of it, above).
