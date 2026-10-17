@@ -22,11 +22,18 @@ Python model (allowlist + targeted rules), parsed with the stdlib ``ast``:
    ``f = exec``, or ``from X import exec``); ``input`` is refused when called.
 3. A few allowlisted modules (``os``, ``sys``, ``shutil``) expose dangerous
    members. Those members are refused however the module is reached: directly,
-   via ``import ... as`` / ``from ... import`` / assignment aliases, via a
-   constant ``getattr``, or through an attribute chain on another module
-   (``pd.io.common.os.system`` resolves its owner to ``os``). Owners that are
-   never legitimate (``builtins``, ``subprocess``, ``socket``, ``importlib``,
-   ``ctypes``, ``multiprocessing``, ``runpy``, ...) are refused wholesale.
+   via ``import ... as`` / ``from ... import`` / plain ``name = module``
+   aliases, via a constant ``getattr``, or through an attribute chain on
+   another module (``pd.io.common.os.system`` resolves its owner to ``os``).
+   Owners that are never legitimate (``builtins``, ``subprocess``, ``socket``,
+   ``importlib``, ``ctypes``, ``multiprocessing``, ``runpy``, ...) are refused
+   wholesale. Every OTHER use of a host module object as a value is refused,
+   because it would bind the module to a name the alias tracking cannot
+   follow: walrus, tuple unpacking, a default or lambda argument, a loop
+   variable, a container element, an annotated assignment, ``with ... as``, a
+   call argument. Only ``module.member``, a call, the first argument of
+   ``getattr``/``hasattr``/``setattr``/``delattr`` and a plain
+   ``name = module`` (tracked) may touch it.
 4. Reflection that defeats the rules above is refused: the classic dunder /
    frame / bound-method escape attributes (``__globals__``, ``__subclasses__``,
    ``__dict__``, ``__self__``, ``f_globals``, ``tb_frame``, ...), non-constant
@@ -141,6 +148,11 @@ _OS_LIKE = frozenset({'os', 'nt', 'posix'})
 _OS_ATTRS = frozenset({
     'system', 'popen', 'fork', 'forkpty', 'posix_spawn', 'putenv', 'environ',
     'getenv', 'remove', 'unlink', 'rmdir', 'removedirs', 'startfile',
+    # Signals (``os.kill(os.getppid(), 9)`` would kill the web worker in
+    # subprocess mode, same uid) and filesystem mutations that plant links,
+    # FIFOs or device nodes, or rewrite files the analysis did not create.
+    'kill', 'killpg', 'mkfifo', 'mknod', 'symlink', 'link', 'chmod', 'chown',
+    'lchown', 'rename', 'renames', 'replace', 'truncate',
 })
 
 _SYS_ATTRS = frozenset({'modules', '_getframe', '_current_frames'})
@@ -161,6 +173,11 @@ _PATH_CHECKED_OWNERS = _OS_LIKE | frozenset({'shutil', 'glob'})
 # alias tracking never over-blocks a non-module name.
 _ATTR_RULE_MODULES = (_OS_LIKE | _WHOLESALE_MODULES | _PATH_CHECKED_OWNERS
                       | frozenset({'sys', 'pickle'}))
+
+# Calls that may take a host module as their FIRST argument: the constant-name
+# rules in ``_dynamic_attr_reason`` police getattr/setattr/delattr, and
+# hasattr only answers a bool.
+_MODULE_ARG_CALLS = _DYNAMIC_ATTR_BUILTINS | frozenset({'hasattr'})
 
 # ---------------------------------------------------------------------------
 # Python: library file I/O
@@ -300,7 +317,12 @@ def _owner_of(node, aliases):
     rule. None for anything else (a call result, a subscript, ...).
     """
     if isinstance(node, ast.Name):
-        return aliases.get(node.id, node.id)
+        if node.id in aliases:
+            return aliases[node.id]
+        # ``nt``/``posix`` cannot be imported (allowlist), so an unbound name
+        # spelled that way is an ordinary variable (``nt.rename(...)`` on a
+        # DataFrame), not the os module.
+        return None if node.id in ('nt', 'posix') else node.id
     if isinstance(node, ast.Attribute):
         return node.attr
     return None
@@ -308,22 +330,28 @@ def _owner_of(node, aliases):
 
 def _collect_bindings(tree):
     """Map local names to the module (``aliases``) or module function
-    (``functions``: name -> owner module) they are bound to."""
+    (``functions``: name -> owner module) they are bound to, plus the set of
+    every name an import statement binds (``imported``)."""
     aliases = {}
     functions = {}
+    imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 bound = (alias.asname or alias.name).split('.', 1)[0]
                 aliases[bound] = _top_module(alias.name)
+                imported.add(bound)
         elif isinstance(node, ast.ImportFrom) and node.module:
             mod = _top_module(node.module)
             for alias in node.names:
                 bound = alias.asname or alias.name
-                if alias.name in _ATTR_RULE_MODULES:
-                    # ``from os import sys as s`` binds a module.
+                imported.add(bound)
+                # ``from os import sys as s`` binds a module; ``from glob
+                # import glob`` binds the module's same-named function.
+                if (alias.name in _ATTR_RULE_MODULES
+                        and alias.name != node.module.rsplit('.', 1)[-1]):
                     aliases[bound] = alias.name
-                if node.module in _PATH_CHECKED_OWNERS:
+                elif node.module in _PATH_CHECKED_OWNERS:
                     # ``from shutil import copy`` / ``from glob import glob``
                     # binds a path-taking function.
                     functions[bound] = mod
@@ -356,7 +384,52 @@ def _collect_bindings(tree):
                 for tgt in node.targets:
                     if isinstance(tgt, ast.Name):
                         functions[tgt.id] = owner
-    return aliases, functions
+    return aliases, functions, imported
+
+
+def _module_value_reason(node, parent, aliases, functions, imported):
+    """Reason if ``node`` uses a host module object as a VALUE (B-04).
+
+    ``node`` is a module when it is a Name bound to one (an import or a
+    tracked ``name = module``), or an Attribute naming one on an imported
+    module (``pd.io.common.os``). Such a node may only own a member access, be
+    called, be the first argument of getattr/hasattr/setattr/delattr, or be
+    the right side of a plain ``name = module`` (which the alias tracking
+    follows). Any other use would launder the module past the member rules."""
+    if isinstance(node, ast.Name):
+        if (not isinstance(node.ctx, ast.Load) or node.id in functions
+                or aliases.get(node.id) not in _ATTR_RULE_MODULES):
+            return None
+        label = node.id
+    elif isinstance(node, ast.Attribute):
+        if (not isinstance(node.ctx, ast.Load)
+                or node.attr not in _ATTR_RULE_MODULES
+                # ``glob.glob`` is the module's function, not a module.
+                or _owner_of(node.value, aliases) == node.attr):
+            return None
+        root = node.value
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not (isinstance(root, ast.Name) and root.id in imported):
+            return None
+        label = node.attr
+    else:
+        return None
+
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        return None
+    if isinstance(parent, ast.Call):
+        if parent.func is node:
+            return None
+        if (isinstance(parent.func, ast.Name)
+                and parent.func.id in _MODULE_ARG_CALLS
+                and parent.args and parent.args[0] is node):
+            return None
+    if (isinstance(node, ast.Name) and isinstance(parent, ast.Assign)
+            and parent.value is node
+            and all(isinstance(t, ast.Name) for t in parent.targets)):
+        return None
+    return f'passes a host module around as a value: {label}'
 
 
 def _import_reason(node):
@@ -465,7 +538,9 @@ def _check_python(code):
         # fail CLOSED here.
         return True, 'the script could not be statically analyzed'
 
-    aliases, functions = _collect_bindings(tree)
+    aliases, functions, imported = _collect_bindings(tree)
+    parents = {child: parent for parent in ast.walk(tree)
+               for child in ast.iter_child_nodes(parent)}
 
     for node in ast.walk(tree):
         reason = None
@@ -481,6 +556,8 @@ def _check_python(code):
                 owner = _owner_of(node.value, aliases)
                 if owner:
                     reason = _module_attr_reason(owner, node.attr)
+            reason = reason or _module_value_reason(
+                node, parents.get(node), aliases, functions, imported)
 
         elif isinstance(node, ast.Name):
             # Any context: a call, a rebinding (``f = exec``), an argument.
@@ -488,6 +565,9 @@ def _check_python(code):
                 reason = f'references a dangerous builtin: {node.id}'
             elif node.id in _ESCAPE_ATTRS:
                 reason = f'uses a sandbox-escape name: {node.id}'
+            else:
+                reason = _module_value_reason(
+                    node, parents.get(node), aliases, functions, imported)
 
         elif isinstance(node, ast.Call):
             reason = _call_reason(node, aliases, functions)
