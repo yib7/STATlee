@@ -38,6 +38,15 @@ bp = Blueprint('auth', __name__)
 register_field_errors(bp)
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+# RFC 5321's longest deliverable address. Checked BEFORE EMAIL_RE, which
+# backtracks quadratically on a long run of dots: an unbounded address let one
+# public request pin a worker for minutes.
+EMAIL_MAX = 254
+
+
+def _valid_email(email):
+    return len(email) <= EMAIL_MAX and bool(EMAIL_RE.match(email))
+
 
 # Hard cap on persisted history rows per user (P2-13). Field sizes are already
 # capped in history_save; this bounds the row count too, so a looping client
@@ -184,7 +193,7 @@ def register():
     email = str_field(data, 'email').strip().lower()
     password = str_field(data, 'password')
 
-    if not EMAIL_RE.match(email):
+    if not _valid_email(email):
         return json_error('Please provide a valid email address.', 400)
     if len(password) < 8:
         return json_error('Password must be at least 8 characters.', 400)
@@ -367,7 +376,7 @@ def request_password_reset():
     email = str_field(data, 'email').strip().lower()
 
     generic = jsonify({'status': 'ok', 'message': _RESET_REQUESTED_MSG})
-    if not EMAIL_RE.match(email):
+    if not _valid_email(email):
         # Don't leak which addresses are even well-formed vs registered.
         return generic, 200
 
