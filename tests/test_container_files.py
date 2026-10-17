@@ -84,3 +84,15 @@ def test_runner_image_pins_match_the_app():
     for pkg, version in runner_pins.items():
         assert app_pins.get(pkg) == version, (pkg, version, app_pins.get(pkg))
     assert 'requirements-runner.txt' in _read('runner.Dockerfile')
+
+
+def test_ruff_version_is_the_same_in_ci_pre_commit_and_requirements_dev():
+    """The pre-commit hook pinned ruff v0.15.17 after requirements-dev.txt and
+    the CI lint job moved to 0.17.1, so a contributor's hook linted with a
+    different rule set than the gate that blocks the merge."""
+    dev = _pins('requirements-dev.txt')['ruff']
+    ci = re.search(r'pip install ruff==([^\s]+)', _read('.github/workflows/ci.yml')).group(1)
+    hook = re.search(r'ruff-pre-commit\s*\n\s*rev:\s*v?([^\s]+)',
+                     _read('.pre-commit-config.yaml')).group(1)
+    assert ci == dev, f'ci.yml ruff {ci} != requirements-dev.txt {dev}'
+    assert hook == dev, f'.pre-commit-config.yaml ruff {hook} != requirements-dev.txt {dev}'
