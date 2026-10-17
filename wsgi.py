@@ -9,6 +9,7 @@ This is the only place that loads ``.env`` and builds the app, so importing the
 ``APP_ENV=testing`` the ``.env`` file is never read.
 """
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -16,8 +17,21 @@ if os.environ.get('APP_ENV', '').strip().lower() != 'testing':
     load_dotenv()
 
 from statlee.app import create_app  # noqa: E402  (after .env is loaded)
+from statlee.config import ConfigError  # noqa: E402
 
-app = create_app()
+
+def _build_app():
+    """Build the app; a configuration error ends ``python wsgi.py`` and the
+    Flask CLI with one line naming the variable, not a traceback (3.12)."""
+    try:
+        return create_app()
+    except ConfigError as exc:
+        if 'gunicorn' in sys.modules:
+            raise          # gunicorn reports a failed app import itself
+        sys.exit(f"STATlee cannot start: {exc}")
+
+
+app = _build_app()
 
 if __name__ == '__main__':
     cfg = app.config['STATLEE']
