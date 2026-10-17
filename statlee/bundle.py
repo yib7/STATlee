@@ -126,6 +126,11 @@ def write_file(zf, path, arcname, root):
 # Runs
 # ---------------------------------------------------------------------------
 
+# Why a run on the exported dataset was left out (``eligible_runs``).
+LEFT_OUT_VERSION = 'version'        # read a dataset version not in the bundle
+LEFT_OUT_UNRECORDED = 'unrecorded'  # recorded no dataset (e.g. before 1.6.0)
+
+
 def eligible_runs(dataset_name, dataset_shas=None):
     """``([(run_id, meta)], left_out)`` for the runs that may ship with the
     exported dataset, oldest first.
@@ -134,20 +139,30 @@ def eligible_runs(dataset_name, dataset_shas=None):
     (``dataset_name``, the basename the sandbox staged; with no dataset, only
     runs that recorded none) AND, when ``dataset_shas`` is given, the dataset
     bytes it read (``dataset_sha256``) are one of the versions in this bundle's
-    lineage. A run on earlier content of a same-name dataset (re-uploaded
-    since) matches the name but none of those hashes: it is left out and
-    counted in ``left_out``, since its data is not in the bundle."""
+    lineage. ``left_out`` is ``[(run_id, meta, reason)]``, oldest first, for
+    the runs that could belong to this dataset but whose data is not in the
+    bundle:
+
+    * ``LEFT_OUT_VERSION``: the stored name matches but none of the hashes do
+      (earlier content of a re-uploaded dataset, a version on an undone redo
+      branch, or no recorded hash);
+    * ``LEFT_OUT_UNRECORDED``: with a dataset exported, a run that recorded no
+      dataset at all (saved before 1.6.0, or run with no dataset loaded).
+    """
     metas = []
-    left_out = 0
+    left_out = []
     for run_id in storage.run_ids():
         meta = storage.run_meta(run_id)
         if meta is None:
             continue
-        if (meta.get('filename') or None) != (dataset_name or None):
+        name = meta.get('filename') or None
+        if name != (dataset_name or None):
+            if dataset_name and name is None:
+                left_out.append((run_id, meta, LEFT_OUT_UNRECORDED))
             continue
         if (dataset_shas is not None
                 and meta.get('dataset_sha256') not in dataset_shas):
-            left_out += 1
+            left_out.append((run_id, meta, LEFT_OUT_VERSION))
             continue
         metas.append((run_id, meta))
     return metas, left_out
@@ -162,6 +177,25 @@ def select_run_ids(selection, cap, metas):
         metas = [(r, m) for r, m in metas if m.get('starred')]
     cap = cap if isinstance(cap, int) and cap >= 1 else storage.RUNS_MAX
     return [r for r, _m in metas][-cap:]
+
+
+def left_out_counts(selection, cap, metas, left_out):
+    """``{reason: count}`` of the ``left_out`` runs (``eligible_runs``) that
+    ``selection`` would have shipped had their data been in the bundle, so
+    README.md never reports a run the user's selection excluded anyway
+    (e.g. an unstarred run under ``starred``)."""
+    if not left_out:
+        return {}
+    order = {r: i for i, r in enumerate(storage.run_ids())}
+    reasons = {r: why for r, _m, why in left_out}
+    combined = sorted(list(metas) + [(r, m) for r, m, _why in left_out],
+                      key=lambda item: order.get(item[0], -1))
+    counts = {}
+    for run_id in select_run_ids(selection, cap, combined):
+        why = reasons.get(run_id)
+        if why:
+            counts[why] = counts.get(why, 0) + 1
+    return counts
 
 
 def load_runs(run_ids):
@@ -338,7 +372,7 @@ def provenance(cfg, lineage, records, include_prompts, root, steps=None):
 # README.md
 # ---------------------------------------------------------------------------
 
-_RUNS_LABEL = {'all': 'all runs in the workbook',
+_RUNS_LABEL = {'all': 'all runs on this dataset',
                'starred': 'starred runs only',
                'latest': 'the latest run only'}
 
@@ -347,13 +381,16 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
            lineage, run_dirs, runs_selection, include_prompts, has_codebook,
            has_report, provider, generated, script_run=None,
            has_original=True, has_cleaning=False, report_run=None,
-           left_out=0):
+           left_out=None):
     """README.md for the bundle (plain Markdown, no em dashes). Only files
     that were actually written are listed. ``report_run`` is the run whose
     output report.md carries (None: no run on this dataset is recorded);
-    ``left_out`` counts runs on this dataset name whose data is not in the
-    bundle (``eligible_runs``)."""
+    ``left_out`` is ``left_out_counts``: per reason, the runs the selection
+    would have shipped whose data is not in the bundle."""
     replay = bool(has_cleaning)
+    runs_label = _RUNS_LABEL[runs_selection]
+    if runs_selection == 'all' and not data_name:
+        runs_label = 'all runs that recorded no dataset'
     out = [f'# STATlee project export: {stem}', '',
            f'Exported {generated} with STATlee {app_version()} '
            f'(LLM provider: {provider}).', '', '## How to run', '']
@@ -415,24 +452,32 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
                '(upload, cleaning steps, runs, interpretations) with times, '
                'models and SHA-256 hashes of the data and scripts.')
     if run_dirs:
-        out.append(f'- outputs/: one folder per run ({_RUNS_LABEL[runs_selection]}, '
+        out.append(f'- outputs/: one folder per run ({runs_label}, '
                    f'{len(run_dirs)} in total), each with output.txt, plots, '
                    'methods.json (the methods and assumptions card), '
                    'interpretation.md when there is one, and the script that '
                    'run executed:')
         out += [f'  - outputs/{name}/' for name in run_dirs]
     else:
-        out.append(f'- outputs/: no runs included ({_RUNS_LABEL[runs_selection]} '
+        out.append(f'- outputs/: no runs included ({runs_label} '
                    'was selected and there are none).')
-    if left_out:
-        out.append(f'- {left_out} run was left out because its data is not in '
-                   'this bundle (it read earlier content of this dataset).'
-                   if left_out == 1 else
-                   f'- {left_out} runs were left out because their data is not '
-                   'in this bundle (they read earlier content of this '
-                   'dataset).')
-    out.append('- Runs saved before 1.6.0 are not included: they did not '
-               'record which dataset they read.')
+    left_out = left_out or {}
+    other_version = left_out.get(LEFT_OUT_VERSION, 0)
+    if other_version:
+        out.append(f'- {other_version} run was left out because it read a '
+                   'dataset version that is not in this bundle.'
+                   if other_version == 1 else
+                   f'- {other_version} runs were left out because they read a '
+                   'dataset version that is not in this bundle.')
+    unrecorded = left_out.get(LEFT_OUT_UNRECORDED, 0)
+    if unrecorded:
+        out.append(f'- {unrecorded} run is not included because it did not '
+                   'record which dataset it read (saved before STATlee 1.6.0, '
+                   'or run with no dataset loaded).'
+                   if unrecorded == 1 else
+                   f'- {unrecorded} runs are not included because they did '
+                   'not record which dataset they read (saved before STATlee '
+                   '1.6.0, or run with no dataset loaded).')
     if report_run:
         if include_prompts:
             out.append('- report.md: your requests, the terminal output and '
@@ -454,7 +499,7 @@ def readme(stem, *, script_name, script_source, editor_differs, data_name,
             f'- STATlee version: {app_version()}',
             f'- LLM provider: {provider}',
             f'- Exported: {generated}',
-            f'- Runs included: {_RUNS_LABEL[runs_selection]}']
+            f'- Runs included: {runs_label}']
     if include_prompts:
         out.append('- Prompts: the questions and cleaning instructions you '
                    'typed are included in provenance.json and report.md.')

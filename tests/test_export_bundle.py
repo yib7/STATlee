@@ -138,8 +138,8 @@ def test_dataset_with_no_version_manifest_still_ships_its_data(
         app, client, full_session):
     """A legacy dataset has no readable ``.versions__<name>.json`` manifest, so
     there is no lineage; the export must still carry the dataset and its
-    ``data/original_`` copy (and still return 200). codebook.json is not
-    asserted: the codebook needs the manifest's active version by design."""
+    ``data/original_`` copy (and still return 200), and codebook.json (3A
+    A2: the codebook falls back to the plain dataset file too)."""
     manifests = glob.glob(os.path.join(
         app.config['STATLEE'].upload_root, '**', '.versions__test.json'),
         recursive=True)
@@ -150,6 +150,7 @@ def test_dataset_with_no_version_manifest_still_ships_its_data(
     assert 'test.csv' in names
     assert 'data/original_test.csv' in names
     assert 'provenance.json' in names
+    assert 'codebook.json' in names
 
 
 def test_run_outputs_hold_methods_card_and_interpretation(client, full_session):
@@ -658,10 +659,73 @@ def test_runs_on_earlier_content_of_a_same_name_dataset_are_left_out(
     assert old not in _prov_runs(zf)
     assert 'OLD_CONTENT' not in _all_text(zf)
     readme = zf.read('README.md').decode()
-    assert '1 run was left out because its data is not in this bundle' in readme
+    assert ('1 run was left out because it read a dataset version that is '
+            'not in this bundle.') in readme
+    assert 'earlier content' not in readme
 
 
-def test_bundle_readme_notes_runs_saved_before_1_6_0_are_not_included(
-        client, full_session):
+def test_bundle_readme_mentions_pre_1_6_0_runs_only_when_one_was_left_out(
+        app, client, full_session):
+    """3A A8: the pre-1.6.0 line used to print on every export."""
     readme = _export(client).read('README.md').decode()
-    assert 'before 1.6.0' in readme
+    assert 'before STATlee 1.6.0' not in readme
+    assert 'all runs on this dataset' in readme
+    with client.session_transaction() as sess:
+        ident = f"anon_{sess['sid']}"
+    with app.app_context():
+        from statlee import storage
+        legacy = os.path.join(storage.identity_root(ident),
+                              storage.LAST_RUN_DIR)
+    os.makedirs(legacy)
+    with open(os.path.join(legacy, 'output.txt'), 'w', encoding='utf-8') as f:
+        f.write('LEGACY_RUN_OUTPUT')
+    zf = _export(client)
+    readme = zf.read('README.md').decode()
+    assert ('1 run is not included because it did not record which dataset '
+            'it read (saved before STATlee 1.6.0') in readme
+    assert 'LEGACY_RUN_OUTPUT' not in _all_text(zf)
+    # An export with no dataset ships the legacy run and says nothing.
+    resp = post_json(client, '/export', {'language': 'Python'})
+    nodata = zipfile.ZipFile(io.BytesIO(resp.data))
+    assert 'before STATlee 1.6.0' not in nodata.read('README.md').decode()
+    assert 'LEGACY_RUN_OUTPUT' in _all_text(nodata)
+
+
+def test_readme_left_out_counts_only_runs_the_selection_would_ship(
+        client, fake_llm):
+    """C-22: a left-out run that "latest" or "starred" would never have
+    shipped is not reported."""
+    upload_csv(client, SAMPLE_CSV)
+    old = _generate_and_run(client, fake_llm, "print('OLD')",
+                            prompt='old q')['run_id']
+    upload_csv(client, SAMPLE_CSV.replace('30000', '31000'))
+    _generate_and_run(client, fake_llm, "print('NEW')", prompt='new q')
+    left_line = 'left out because'
+    assert left_line in _export(client, runs='all').read(
+        'README.md').decode()
+    assert left_line not in _export(client, runs='latest').read(
+        'README.md').decode()
+    assert left_line not in _export(client, runs='starred').read(
+        'README.md').decode()
+    resp = client.patch(f'/runs/{old}', json={'starred': True},
+                        headers={'X-CSRF-Token': _token(client)})
+    assert resp.status_code == 200
+    starred = _export(client, runs='starred')
+    assert _run_dirs(starred) == []
+    assert '1 run was left out because it read a dataset version' in \
+        starred.read('README.md').decode()
+
+
+def test_readme_counts_a_newest_left_out_run_under_latest(client, fake_llm):
+    """The newest run on this name read a version that is not in the bundle
+    (a redo branch undone, here an older upload restored): "latest" would
+    have shipped it, so README.md says it was left out."""
+    upload_csv(client, SAMPLE_CSV)
+    _generate_and_run(client, fake_llm, "print('FIRST')", prompt='q1')
+    upload_csv(client, SAMPLE_CSV.replace('30000', '31000'))
+    _generate_and_run(client, fake_llm, "print('SECOND')", prompt='q2')
+    upload_csv(client, SAMPLE_CSV)        # back to the first content
+    zf = _export(client, runs='latest')
+    assert 'FIRST' in zf.read('analysis.py').decode()
+    assert '1 run was left out because it read a dataset version' in \
+        zf.read('README.md').decode()

@@ -362,10 +362,14 @@ outputs/run_0001/            one folder per included run:
   `include_prompts` (a boolean; default true). Any other value is a `400`. Runs
   are scoped to the exported dataset by its stored name and by content: a run
   whose recorded `dataset_sha256` is not one of the versions in this bundle's
-  lineage (it read earlier content of a re-uploaded same-name dataset) is left
-  out, and the README counts those. The rest are capped at
-  `MAX_RUNS_PER_IDENTITY`. Runs saved before 1.6.0 did not record a dataset and
-  are left out of dataset exports; the README says so.
+  lineage (earlier content of a re-uploaded same-name dataset, a version on an
+  undone redo branch, or no recorded hash) is left out. The rest are capped at
+  `MAX_RUNS_PER_IDENTITY`. Runs that recorded no dataset (saved before 1.6.0,
+  or run with no dataset loaded) are left out of dataset exports and ship with
+  an export that has no dataset. The README counts the left-out runs of each
+  kind that the chosen `runs` selection would have shipped (`latest` or
+  `starred` never reports a run it would have skipped anyway), and says nothing
+  when there are none.
 - `provenance.json` is `{generated_at, app_version, llm_provider, steps}`. Steps
   are ordered by time and are of four kinds: `upload` (`dataset_sha256_after`),
   `wrangle` (instruction, model, role, before and after hashes, the transform's

@@ -1142,6 +1142,9 @@ def export_project():
     eligible, left_out = bundle.eligible_runs(dataset_name, dataset_shas)
     records = bundle.load_runs(bundle.select_run_ids(
         runs_selection, cfg.max_runs_per_identity, eligible))
+    # README.md reports only the left-out runs this selection would ship.
+    left_out = bundle.left_out_counts(
+        runs_selection, cfg.max_runs_per_identity, eligible, left_out)
 
     # analysis.py|analysis.R is the latest run in the bundle, so its hash
     # matches a provenance step; with no such run, the latest approved
