@@ -62,9 +62,12 @@ VALUE_LABELS_MAX = 200
 MISSING_CODES_MAX = 50
 SCALE_GROUP_MAX = 80
 IMPORT_ENTRIES_MAX = 10000
-# Total size of one dataset's stored codebook (all layers, as JSON). It is
+# Total size of one dataset's user, pdf and llm layers (as JSON). They are
 # kept twice (meta sidecar + sha256 archive) and re-read on every /chat, so a
-# write that would grow it past this is refused (413) instead of stored.
+# write that would grow them past this is refused (413) instead of stored.
+# The native layer does not count: it comes from the uploaded file, is
+# bounded by the per-field clamps, and the user could not shrink it to make
+# room for an edit (3A A1).
 CODEBOOK_BYTES_MAX = 4 * 1024 * 1024
 PROMPT_VALUE_LABELS_MAX = 40
 SUMMARY_LINE_MAX = 200
@@ -559,8 +562,10 @@ def _archive(meta, layers, identity):
         _st().save_codebook_archive(sha, {'layers': keep}, identity)
 
 
-def _json_size(layers):
-    return len(json.dumps(layers, ensure_ascii=False).encode('utf-8'))
+def _capped_size(layers):
+    """Bytes of the layers ``CODEBOOK_BYTES_MAX`` applies to (not native)."""
+    editable = {s: layers.get(s, {}) for s in SOURCES if s != 'native'}
+    return len(json.dumps(editable, ensure_ascii=False).encode('utf-8'))
 
 
 def apply(filename, source, updates, identity=None):
@@ -581,9 +586,9 @@ def apply(filename, source, updates, identity=None):
             raise CodebookStorageError(str(filename)) from exc
         layers = layers_from_meta(meta)
         if updates:
-            before = _json_size(layers)
+            before = _capped_size(layers)
             apply_to_layers(layers, source, updates)
-            size = _json_size(layers)
+            size = _capped_size(layers)
             # Only growth past the cap is refused: a codebook stored before
             # the cap existed can still be edited down.
             if size > CODEBOOK_BYTES_MAX and size > before:

@@ -274,10 +274,13 @@ the `statlee-codebook` document that import accepts back, and that the bundle
 ships as `codebook.json`. Responses carry an explicit `columns` list because
 `jsonify` sorts object keys. Every field is length-clamped (labels 2000
 characters, 200 value labels, 50 missing codes), and writes are locked
-read-modify-write cycles with an atomic replace. The stored codebook (all
-layers, as JSON) is capped at 4 MB (`codebook.CODEBOOK_BYTES_MAX`): a write that
-would grow it past that is refused with a `413` and nothing is stored; one that
-shrinks an oversized codebook still goes through.
+read-modify-write cycles with an atomic replace. The user, pdf and llm layers
+(as JSON) are capped at 4 MB together (`codebook.CODEBOOK_BYTES_MAX`): a write
+that would grow them past that is refused with a `413` and nothing is stored;
+one that shrinks an oversized codebook still goes through. The native layer
+does not count toward the cap: it comes from the file, is bounded by the field
+clamps, and the user could not shrink it to make room. A classification or PDF
+seed that the cap refuses is logged at warning level.
 
 Prompts read only the server codebook. A client-sent `codebook` or `pdf_mapping`
 is accepted but ignored (logged at debug). The text is user- or model-supplied,

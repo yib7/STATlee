@@ -527,7 +527,10 @@ def _seed_pdf_layer(dataset, columns, mapping):
     try:
         codebook_store.apply(dataset, 'pdf', updates)
     except (codebook_store.CodebookStorageError,
-            codebook_store.CodebookTooLarge):
+            codebook_store.CodebookTooLarge) as exc:
+        # The mapping is still returned; only the server codebook misses it.
+        logger.warning("PDF codebook descriptions for %d column(s) were not "
+                       "stored: %s", len(updates), type(exc).__name__)
         return 0
     return len(updates)
 
@@ -635,8 +638,12 @@ def _seed_llm_layer(filename, levels):
             column: {'type': level.lower()}
             for column, level in levels.items()})
     except (codebook_store.CodebookStorageError,
-            codebook_store.CodebookTooLarge):
-        pass    # the classification is still returned
+            codebook_store.CodebookTooLarge) as exc:
+        # The classification is still returned, but /suggest and /chat will
+        # not see these levels in the server codebook.
+        logger.warning("Classification levels for %d column(s) were not "
+                       "stored in the codebook: %s", len(levels),
+                       type(exc).__name__)
 
 
 @bp.route('/classify_variables', methods=['POST'])

@@ -529,3 +529,52 @@ def test_codebook_already_over_the_cap_can_still_shrink(client, monkeypatch):
     assert resp.status_code == 200
     assert _put(client, {'filename': 'test.csv', 'codebook': {
         'income': {'label': 'b' * 600}}}).status_code == 413
+
+
+def test_a_large_native_layer_does_not_block_user_edits(
+        client, tmp_path, monkeypatch):
+    """3A A1: the native layer comes from the file and the user cannot
+    shrink it, so it does not count toward the size cap. A wide labelled
+    .sav whose native layer alone is over the cap still takes edits."""
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 120)
+    resp = _upload_bytes(client, _sav_bytes(tmp_path), 'survey.sav')
+    assert resp.status_code == 200, resp.get_json()
+    ok = _put(client, {'filename': 'survey.csv',
+                       'codebook': {'agree': {'role': 'ignore'}}})
+    assert ok.status_code == 200, ok.get_json()
+    book = _get(client, 'survey.csv').get_json()['codebook']
+    assert book['agree']['role'] == 'ignore'
+    assert book['gender']['label'] == 'Respondent gender'
+    # User-written bytes still count: a write past the cap is refused.
+    assert _put(client, {'filename': 'survey.csv', 'codebook': {
+        'age': {'label': 'a' * 200}}}).status_code == 413
+
+
+def test_a_dropped_llm_seed_is_logged(client, fake_llm, monkeypatch, caplog):
+    """3A A1: a classification that cannot be stored is logged, not silently
+    swallowed."""
+    upload_csv(client, SAMPLE_CSV)
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 10)
+    fake_llm.set('classify', json.dumps({'age': 'Continuous',
+                                         'group': 'Nominal'}))
+    with caplog.at_level('WARNING', logger='statlee.datasets'):
+        resp = post_json(client, '/classify_variables',
+                         {'filename': 'test.csv'})
+    assert resp.status_code == 200
+    assert resp.get_json()['codebook']['age'] == 'Continuous'
+    assert any('classification' in r.getMessage().lower()
+               for r in caplog.records), caplog.text
+
+
+def test_a_dropped_pdf_seed_is_logged(client, fake_llm, monkeypatch, caplog):
+    upload_csv(client, SAMPLE_CSV)
+    doc = _upload_doc(client)
+    monkeypatch.setattr(cb, 'CODEBOOK_BYTES_MAX', 10)
+    fake_llm.set('pdf_extract', json.dumps({'age': 'Age in years'}))
+    with caplog.at_level('WARNING', logger='statlee.datasets'):
+        resp = post_json(client, '/extract_pdf_codebook',
+                         {'filename': doc, 'dataset': 'test.csv'})
+    assert resp.status_code == 200
+    assert resp.get_json()['codebook_updated'] == 0
+    assert any('pdf' in r.getMessage().lower() for r in caplog.records), \
+        caplog.text
