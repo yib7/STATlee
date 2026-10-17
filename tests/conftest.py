@@ -38,6 +38,17 @@ def _hermetic_env(monkeypatch):
     for var in SCRUBBED_ENV:
         monkeypatch.delenv(var, raising=False)
 
+
+@pytest.fixture(autouse=True)
+def _fresh_dataset_caches():
+    """The classify/suggest and parsed-frame caches are process-global and
+    keyed by content, so two tests uploading the same bytes would share an
+    earlier test's cached classification depending on run order (3A C-05).
+    Every test starts with them empty; the e2e server runs in this process
+    and shares the same caches."""
+    from statlee.routes import datasets
+    datasets.clear_caches()
+
 # ---------------------------------------------------------------------------
 # Fake LLM service
 # ---------------------------------------------------------------------------

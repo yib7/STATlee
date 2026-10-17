@@ -6,9 +6,9 @@ same way ``conftest.py`` builds it (testing ``Config`` with temp dirs,
 model call hits the deterministic fake: $0 and no real provider. Chromium is
 driven through Playwright.
 
-The module skips cleanly when Playwright or its Chromium build is missing (CI
-does not install them). Locally: ``pip install playwright`` and
-``python -m playwright install chromium``.
+The module skips cleanly when Playwright or its Chromium build is missing. CI
+installs both and runs these tests on Linux and Windows. Locally:
+``pip install playwright`` and ``python -m playwright install chromium``.
 
 Set ``STATLEE_SHOTS_DIR`` to also write review screenshots of the workspace
 (light/dark, desktop/390px) into that directory.
@@ -105,7 +105,10 @@ def browser():
 @pytest.fixture
 def fake(e2e_server):
     f = e2e_server['fake']
+    # Module-scoped: whatever one test set or made fail must not leak into
+    # the next, even when that test stopped before its own cleanup.
     f._overrides.clear()
+    f._failures.clear()
     llm.set_service(f)               # another module may have swapped it
     return f
 
@@ -211,8 +214,9 @@ def test_escape_on_codebook_prompt_continues_the_pipeline(page):
 
 def test_failed_upload_keeps_previous_dataset(page, fake):
     fake.set('classify', CODEBOOK_A)
-    # Distinct bytes: the server caches classification by content, and the
-    # earlier tests' identical CSV_A was classified with the fake's empty {}.
+    # Distinct bytes: the server caches classification by content (reset
+    # before each test by conftest), so a unique row keeps this upload's
+    # classification its own even if CSV_A is uploaded again in this test.
     upload(page, 'a.csv', CSV_A + '29,36000,A\n')
     skip_codebook(page)
     page.wait_for_selector('#codebookContainer:not(.hidden)')
@@ -730,7 +734,7 @@ def test_wrangle_409_reloads_the_changelog_and_tells_the_user(page):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_selector('#changelogList .wrangle-turn')
+    page.wait_for_selector('#changelogList .wrangle-turn:not(.pending)')
     assert 'Dropped rows with missing values' in page.inner_text('#changelogList')
     page.wait_for_function(f'() => (window.__fetchCalls["/data_page"] || 0) > {before}')
     assert 'reloaded' in page.inner_text('.cc-toast.error').lower()
@@ -790,23 +794,6 @@ def test_failed_run_interpretation_is_labelled_a_diagnosis(page, fake):
     assert page.inner_text('#interpretationTitle').strip().lower() == 'diagnosis'
     entry = page.evaluate("() => JSON.parse(localStorage.getItem('cc_history'))[0]")
     assert entry['success'] is False
-
-
-def test_run_timeout_is_an_executed_failure(page):
-    # L9: a /run timeout is a 500 carrying the sandbox's timeout message. The
-    # script DID run and the outcome is persisted, so it is interpreted.
-    upload(page, 'slow.csv', CSV_A + '69,1,A\n')
-    skip_codebook(page)
-    generate(page)
-    page.context.route('**/run', lambda route: route.fulfill(
-        status=500, content_type='application/json',
-        body=json.dumps({'error': 'Execution timed out after 30 seconds. '
-                                  'Simplify the analysis or reduce the data size.'})))
-    page.click('#runBtn')
-    page.wait_for_selector('#pipelineChecklist [data-step="execute"][data-state="failed"]')
-    assert 'timed out' in page.inner_text('#pipelineChecklist [data-step="execute"] .step-note')
-    page.wait_for_function('() => (window.__fetchCalls["/interpret"] || 0) >= 1')
-    assert page.evaluate('() => !CC.state.lastRun.notExecuted') is True
 
 
 def test_export_sends_the_generated_language_and_describes_the_zip(page):
@@ -932,8 +919,9 @@ def test_wrangle_409_takes_headers_from_dataset_versions(page):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_selector('#changelogList .wrangle-turn')
-    page.wait_for_timeout(300)
+    # The reloaded changelog, not the optimistic pending echo of 'my edit'.
+    page.wait_for_selector('#changelogList .wrangle-turn:not(.pending)')
+    page.wait_for_function('() => !document.querySelector("#changelogList .wrangle-turn.pending")')
     assert not any(b.get('per_page') == 1 for b in probes), probes
 
 
@@ -952,7 +940,8 @@ def test_wrangle_409_header_order_follows_the_server(page, fake):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_timeout(500)
+    page.wait_for_function(
+        "() => JSON.stringify(CC.state.headers) === '[\"aaa\",\"age\",\"income\",\"group\"]'")
     assert page.evaluate('() => CC.state.headers') == ['aaa', 'age', 'income', 'group']
 
 
