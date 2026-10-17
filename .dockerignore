@@ -2,23 +2,25 @@
 # context (D5-5). Without this, `COPY . .` baked the untracked .env (real
 # provider keys) and instance/*.db (accounts, password hashes) into an image
 # layer, and the app then loaded that .env at runtime.
+#
+# Patterns are anchored at the build context root (the repo root), unlike
+# .gitignore: `*.pem` would only match top-level files, so the patterns meant
+# for any depth start with `**/`.
 
-# Secrets: every .env variant except the committed template.
+# Secrets: every .env variant except the committed template, and key material.
 .env
 .env.*
 !.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-secrets.json
-credentials.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/secrets.json
+**/credentials.json
 
 # Local databases, uploads and other instance data.
 instance/
-*.db
-*.sqlite
-*.sqlite3
+**/*.db
 
 # VCS, CI and assistant/tooling scaffolding.
 .git
@@ -33,25 +35,19 @@ docs/DEPLOYMENT_PLAYBOOK.md
 docs/superpowers/
 docs/IMPLEMENTATION_PLAN.md
 docs/CLOSEOUT.md
-*_UPDATES.md
-*AUDIT*.md
-*FINDINGS*.md
-_repo-backup/
-_logo-work/
+# Local audit reports, any capitalization (matching is case-sensitive).
+**/*[Aa][Uu][Dd][Ii][Tt]*.md
 .pre-commit-config.yaml
 
 # Caches and virtual environments.
-__pycache__/
 **/__pycache__/
-*.py[cod]
+**/*.pyc
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
 .coverage
 htmlcov/
 venv/
 .venv/
-env/
 node_modules/
 
 # Not needed at runtime.

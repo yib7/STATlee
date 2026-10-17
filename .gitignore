@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# Key material and credential files. The app uses none; these guard against
+# a deploy key or cloud credential dropped into the tree being committed.
 *.pem
 *.key
 *.p12
@@ -9,48 +11,46 @@
 secrets.json
 credentials.json
 
-# Python cache files
+# Python bytecode
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# Virtual environments
+# Virtual environments (the README creates venv/; .venv/ is the other common name)
 venv/
-env/
 .venv/
 
-# Build artifacts
+# Build artifacts: `pip install .` / `python -m build` on pyproject.toml, and a
+# local `npm install tailwindcss` for the CSS rebuild (docs/ARCHITECTURE.md, Styles)
 build/
 dist/
 *.egg-info/
 node_modules/
 
-# Test / tooling caches
+# Test / tooling caches (.coverage and htmlcov/ come from `coverage run -m pytest`)
 .pytest_cache/
 .coverage
 htmlcov/
 .ruff_cache/
 
-# App data
+# App data: instance/ holds the SQLite DB and uploads; *.db catches a
+# DATABASE_URL=sqlite:///... pointed anywhere else in the tree
 instance/
 *.db
 
-# Editor / OS files
+# Editor / OS files from contributors' machines
 .DS_Store
 .idea/
 .vscode/
-.claude/
 
 # Agent/planning artifacts: working notes, not part of the shipped project.
+.claude/
 .superpowers/
 docs/superpowers/
 docs/IMPLEMENTATION_PLAN.md
 docs/CLOSEOUT.md
 .autopilot/
-*_UPDATES.md
-*AUDIT*.md
-*FINDINGS*.md
+# Local audit reports (any capitalization: the matching is case-sensitive on Linux)
+*[Aa][Uu][Dd][Ii][Tt]*.md
 # AI-assistant instructions, kept local, not shipped in the public repo.
 CLAUDE.md
 # Operator deploy runbook kept local, not shipped in the public repo.

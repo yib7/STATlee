@@ -34,10 +34,10 @@ def test_dockerignore_keeps_secrets_local_data_and_vcs_out_of_the_image():
     provider keys), instance/*.db (accounts, password hashes) and .git into the
     image, and load_dotenv() then loaded the builder's key at runtime."""
     patterns = set(_lines('.dockerignore'))
-    for required in ('.env', '.env.*', '!.env.example', 'instance/', '*.db',
-                     '.git', '.autopilot/', '.claude/', 'CLAUDE.md',
-                     '__pycache__/', '.pytest_cache/', 'venv/', '.venv/',
-                     '_repo-backup/', '_logo-work/', 'tests/'):
+    for required in ('.env', '.env.*', '!.env.example', 'instance/', '**/*.db',
+                     '**/*.pem', '**/*.key', '.git', '.autopilot/', '.claude/',
+                     'CLAUDE.md', '**/__pycache__/', '.pytest_cache/', 'venv/',
+                     '.venv/', 'tests/'):
         assert required in patterns, required
 
 

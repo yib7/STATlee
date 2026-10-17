@@ -114,12 +114,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Plant files the build context must drop
+        # .dockerignore patterns are anchored at the context root; these probes
+        # prove the nested and mixed-case ones match where they claim to.
+        run: |
+          touch .env Probe_Audit_Notes.md statlee/probe.pem statlee/probe.db
+          mkdir -p instance && touch instance/probe.db
       - name: Build the app image
         run: docker build -f docker/app.Dockerfile -t statlee-web .
       - name: Check the runtime user and the build context
         run: |
           test "$(docker run --rm statlee-web id -u)" != "0"
           docker run --rm statlee-web sh -c 'test ! -e /app/.env && test ! -e /app/.git && test ! -d /app/tests'
+          docker run --rm statlee-web sh -c 'test ! -e /app/Probe_Audit_Notes.md && test ! -e /app/statlee/probe.pem && test ! -e /app/statlee/probe.db && test ! -e /app/instance/probe.db'
 
   postgres:
     name: Migrations on PostgreSQL
