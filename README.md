@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
-  <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Tests: 1,500+ passing" src="https://img.shields.io/badge/tests-1%2C500%2B%20passing-3fb950">
   <img alt="LLM providers: Gemini, Claude, OpenAI" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
@@ -40,8 +40,8 @@ that code runs:
 
 <table>
   <tr>
-    <td><img src="docs/images/screenshot-workspace.png" width="440" alt="Workspace with the sample survey loaded: the sidebar with the upload area and a plain-English prompt, and the generated Python script in the code editor"></td>
-    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the numbered run rail, the Methods and assumptions card with its assumption checks, the terminal output and a generated plot"></td>
+    <td><img src="docs/images/screenshot-workspace.png" width="440" alt="Workspace with the sample survey loaded: suggested analyses and the plain-English prompt in the sidebar, and the generated Python script in the code editor"></td>
+    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the numbered run rail with a failed first run and its fixed rerun, the Methods and assumptions card with three passing assumption checks and the odds ratio, and the sandbox terminal output with the logistic regression table"></td>
   </tr>
   <tr>
     <td><img src="docs/images/screenshot-codebook.png" width="440" alt="Codebook tab: an editable table of every variable with its type, label, value labels, missing codes and role"></td>
@@ -249,11 +249,12 @@ both Docker images and these README steps on every push
 ## Demo
 
 <p align="center">
-  <img src="docs/images/demo.gif" width="900" alt="Walkthrough: load the sample survey, check a variable in the Codebook tab, ask whether income predicts turnout, watch the script generate and run, read the results with the Methods and assumptions card, build a report, and export the reproducibility bundle">
+  <img src="docs/images/demo.gif" width="900" alt="Walkthrough: load the sample survey, label two variables in the Codebook tab, ask whether income predicts turnout, watch the script stream in and run, see the first run fail and Fix with AI repair it, read the Methods and assumptions card, interpretation and plot, build a report, and export the reproducibility bundle">
 </p>
 
 The run uses [docs/examples/sample_survey.csv](docs/examples/sample_survey.csv),
-a synthetic 320-row survey.
+a synthetic 320-row survey, with the default models (Pro mode off). Waits on the
+model are sped up in the recording.
 
 ## Limitations
 
