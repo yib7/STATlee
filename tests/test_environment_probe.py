@@ -273,8 +273,11 @@ def test_the_lock_is_not_held_while_the_probe_runs(app, monkeypatch):
 def test_a_waiter_that_times_out_gets_the_failure_text(app, monkeypatch):
     import threading
     release = threading.Event()
+    started = threading.Event()
 
     def hung(code, language='Python', **k):
+        # Reached only after the runner registered itself in _inflight.
+        started.set()
         release.wait(5)
         return _Result('Python 3.12.1\n')
     monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', hung)
@@ -284,8 +287,7 @@ def test_a_waiter_that_times_out_gets_the_failure_text(app, monkeypatch):
     runner = threading.Thread(target=environment.capture, args=(cfg,))
     runner.start()
     try:
-        import time
-        time.sleep(0.1)
+        assert started.wait(5)
         assert 'could not be captured' in environment.capture(cfg)
     finally:
         release.set()
