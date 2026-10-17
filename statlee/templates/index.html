@@ -30,10 +30,10 @@
          executable, so a strict script-src 'self' does not block it). boot.js
          reads it into window.CC_BOOT. 'models' carries the code-generation
          model ids by role so the generation header can name the model that is
-         actually running (display only, exactly like 'prices'). 'provider',
+         running (display only, exactly like 'prices'). 'provider',
          'sandbox_mode', 'file_ttl' (seconds) and 'billing' keep the copy
-         honest about who receives the data, how scripts are isolated, and
-         when anonymous uploads are deleted (D4-16/D4-19/D4-20). -->
+         accurate about who receives the data, how scripts are isolated, and
+         when anonymous uploads are deleted. -->
     {%- set S = config['STATLEE'] %}
     {%- set provider_names = {'gemini': 'Google Gemini', 'anthropic': 'Anthropic Claude', 'openai': 'OpenAI'} %}
     {%- set provider_name = provider_names.get(S.llm_provider, S.llm_provider) %}
@@ -51,7 +51,7 @@
 <body class="cc-app bg-[var(--s1)] text-[var(--text-1)] h-screen flex flex-col overflow-hidden relative transition-colors duration-500 cc-no-data cc-no-code cc-no-run cc-no-chat">
 
     <div id="toastArea"></div>
-    <!-- One polite announcement per finished stream/run (D4-14); the streamed
+    <!-- One polite announcement per finished stream/run; the streamed
          panes themselves are not live regions, or every chunk would be read. -->
     <div id="srAnnounce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
@@ -69,7 +69,7 @@
         </div>
     </div>
 
-    <!-- Codebook decision tree (5.13): attach codebook → or generate from survey -->
+    <!-- Codebook decision tree: attach codebook → or generate from survey -->
     <div id="codebookPromptOverlay" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="codebookPromptTitle">
         <div class="bg-[var(--s0)] p-10 rounded-[22px] shadow-2xl max-w-lg w-full border border-[var(--border)] text-center transform transition-all animate-fade-in-up">
             <div class="w-14 h-14 bg-[var(--indigo-soft)] rounded-[14px] flex items-center justify-center mx-auto mb-4 text-[var(--indigo)]">
@@ -113,7 +113,7 @@
         </div>
     </div>
 
-    <!-- Account modal (7.1) -->
+    <!-- Account modal -->
     <div id="accountModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
         <div class="bg-[var(--s0)] p-8 rounded-[22px] shadow-2xl max-w-md w-full border border-[var(--border)] animate-fade-in-up">
             <div class="flex justify-between items-center mb-6">
@@ -122,7 +122,7 @@
             </div>
             <div id="accountLoginItem">
                 <p class="text-xs text-[var(--text-2)] mb-5 leading-relaxed">Sign in to keep your datasets, scripts, and chat history across visits. Anonymous use stays available: anonymous uploads are deleted automatically after about {{ ttl_hours }} hours, and past analyses are kept only in this browser.</p>
-                <!-- A real form (D4-12): Enter in either field signs in, and
+                <!-- A real form: Enter in either field signs in, and
                      password managers recognise the pair. -->
                 <form id="accForm" novalidate>
                     <label class="label-eyebrow mb-1.5" for="accEmail">Email</label>
@@ -147,7 +147,7 @@
         </div>
     </div>
 
-    <!-- Issue report modal (6.3) -->
+    <!-- Issue report modal -->
     <div id="issueModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="issueTitle">
         <div class="bg-[var(--s0)] p-8 rounded-[22px] shadow-2xl max-w-lg w-full border border-[var(--border)] animate-fade-in-up">
             <div class="flex justify-between items-center mb-4">
@@ -160,7 +160,7 @@
         </div>
     </div>
 
-    <!-- History modal (5.7) -->
+    <!-- History modal -->
     <div id="historyModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
         <div class="bg-[var(--s0)] rounded-[22px] shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col border border-[var(--border)] animate-fade-in-up overflow-hidden">
             <div class="flex justify-between items-center p-6 pb-3">
@@ -175,7 +175,7 @@
         </div>
     </div>
 
-    <!-- Analysis catalog modal (5.14) -->
+    <!-- Analysis catalog modal -->
     <div id="catalogModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="catalogTitle">
         <div class="bg-[var(--s0)] rounded-[22px] shadow-2xl max-w-xl w-full max-h-[85vh] flex flex-col border border-[var(--border)] animate-fade-in-up overflow-hidden">
             <div class="flex justify-between items-center p-6 pb-2">
@@ -216,7 +216,7 @@
         </div>
     </div>
 
-    <!-- Project export (SP4 reproducibility bundle) -->
+    <!-- Project export (reproducibility bundle) -->
     <div id="exportModal" class="cc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
         <div class="bg-[var(--s0)] p-8 rounded-[22px] shadow-2xl max-w-md w-full border border-[var(--border)] animate-fade-in-up">
             <div class="flex justify-between items-center mb-3">
@@ -246,7 +246,7 @@
         </div>
     </div>
 
-    <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
+    <!-- ===================== Main row (the footer sits below it) ===================== -->
     <div id="mainRow" class="flex flex-1 min-h-0 relative">
 
         <!-- Left Sidebar -->
@@ -312,14 +312,14 @@
                         </p>
                     </div>
                     {% if sample_available %}
-                    <!-- First run (6.12): data to try before you have your own.
+                    <!-- First run: data to try before you have your own.
                          Outside the dropzone, whose full-bleed file input would
                          swallow the click. -->
                     <p class="cc-sample-link">No data handy? <a href="{{ url_for('misc.sample_dataset') }}" download>Download the sample survey</a> (synthetic, 320 rows), then drop it above.</p>
                     {% endif %}
-                    <!-- The loaded dataset (D1-1): the name the user picked, plus
+                    <!-- The loaded dataset: the name the user picked, plus
                          the stored name scripts read when the two differ, and any
-                         upload warnings (D1-13: skipped sheets, ...). -->
+                         upload warnings (skipped sheets, ...). -->
                     <div id="datasetInfo" class="cc-dataset-info hidden" role="status">
                         <p class="cc-dataset-name">Loaded <strong id="datasetName"></strong></p>
                         <p id="datasetStored" class="cc-dataset-stored hidden"></p>
@@ -327,7 +327,7 @@
                     </div>
                     <p id="sessionExpiry" class="cc-session-expiry hidden" role="status"></p>
 
-                    <!-- Data-handling disclosure (D6 / D4-16): what actually
+                    <!-- Data-handling disclosure: what
                          leaves the server, for IRB-minded users. -->
                     <details class="cc-disclosure mt-3">
                         <summary>What is sent to {{ provider_name }}?</summary>
@@ -341,7 +341,7 @@
                         </ul>
                     </details>
 
-                    <!-- Persistent pipeline checklist (4.4). Visible from first
+                    <!-- Persistent pipeline checklist. Visible from first
                          paint: before an upload it reads all-pending against an
                          "awaiting data" status, so the run is legible up front. -->
                     <div class="es-pipe-head mt-5">
@@ -349,19 +349,19 @@
                         <span id="pipelineStatus">awaiting data</span>
                     </div>
                     <div id="pipelineChecklist" class="flex flex-col gap-0.5"></div>
-                    <!-- Not a live region any more (D4-14): every step change
-                         re-rendered the list and was read out. Finished stages
+                    <!-- Not a live region: as one, the whole list would be read
+                         out on every step change. Finished stages
                          are announced once through #srAnnounce instead. -->
 
                     <input type="file" id="pdfInput" accept=".pdf,.txt" class="hidden" aria-hidden="true"/>
                 </div>
 
-                <!-- Intelligent Codebook -->
+                <!-- Codebook -->
                 <div id="codebookContainer" class="hidden panel p-5 transition-all duration-500 animate-fade-in-up">
                     <div class="flex items-center justify-between w-full gap-2 mb-4">
                         <button id="codebookToggleBtn" data-action="toggleCodebook" class="flex items-center gap-2 label-eyebrow group" aria-label="Toggle codebook visibility">
                             <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                            Intelligent Codebook
+                            Codebook
                             <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-[var(--text-3)] group-hover:text-[var(--indigo)] transition-colors normal-case tracking-normal">
                                 <span id="codebookToggleLabel">Hide</span>
                                 <svg id="codebookChevron" class="w-3.5 h-3.5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>
@@ -375,7 +375,7 @@
                     <div id="codebookList" class="codebook-grid"></div>
                 </div>
 
-                <!-- Conversational data cleaning + version control (5.16) -->
+                <!-- Conversational data cleaning + version control -->
                 <div id="changelogPanel" class="hidden panel p-5 animate-fade-in-up">
                     <!-- flex-wrap: at the default sidebar width the title plus
                          Undo / Redo / Original / Pop out do not fit on one line;
@@ -392,12 +392,12 @@
                         <div class="flex items-center gap-1.5 shrink-0">
                             <button id="undoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-[var(--border-strong)] rounded-lg disabled:opacity-40 hover:bg-[var(--s2)] transition-all inline-flex items-center gap-1" aria-label="Undo last data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h11a4 4 0 010 8h-1M3 10l4-4M3 10l4 4"></path></svg>Undo</button>
                             <button id="redoBtn" disabled class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase border border-[var(--border-strong)] rounded-lg disabled:opacity-40 hover:bg-[var(--s2)] transition-all inline-flex items-center gap-1" aria-label="Redo data change"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10H10a4 4 0 000 8h1M21 10l-4-4M21 10l-4 4"></path></svg>Redo</button>
-                            <button id="revertBtn" disabled class="revert-btn px-2.5 py-1 text-[10px] font-mono font-bold uppercase border rounded-lg disabled:opacity-40 transition-all inline-flex items-center gap-1" title="Restore the dataset to its originally-uploaded state (undo-able)" aria-label="Revert dataset to original upload"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M4 9a9 9 0 1 1 1 7"></path></svg>Original</button>
+                            <button id="revertBtn" disabled class="revert-btn px-2.5 py-1 text-[10px] font-mono font-bold uppercase border rounded-lg disabled:opacity-40 transition-all inline-flex items-center gap-1" title="Restore the dataset to its original upload (you can Undo this)" aria-label="Revert dataset to original upload"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M4 9a9 9 0 1 1 1 7"></path></svg>Original</button>
                             <button id="wranglePopoutBtn" type="button" class="px-2.5 py-1 text-[10px] font-mono font-bold uppercase text-[var(--indigo)] hover:underline inline-flex items-center gap-1" title="Float the cleaning tool so it stays visible on any tab" aria-label="Pop out data cleaning">Pop out<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17L17 7M9 7h8v8"></path></svg></button>
                         </div>
                     </div>
                     <div id="wrangleBody">
-                        <p class="text-xs text-[var(--text-2)] leading-relaxed mb-3">Cleaning your data first, fixing types, handling missing values, and dropping junk columns, helps STATlee produce accurate, reliable results. It matters most on large datasets, where small inconsistencies quietly compound across thousands of rows.</p>
+                        <p class="text-xs text-[var(--text-2)] leading-relaxed mb-3">Cleaning first (fixing types, handling missing values, dropping junk columns) helps STATlee get accurate results. It matters most on large datasets, where small inconsistencies add up across thousands of rows.</p>
                         <div id="changelogList" class="wrangle-chat flex flex-col gap-2 overflow-y-auto mb-3" aria-live="polite"></div>
                         <div class="flex gap-2">
                             <input type="text" id="wrangleInput" class="flex-1 bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-2.5 px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--indigo)]" placeholder='e.g., Delete column "notes", or filter rows where age > 30'>
@@ -420,7 +420,7 @@
                     </div>
                 </div>
 
-                <!-- Suggestions (+ reroll 4.5) -->
+                <!-- Suggestions (+ reroll) -->
                 <div id="suggestionsContainer" class="hidden animate-fade-in-up">
                     <div class="flex items-center justify-between mb-3">
                         <label class="label-eyebrow">Suggested analysis</label>
@@ -440,7 +440,7 @@
                     <label class="label-eyebrow mb-3" for="promptInput">3 · What do you want to analyze?</label>
                     <textarea id="promptInput" rows="5" class="w-full bg-[var(--s0)] border border-[var(--border-strong)] text-[var(--text-1)] focus:ring-2 focus:ring-[var(--indigo)] focus:border-[var(--indigo)] rounded-[10px] py-3 px-4 placeholder:text-[var(--text-3)] outline-none transition-all resize-none text-base" placeholder="e.g., Run a multiple regression using 'income' and 'education' to predict 'voting_behavior'. Generate a scatter plot of the residuals..."></textarea>
                     <p class="mt-2 text-xs text-[var(--text-2)] leading-relaxed font-medium">
-                        <span class="font-bold text-[var(--indigo)]">Pro Tip:</span> Specificity is integral to generating high-quality code! Explicitly state your desired analysis, statistical tests, plots, and <span class="underline decoration-[var(--indigo)]">exact column labels</span>.
+                        <span class="font-bold text-[var(--indigo)]">Tip:</span> Name the analysis, the statistical tests, the plots, and the <span class="underline decoration-[var(--indigo)]">exact column labels</span>. Specific prompts get better code.
                     </p>
                     <div id="refineWrap" class="hidden mt-3 flex items-center gap-2.5">
                         <input type="checkbox" id="refineToggle" checked class="cc-switch cursor-pointer">
@@ -525,7 +525,7 @@
                 </div>
             </div>
 
-            <!-- Pane area (6.1) -->
+            <!-- Pane area -->
             <div id="paneArea" class="flex-1 overflow-hidden relative flex min-h-0">
                 <div id="paneA" class="pane flex-1">
 
@@ -652,7 +652,7 @@
                     <!-- RESULTS TAB -->
                     <div id="contentResults" role="tabpanel" aria-labelledby="tabResults" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-6">
 
-                        <!-- Session workbook (SP1): every run this session is
+                        <!-- Session workbook: every run this session is
                              kept. workbook.js fills the list from GET /runs; it
                              stays hidden while the workbook is empty. -->
                         <section id="runRail" class="wb-rail hidden" aria-labelledby="runRailTitle">
@@ -694,7 +694,7 @@
                             <span id="execElapsed" class="lc-elapsed live" aria-hidden="true"><span class="lc-dot blink"></span><span id="execElapsedVal">0:00</span></span>
                         </div>
 
-                        <!-- Methods and assumptions card (SP3): the run's
+                        <!-- Methods and assumptions card: the run's
                              parsed methods block. methods.js fills the body
                              with text nodes only; hidden until a run has one. -->
                         <section id="methodsCard" class="mc-card hidden" aria-labelledby="methodsCardTitle">
@@ -731,7 +731,7 @@
                             </div>
                         </div>
 
-                        <!-- AI debug frame (5.11): on a failed run this names the
+                        <!-- AI debug frame: on a failed run this names the
                              error and offers the two ways forward. The full
                              diagnosis streams into Interpretation below. -->
                         <div id="debugFrame" class="lc-debug hidden animate-fade-in-up">
@@ -756,7 +756,7 @@
                                 <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body"></div>
                                 <!-- Plots render once, beside (not inside) the
                                      streamed markdown, so each chunk does not
-                                     re-decode every base64 image (D4-27). -->
+                                     re-decode every base64 image. -->
                                 <div id="plotOutput"></div>
                                 <div class="es-skels es-run" aria-hidden="true" style="padding:0">
                                     <div class="es-skel" style="height:9px;width:92%"></div>
@@ -811,7 +811,7 @@
                             </div>
                             <div class="max-w-4xl mx-auto mt-2.5 flex items-center gap-2.5">
                                 <input type="checkbox" id="guideToggle" class="cc-switch cursor-pointer">
-                                <label for="guideToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Hypothesis coach: helps you formulate a rigorous analysis prompt from a hunch">Guide me: help me shape a hypothesis into an analysis</label>
+                                <label for="guideToggle" class="text-xs text-[var(--text-2)] font-medium cursor-pointer" title="Hypothesis coach: helps you turn a hunch into an analysis prompt">Guide me: help me shape a hypothesis into an analysis</label>
                             </div>
                         </div>
                     </div>
@@ -824,14 +824,14 @@
                                     <svg class="w-4 h-4 text-[var(--indigo)]" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
                                     Codebook
                                 </h2>
-                                <!-- SP2: the server codebook (one editable row per
+                                <!-- The server codebook (one editable row per
                                      column) and the attached PDF/TXT document are two
                                      views of this tab. codebook.js owns the switch. -->
                                 <div class="cb-switch" role="group" aria-label="Codebook view">
                                     <button id="cbViewVariables" type="button" class="cb-switch-btn" aria-pressed="true" aria-controls="cbEditor">Variables</button>
                                     <button id="cbViewDocument" type="button" class="cb-switch-btn" aria-pressed="false" aria-controls="cbDocument">Document</button>
                                 </div>
-                                <!-- D4-30: once a document is attached the empty
+                                <!-- Once a document is attached the empty
                                      state (with its upload buttons) is gone; this
                                      keeps "attach a different one" reachable. -->
                                 <button id="codebookReplaceBtn" type="button" class="hidden btn-toolbar">Replace document</button>
@@ -909,19 +909,19 @@
                                 </div>
                             </div>
                             <iframe id="pdfViewerFrame" class="w-full flex-1 border-0 bg-white hidden" src="" title="Uploaded codebook document"></iframe>
-                            <!-- A .txt codebook stays text on the server (D1-10), so it
+                            <!-- A .txt codebook stays text on the server, so it
                                  is shown as text, never loaded into the PDF frame. -->
                             <pre id="codebookTextView" class="cc-codebook-text hidden" tabindex="0" aria-label="Uploaded codebook text"></pre>
                             </section>
                         </div>
                     </div>
 
-                    <!-- REPORT BUILDER TAB (5.17) -->
+                    <!-- REPORT BUILDER TAB -->
                     <div id="contentReport" role="tabpanel" aria-labelledby="tabReport" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-3">
                         <div class="flex items-center justify-between flex-wrap gap-2">
                             <h2 class="label-eyebrow flex items-center gap-2">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                                AI Report Builder
+                                Report builder
                             </h2>
                             <span class="text-[11px] text-[var(--text-3)]">Grounded in the runs you select.</span>
                         </div>
@@ -965,7 +965,7 @@
                                     <option value="plain-language explainer">Plain language</option>
                                 </select>
                             </div>
-                            <!-- Which workbook runs ground the report (SP1).
+                            <!-- Which workbook runs ground the report.
                                  workbook.js fills it; default: the latest run
                                  plus any starred run. -->
                             <fieldset id="reportRuns" class="wb-checklist md:col-span-3 hidden">
@@ -1010,14 +1010,14 @@
         </main>
     </div>
 
-    <!-- Footer - in normal flow so it can never cover the UI (4.1) -->
+    <!-- Footer: in normal flow so it can never cover the UI -->
     <footer class="w-full bg-[var(--s1)] border-t border-[var(--border)] text-center py-2 z-50 transition-colors duration-500 shrink-0">
         <!-- "auto-deleted", not "not stored": anonymous sessions never touch the
              DB, but the uploaded file IS written to disk and reaped on a TTL
-             (config.file_ttl_seconds, 2h default). Same correction SP1 made to
-             the landing page, kept consistent with the dropzone line above.
-             The provider is the configured one, not a hardcoded "Gemini"
-             (D4-16), and only docker mode is called network-isolated. -->
+             (config.file_ttl_seconds, 2h default). The landing page and the
+             dropzone line above say the same.
+             The provider is the configured one, not a hardcoded "Gemini",
+             and only docker mode is called network-isolated. -->
         <p class="text-[10px] text-[var(--text-3)] font-semibold uppercase tracking-[0.16em] font-mono">{{ 'Network-isolated sandbox' if docker_sandbox else 'Sandboxed execution' }} • Anonymous uploads auto-deleted • AI powered by {{ provider_name }}</p>
     </footer>
 

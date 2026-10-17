@@ -158,7 +158,7 @@
                 const note = document.createElement('div');
                 note.className = BUBBLE_MODEL;
                 note.innerHTML = CC.renderMarkdown(
-                    "**Guide mode on.** Tell me your hunch, say *\"I think income affects voting\"*, and I'll help you turn it into a rigorous, ready-to-run analysis prompt using your actual columns.");
+                    "**Guide mode on.** Tell me your hunch (for example, *\"I think income affects voting\"*) and I'll help you turn it into a ready-to-run analysis prompt that uses your columns.");
                 chatLog.appendChild(note);
                 chatLog.scrollTop = chatLog.scrollHeight;
             }

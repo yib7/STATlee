@@ -83,7 +83,7 @@
     }
 
     // =====================================================================
-    // AI report builder (5.17)
+    // Report builder
     // =====================================================================
     let reportPreviewOn = false;
 
@@ -483,7 +483,7 @@
     async function pickMethod(method, btn) {
         if (methodBusy) return;
         if (!CC.state.filename) {
-            CC.toast('Upload a dataset first so I can match the method to your columns.', 'error');
+            CC.toast('Upload a dataset first so STATlee can match the method to your columns.', 'error');
             return;
         }
         methodBusy = true;

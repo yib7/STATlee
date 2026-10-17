@@ -836,7 +836,7 @@ def test_export_dialog_copy_is_plain_and_has_no_em_dashes(client):
 def test_export_js_sends_the_options_and_names_readme_md():
     tools = _js_sources()['tools.js']
     body = tools[tools.find('async function exportProject'):
-                 tools.find('// AI report builder')]
+                 tools.find('// Report builder')]
     assert 'include_prompts' in body and "getElementById('exportIncludePrompts')" in body
     assert re.search(r'\bruns\s*[,:]', body) and "getElementById('exportRuns')" in body
     assert 'README.md' in body and 'README.txt' not in body
@@ -948,7 +948,7 @@ def test_scrollable_output_regions_are_keyboard_reachable(client):
 
 def test_floating_panels_are_named_regions():
     ui = _js_sources()['ui.js']
-    for label in ('Data cleaning', 'Intelligent codebook'):
+    for label in ('Data cleaning', 'Codebook'):
         assert f"float.setAttribute('aria-label', '{label}')" in ui, label
     assert ui.count("float.setAttribute('role', 'region')") == 2
 

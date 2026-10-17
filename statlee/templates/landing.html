@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-{#- D4-16: only the docker sandbox removes network access. The default
+{#- Only the docker sandbox removes network access. The default
     subprocess sandbox is time/memory/output-limited but shares the host
     network, so the copy may only claim isolation in docker mode. #}
 {%- set docker_sandbox = config['STATLEE'].sandbox_mode == 'docker' %}
@@ -487,9 +487,9 @@
         <div class="hero-in">
             <div class="eyebrow"><i></i>AI data analysis for social scientists</div>
             <h1>Statistical analysis<br>you can defend.</h1>
-            <p class="sub">STATlee classifies your variables, writes and runs real Python or R in a
-                sandbox, and explains the results in plain English, so you can trust it with your
-                thesis data.</p>
+            <p class="sub">STATlee classifies your variables, writes and runs Python or R in a
+                sandbox, and explains the results in plain English. You can read every line of code
+                it generates.</p>
             <div class="hero-cta">
                 <a class="btn btn-primary btn-hero" href="/">Open the workspace</a>
                 <a class="btn btn-ghost btn-hero" href="#how">
@@ -600,7 +600,7 @@
     <!-- BENEFITS -->
     <section class="sec" id="benefits">
         <div class="sec-head" data-reveal>
-            <div class="kicker">Not a chat wrapper</div>
+            <div class="kicker">What it does</div>
             <h2>A research instrument, end to end</h2>
         </div>
         <div class="grid-3">
@@ -616,9 +616,9 @@
                 <div class="benefit-ico">
                     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="var(--indigo)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"></path></svg>
                 </div>
-                <h3>Runs real code, not vibes</h3>
+                <h3>Runs the code it writes</h3>
                 <p>Generates Python or R, executes it in {{ sandbox_phrase }}, and shows you the
-                    script and the raw terminal output. Nothing is hidden.</p>
+                    script and the raw terminal output.</p>
             </div>
             <div class="benefit" data-reveal>
                 <div class="benefit-ico">
@@ -665,13 +665,13 @@
     <section class="sec-validity" id="validity">
         <div class="validity-grid">
             <div class="validity-copy" data-reveal>
-                <div class="kicker">Statistically valid by design</div>
+                <div class="kicker">Methods</div>
                 <h2>The right test for your variables</h2>
                 <p>STATlee reads your variable types before it writes a line of code, and suggests
-                    analyses the measurement levels in your data can actually support.</p>
+                    analyses that the measurement levels in your data support.</p>
                 <div class="ticks">
                     <div class="tick">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pipe-done)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>Suggested analyses cite your real column names
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pipe-done)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>Suggested analyses use your column names
                     </div>
                     <div class="tick">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pipe-done)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>The codebook steers it away from invalid tests

@@ -358,7 +358,7 @@
             const promptInput = document.getElementById('promptInput');
             const placeholder = promptInput.placeholder;
             generateBtn.disabled = true;
-            promptInput.placeholder = 'Please wait, profiling dataset variables. This might take a sec..';
+            promptInput.placeholder = 'Profiling dataset variables. This can take a few seconds...';
 
             function failed(message) {
                 if (previous) {
