@@ -796,6 +796,22 @@ def test_failed_run_interpretation_is_labelled_a_diagnosis(page, fake):
     assert entry['success'] is False
 
 
+def test_interpret_with_a_run_id_does_not_upload_the_results(page):
+    # 3A C-12: with a run_id the server grounds the interpretation on its own
+    # stored output and plots and ignores the client copy, so the page must
+    # not upload them again (up to ~13 MB of base64 plots per run).
+    bodies = _capture_bodies(page, '/interpret')
+    upload(page, 'interp.csv', CSV_A + '78,1,A\n')
+    skip_codebook(page)
+    generate(page)
+    run_script(page)
+    assert bodies, 'no /interpret request was made'
+    body = bodies[-1]
+    assert body.get('run_id'), body
+    assert 'plots' not in body and 'output' not in body, sorted(body)
+    assert 'significant' in page.inner_text('#interpretationOutput')
+
+
 def test_export_sends_the_generated_language_and_describes_the_zip(page):
     # Contracts 12 + 15: export under the language the script was approved in,
     # and describe the new zip layout.

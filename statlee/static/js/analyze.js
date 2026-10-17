@@ -594,14 +594,10 @@
     CC.runLanguage = runLanguage;
 
     /** A timed-out run DID run (L9): its outcome was recorded, so it is a
-     *  failed run, not a refusal. Since S5 /run answers 200 with
-     *  `timed_out: true` and the output printed before the stop. Servers
-     *  before S5 sent HTTP 500 with the sandbox's timeout message as `error`;
-     *  that text match is kept as a fallback for one release. */
-    const TIMEOUT_RE = /^Execution timed out after/;
-    function timeoutReply(ok, status, data) {
-        if (ok) return !!(data && data.timed_out);
-        return status === 500 && !!data && TIMEOUT_RE.test(String(data.error || ''));
+     *  failed run, not a refusal. /run answers 200 with `timed_out: true`
+     *  and the output printed before the stop. */
+    function timeoutReply(ok, data) {
+        return ok && !!(data && data.timed_out);
     }
 
     /** Wording for a run that never reached the sandbox. Since S1-B, any
@@ -656,16 +652,16 @@
             const { ok, status, data } = await CC.post('/run', {
                 code, language, filename: CC.state.filename,
             });
-            if (timeoutReply(ok, status, data)) {
+            if (timeoutReply(ok, data)) {
                 // L9: it ran and was stopped. The server recorded the outcome
                 // (returncode / timed_out), so /interpret diagnoses it.
-                const out = String((ok ? data.output : data.error) || '');
-                const plots = (ok && Array.isArray(data.plots)) ? data.plots : [];
-                const runId = (ok && data.run_id) || null;
+                const out = String(data.output || '');
+                const plots = Array.isArray(data.plots) ? data.plots : [];
+                const runId = data.run_id || null;
                 CC.state.lastRun = { output: out, plots, success: false, timedOut: true, code, run_id: runId };
                 if (CC.workbook && runId) CC.workbook.noteLiveRun(runId);
                 renderTerminal(out, true);
-                if (CC.renderMethods) CC.renderMethods(ok ? data.methods : null, { failed: true });
+                if (CC.renderMethods) CC.renderMethods(data.methods, { failed: true });
                 execFinished(true, null, 'timed out', { noFix: true });
                 if (plotOutput) plotOutput.innerHTML = renderPlots(plots);
                 interpretationOutput.innerHTML =
@@ -740,13 +736,18 @@
         interpreting = true;
         let debug = !runData.success;
         setInterpretationTitle(debug);
-        const body = {
-            output: runData.output || '',
-            plots: runData.plots || [],
-            success: !!runData.success,
-            code,  // 5.11: lets the backend switch to debugging-assistant mode
-        };
-        if (o.runId) body.run_id = o.runId;
+        // With a run_id the server grounds on that run's own stored output,
+        // plots, script and exit code and ignores any client copy, so none
+        // of it is uploaded again (a run's plots can be ~13 MB of base64,
+        // enough to hit MAX_UPLOAD_MB after a successful run).
+        const body = o.runId
+            ? { run_id: o.runId }
+            : {
+                output: runData.output || '',
+                plots: runData.plots || [],
+                success: !!runData.success,
+                code,  // 5.11: lets the backend switch to debugging-assistant mode
+            };
         try {
             const response = await CC.postStream('/interpret', body);
             const contentType = response.headers.get('Content-Type') || '';
