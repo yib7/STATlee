@@ -238,7 +238,7 @@ out only when `SMTP_HOST` is set: verification and reset links, and issue
 reports to `ISSUE_REPORT_TO`. There is no analytics or telemetry, and the
 fonts are served by the app itself, so a page view contacts no other host.
 
-Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
+Found a vulnerability? See [SECURITY.md](.github/SECURITY.md) for how to report it
 privately. Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Compliance & attribution
