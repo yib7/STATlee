@@ -71,6 +71,15 @@ _PLOT_RE = re.compile(r'plot_([0-9]+)\.png')
 _TMP_PREFIX = '.tmp-'
 _LOCK_TIMEOUT = 10
 _UNSET = object()
+# A legacy .last_run/ that could not be renamed (a file held open on Windows,
+# a permission error) is retried at most this often per process, so every
+# workbook read does not take the index lock and log a traceback (3A A4).
+ADOPT_RETRY_SECONDS = 300
+_adopt_failures = {}     # legacy dir path -> monotonic time of the last failure
+
+
+def _monotonic():
+    return time.monotonic()
 
 
 def _st():
@@ -315,6 +324,10 @@ def _ensure_adopted(identity=None):
     legacy = os.path.join(st.identity_root(identity), st.LAST_RUN_DIR)
     if not os.path.isdir(legacy):
         return
+    failed_at = _adopt_failures.get(legacy)
+    if failed_at is not None and \
+            _monotonic() - failed_at < ADOPT_RETRY_SECONDS:
+        return
     root = _runs_root(identity)
     with _lock(root):
         if not os.path.isdir(legacy):
@@ -335,12 +348,21 @@ def _ensure_adopted(identity=None):
         # the legacy dir is gone, so a run is never adopted twice. A file
         # held open in it (Windows) fails the rename: the legacy dir stays
         # and a later access retries, instead of every workbook read failing.
+        # Retries are spaced ADOPT_RETRY_SECONDS apart; only the first
+        # failure is a warning with a traceback.
         try:
             os.rename(legacy, tmp)
-        except OSError:
-            logger.warning("Could not adopt the legacy last run yet; will "
-                           "retry on a later access", exc_info=True)
+        except OSError as exc:
+            if failed_at is None:
+                logger.warning("Could not adopt the legacy last run yet; "
+                               "will retry in %d s", ADOPT_RETRY_SECONDS,
+                               exc_info=True)
+            else:
+                logger.debug("Legacy last run still cannot be adopted: %s",
+                             type(exc).__name__)
+            _adopt_failures[legacy] = _monotonic()
             return
+        _adopt_failures.pop(legacy, None)
         try:
             st._write_json_atomic(os.path.join(tmp, META_FILE),
                                   _new_meta(run_id, created_ts=created))

@@ -341,6 +341,9 @@ def test_locked_legacy_dir_is_left_in_place_and_adopted_later(
     assert storage.latest_run_id(identity=ident) is None
     assert os.path.isdir(legacy)
     monkeypatch.setattr(runs.os, 'rename', real_rename)
+    # The retry waits out the backoff (3A A4).
+    monkeypatch.setattr(runs, '_monotonic',
+                        lambda: 10 ** 9 + runs.ADOPT_RETRY_SECONDS)
     assert [r['run_id'] for r in storage.list_runs(identity=ident)] == [
         'r0001']
     assert storage.load_run('r0001', identity=ident)['output'] == \
@@ -379,3 +382,53 @@ def test_byte_budget_evictions_are_reported(ctx):
     _new, evicted = storage.record_run('o', [big], identity=ident)
     assert [e['run_id'] for e in evicted] == [first]
     assert evicted[0]['starred'] is False
+
+
+def test_a_locked_legacy_dir_backs_off_instead_of_flooding_the_log(
+        ctx, monkeypatch, caplog):
+    """3A A4: a legacy dir that cannot be renamed is retried at most every
+    ADOPT_RETRY_SECONDS, without the index lock or a traceback per read."""
+    from statlee import runs
+    ident = 'anon_wbbackoff'
+    legacy = os.path.join(storage.identity_root(ident), storage.LAST_RUN_DIR)
+    os.makedirs(legacy)
+    with open(os.path.join(legacy, 'output.txt'), 'w', encoding='utf-8') as f:
+        f.write('LOCKED LEGACY')
+    real_rename = os.rename
+    attempts = []
+
+    def locked(src, dst):
+        if os.path.basename(src) == storage.LAST_RUN_DIR:
+            attempts.append(src)
+            raise PermissionError(32, 'file in use')
+        return real_rename(src, dst)
+    clock = [1000.0]
+    monkeypatch.setattr(runs, '_monotonic', lambda: clock[0])
+    monkeypatch.setattr(runs.os, 'rename', locked)
+    locks = []
+    real_lock = runs._lock
+    monkeypatch.setattr(runs, '_lock',
+                        lambda root: locks.append(root) or real_lock(root))
+    with caplog.at_level('DEBUG', logger='statlee.runs'):
+        storage.save_run('new', [], identity=ident)
+        for _ in range(10):
+            storage.list_runs(identity=ident)
+            storage.run_meta('r0001', identity=ident)
+        assert len(attempts) == 1
+        # Only save_run took the lock after the first failed attempt.
+        assert len(locks) == 2
+        clock[0] += runs.ADOPT_RETRY_SECONDS + 1
+        storage.list_runs(identity=ident)
+        assert len(attempts) == 2
+    warnings = [r for r in caplog.records
+                if r.name == 'statlee.runs' and r.levelname == 'WARNING']
+    assert len(warnings) == 1 and warnings[0].exc_info
+    debug = [r for r in caplog.records
+             if r.name == 'statlee.runs' and r.levelname == 'DEBUG']
+    assert len(debug) == 1 and not debug[0].exc_info
+    # Once the file is released the next retry adopts it.
+    monkeypatch.setattr(runs.os, 'rename', real_rename)
+    clock[0] += runs.ADOPT_RETRY_SECONDS + 1
+    assert storage.run_ids(identity=ident) == ['r0002', 'r0001']
+    assert not os.path.exists(legacy)
+    assert legacy not in runs._adopt_failures

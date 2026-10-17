@@ -226,7 +226,8 @@ says how many were not kept. `/run` reads the dataset's version number, path and
 hash from one manifest read before the sandbox starts, so a wrangle that lands
 mid-run cannot pair the new version with the old bytes. A locked file in a
 legacy `.last_run/` (Windows) leaves it in place and adoption retries on a later
-access. For account users the history
+access, at most every 5 minutes per process (`runs.ADOPT_RETRY_SECONDS`), with
+one warning for the first failure. For account users the history
 rows (`analysis_runs`) link back to a run through nullable `run_id`,
 `dataset_version` and `model` columns; a restored row gets its full output and
 plots only while its run still exists (`run_available`).
