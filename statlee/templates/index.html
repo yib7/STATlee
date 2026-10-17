@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/cm-material-darker.min.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fonts.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 
     <script src="{{ url_for('static', filename='vendor/marked.min.js') }}"></script>
@@ -154,7 +154,7 @@
                 <h2 id="issueTitle" class="text-xl font-display font-bold text-[var(--text-1)] tracking-tight">Report an Issue</h2>
                 <button data-close-modal="issueModal" class="text-[var(--text-3)] hover:text-[var(--text-1)] text-xl leading-none" aria-label="Close issue dialog">&times;</button>
             </div>
-            <p class="text-xs text-[var(--text-2)] mb-4 leading-relaxed">Describe what went wrong. The active script, terminal output, and recent console errors are attached automatically so it can be fixed fast. Your dataset is <span class="font-bold">not</span> included.</p>
+            <p class="text-xs text-[var(--text-2)] mb-4 leading-relaxed">Describe what went wrong. The report goes to whoever runs this STATlee server, with the active script, terminal output, and recent console errors attached so it can be fixed fast. Your dataset file is <span class="font-bold">not</span> included, but the terminal output can show values from it.</p>
             <textarea id="issueDescription" rows="5" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-[var(--indigo)] resize-none text-base" placeholder="What happened? What did you expect?"></textarea>
             <button id="issueSubmitBtn" class="w-full btn-primary py-3">Submit report</button>
         </div>

@@ -119,8 +119,8 @@ def _new_page(browser, base_url, width=1440, height=900, scheme='light',
                               color_scheme=scheme)
 
     def _local_only(route):
-        # Hermetic: only the app under test. Google Fonts and anything else
-        # external are aborted, so the test never depends on the network.
+        # Hermetic: only the app under test. Anything external is aborted,
+        # so the test never depends on the network.
         if route.request.url.startswith(base_url):
             route.continue_()
         else:

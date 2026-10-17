@@ -68,7 +68,7 @@ bundled 0BSD/MIT/Zlib/CC0 parts), pillow (MIT-CMU), cryptography
 | [DOMPurify](https://github.com/cure53/DOMPurify) 3.4.17 (`statlee/static/vendor/purify.min.js`) | HTML sanitization (XSS defense for all LLM output) | Apache-2.0 / MPL-2.0, (c) Cure53 and contributors |
 | [Heroicons](https://heroicons.com/) v1 | Inline SVG icons in the templates and JS (some redrawn or trimmed) | MIT, (c) Tailwind Labs, Inc. |
 | [Feather](https://feathericons.com/) | Inline SVG icons (shield, book) | MIT, (c) Cole Bemis |
-| [Inter](https://rsms.me/inter/), [Syne](https://fonts.google.com/specimen/Syne), [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | Typefaces, loaded from Google Fonts at runtime (not bundled) | SIL Open Font License 1.1 |
+| [Inter](https://rsms.me/inter/), [Syne](https://gitlab.com/bonjour-monde/fonderie/syne-typeface), [JetBrains Mono](https://www.jetbrains.com/lp/mono/), variable-weight latin and latin-ext subsets from the npm packages `@fontsource-variable/{inter,syne,jetbrains-mono}` 5.3.0 (`statlee/static/fonts/*.woff2`, unmodified) | Typefaces, self-hosted so a page view sends nothing to a font CDN | SIL Open Font License 1.1; (c) 2016 The Inter Project Authors, (c) 2019 The Syne Project Authors, (c) 2020 The JetBrains Mono Project Authors; license texts in `statlee/static/fonts/OFL-*.txt` |
 
 The STATlee logo (`statlee/static/images/`), the README screenshots in `docs/images/`, and the
 synthetic sample dataset in `docs/examples/` are original to this project.

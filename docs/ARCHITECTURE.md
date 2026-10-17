@@ -97,7 +97,12 @@ Every request passes through ordered middleware:
    `X-CSRF-Token` header must equal the session token.
 3. **`require_auth`**: gate everything except `PUBLIC_ENDPOINTS` (the loader,
    landing, health, and auth handshake). Behavior depends on the auth *mode*.
-4. The view runs; **`stamp_request_id`** adds `X-Request-ID` to the response.
+4. The view runs; **`stamp_request_id`** adds `X-Request-ID` to the response,
+   plus the security headers: the CSP (`script-src 'self'`, fonts and styles
+   from `'self'` only), `X-Content-Type-Options: nosniff`,
+   `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, and in production
+   over HTTPS `Strict-Transport-Security` (one year). Session and remember
+   cookies are `HttpOnly` and `SameSite=Lax`, and `Secure` in production.
 
 `/health` is exempt from the default rate limit, never mints a session, and
 runs a `SELECT 1`, so it answers `503` when the database is unreachable.

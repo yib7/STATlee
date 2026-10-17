@@ -59,8 +59,8 @@ logger = logging.getLogger('statlee')
 #                                        attributes and <style> blocks (Tailwind
 #                                        utility layout); style injection is far
 #                                        lower risk than script injection.
-#   style-src/font-src fonts.google*   - index.html + landing.html load the
-#                                        Google Fonts stylesheet + font files.
+#   (fonts are self-hosted under static/fonts, so style-src and font-src
+#   name no third-party host: a page view sends nothing to a font CDN)
 #   img-src data:                      - matplotlib plots render as
 #                                        <img src="data:image/png;base64,...">.
 #   frame-src blob:                    - the Codebook tab previews an uploaded
@@ -68,8 +68,8 @@ logger = logging.getLogger('statlee')
 CSP_POLICY = (
     "default-src 'self'; "
     "script-src 'self'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
     "img-src 'self' data:; "
     "frame-src 'self' blob:; "
     "connect-src 'self'; "

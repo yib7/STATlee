@@ -230,6 +230,14 @@ double-submit with a constant-time check, and the schema is versioned with
 Alembic so an existing database upgrades cleanly instead of breaking on a new
 column.
 
+**What leaves the server.** Model calls go to the one LLM provider you
+configure. They carry your question, column names, summary statistics and a
+few sample values from the first rows, the generated script and its output,
+chart images for interpretation, and any codebook PDF you upload. Email goes
+out only when `SMTP_HOST` is set: verification and reset links, and issue
+reports to `ISSUE_REPORT_TO`. There is no analytics or telemetry, and the
+fonts are served by the app itself, so a page view contacts no other host.
+
 Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
 privately. Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
