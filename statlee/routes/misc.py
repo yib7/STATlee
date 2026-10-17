@@ -1,6 +1,7 @@
 """Index, health, metrics (3.3), issue reporting (6.3), report builder (5.17)."""
 import hmac
 import logging
+import threading
 import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
@@ -116,8 +117,42 @@ def metrics():
 # In-app issue reporting (6.3)
 # ---------------------------------------------------------------------------
 
+# B-16: /report_issue is open to anonymous callers, stores up to ~60 KB a row
+# and emails the operator. The chat limit (20/min per IP) allowed ~28,800 rows
+# and emails a day per IP, so it gets its own tight limit, the table keeps only
+# the newest ISSUE_REPORTS_MAX_ROWS rows, and at most ISSUE_EMAILS_PER_HOUR
+# reports per process are emailed (the rest are still stored and logged).
+REPORT_ISSUE_RATE_COUNT = 5
+REPORT_ISSUE_RATE = f'{REPORT_ISSUE_RATE_COUNT} per hour'
+ISSUE_REPORTS_MAX_ROWS = 1000
+ISSUE_EMAILS_PER_HOUR = 10
+_email_times = []
+_email_lock = threading.Lock()
+
+
+def _email_allowed(now=None):
+    """Consume one slot of the per-process hourly email budget."""
+    now = time.time() if now is None else now
+    with _email_lock:
+        _email_times[:] = [t for t in _email_times if now - t < 3600]
+        if len(_email_times) >= ISSUE_EMAILS_PER_HOUR:
+            return False
+        _email_times.append(now)
+        return True
+
+
+def _prune_issue_reports():
+    """Keep only the newest ``ISSUE_REPORTS_MAX_ROWS`` reports."""
+    from ..models import IssueReport
+    keep_ids = db.session.execute(
+        db.select(IssueReport.id).order_by(IssueReport.id.desc())
+        .limit(ISSUE_REPORTS_MAX_ROWS)).scalars().all()
+    db.session.execute(
+        db.delete(IssueReport).where(IssueReport.id.not_in(keep_ids)))
+
+
 @bp.route('/report_issue', methods=['POST'])
-@limiter.limit(lambda: _cfg().rate_limit_chat)
+@limiter.limit(REPORT_ISSUE_RATE)
 def report_issue():
     data = request_json()
     # D1-12: non-string fields are a 400, not a 500 from slicing a dict.
@@ -136,11 +171,17 @@ def report_issue():
         user_agent=(request.headers.get('User-Agent') or '')[:512],
     )
     db.session.add(report)
+    db.session.flush()
+    _prune_issue_reports()
     db.session.commit()
     logger.warning("ISSUE REPORT #%s: %s", report.id, description[:300])
 
     cfg = current_app.config['STATLEE']
     if cfg.smtp_host and cfg.issue_report_to:
+        if not _email_allowed():
+            logger.warning("Issue report %s not emailed: more than %s reports "
+                           "this hour", report.id, ISSUE_EMAILS_PER_HOUR)
+            return jsonify({'status': 'success', 'id': report.id})
         try:
             _email_report(cfg, report)
         except Exception:
@@ -354,7 +395,7 @@ def generate_report():
             if blocked_resp is not None:
                 return blocked_resp
 
-        # First pass runs on the bigger 3.1-pro model to compile a grounded
+        # First pass runs on the bigger 'pro_max' model to compile a grounded
         # draft. Built BEFORE the debit (prompt construction is free) so no
         # exception here can ever strand a debited credit.
         draft_prompt = prompts.report_draft(
@@ -390,14 +431,20 @@ def generate_report():
                     'usage': usage_breakdown(usage, mod_usage),
                     'revision': True}))
                 return
-            # Two-pass authoring: 3.1-pro compiles all the material (results,
-            # interpretation, and the converse discussion of the findings) into a
-            # grounded working draft, then 3.5-flash writes the finished piece.
-            draft_result = service.generate('pro_max', draft_prompt,
-                                            temperature=0.3)
+            # Two-pass authoring: the 'pro_max' model compiles all the material
+            # (results, interpretation, and the converse discussion of the
+            # findings) into a grounded working draft, then the default 'pro'
+            # model writes the finished piece. B-14: the draft is streamed
+            # (and collected here, not shown): streams get the larger output
+            # budget, which a thinking Pro model needs, and no non-streaming
+            # request timeout applies to a long draft.
+            draft_usage = {}
+            draft_text = ''.join(service.stream(
+                'pro_max', draft_prompt, temperature=0.3,
+                usage_out=draft_usage))
             final_prompt = prompts.report(
                 background, length, tone, fmt, output, interpretation,
-                history, draft=draft_result.text, methods_card=cards or None)
+                history, draft=draft_text, methods_card=cards or None)
             stream_usage = {}
             for delta in service.stream('pro', final_prompt, temperature=0.4,
                                         usage_out=stream_usage):
@@ -405,7 +452,7 @@ def generate_report():
             debit.delivered()
             yield sse_event(debit.with_balance({
                 'type': 'done',
-                'usage': usage_breakdown(draft_result.usage,
+                'usage': usage_breakdown(draft_usage,
                                          stream_usage, mod_usage),
                 'revision': False,
                 'run_ids': run_ids}))

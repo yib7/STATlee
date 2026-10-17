@@ -726,7 +726,7 @@ def _methods_cards(methods_card):
 
 def report_draft(background, length, fmt, terminal_output, interpretation,
                  history, converse, methods_card=None):
-    """First pass (run on the bigger 3.1-pro model): compile every available
+    """First pass (run on the bigger 'pro_max' model): compile every available
     piece of context, including the converse discussion of the findings, into a
     grounded working draft that the writing pass turns into a finished piece."""
     history_text = _format_turns(history)
