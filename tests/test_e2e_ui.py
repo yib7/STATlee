@@ -6,9 +6,9 @@ same way ``conftest.py`` builds it (testing ``Config`` with temp dirs,
 model call hits the deterministic fake: $0 and no real provider. Chromium is
 driven through Playwright.
 
-The module skips cleanly when Playwright or its Chromium build is missing (CI
-does not install them). Locally: ``pip install playwright`` and
-``python -m playwright install chromium``.
+The module skips cleanly when Playwright or its Chromium build is missing. CI
+installs both and runs these tests on Linux and Windows. Locally:
+``pip install playwright`` and ``python -m playwright install chromium``.
 
 Set ``STATLEE_SHOTS_DIR`` to also write review screenshots of the workspace
 (light/dark, desktop/390px) into that directory.
@@ -105,12 +105,16 @@ def browser():
 @pytest.fixture
 def fake(e2e_server):
     f = e2e_server['fake']
+    # Module-scoped: whatever one test set or made fail must not leak into
+    # the next, even when that test stopped before its own cleanup.
     f._overrides.clear()
+    f._failures.clear()
     llm.set_service(f)               # another module may have swapped it
     return f
 
 
-def _new_page(browser, base_url, width=1440, height=900, scheme='light'):
+def _new_page(browser, base_url, width=1440, height=900, scheme='light',
+              init_script=None):
     ctx = browser.new_context(viewport={'width': width, 'height': height},
                               color_scheme=scheme)
 
@@ -124,10 +128,15 @@ def _new_page(browser, base_url, width=1440, height=900, scheme='light'):
 
     ctx.route('**/*', _local_only)
     ctx.add_init_script(FETCH_SPY)
+    if init_script:                 # runs after FETCH_SPY, e.g. to set __fetchDelay
+        ctx.add_init_script(init_script)
     page = ctx.new_page()
     page.on('dialog', lambda d: d.accept())   # window.confirm on dataset switch
     page.goto(base_url + '/')
-    page.wait_for_function('() => window.CC && CC.editor')
+    page.wait_for_function('() => window.CC && CC.editor && CC.authReady')
+    # The boot /check_auth must have landed before a test reads or seeds
+    # CC.state.user, or its reply can overwrite the test's state (3A C-01).
+    page.evaluate('() => CC.authReady')
     return page
 
 
@@ -205,8 +214,9 @@ def test_escape_on_codebook_prompt_continues_the_pipeline(page):
 
 def test_failed_upload_keeps_previous_dataset(page, fake):
     fake.set('classify', CODEBOOK_A)
-    # Distinct bytes: the server caches classification by content, and the
-    # earlier tests' identical CSV_A was classified with the fake's empty {}.
+    # Distinct bytes: the server caches classification by content (reset
+    # before each test by conftest), so a unique row keeps this upload's
+    # classification its own even if CSV_A is uploaded again in this test.
     upload(page, 'a.csv', CSV_A + '29,36000,A\n')
     skip_codebook(page)
     page.wait_for_selector('#codebookContainer:not(.hidden)')
@@ -724,7 +734,7 @@ def test_wrangle_409_reloads_the_changelog_and_tells_the_user(page):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_selector('#changelogList .wrangle-turn')
+    page.wait_for_selector('#changelogList .wrangle-turn:not(.pending)')
     assert 'Dropped rows with missing values' in page.inner_text('#changelogList')
     page.wait_for_function(f'() => (window.__fetchCalls["/data_page"] || 0) > {before}')
     assert 'reloaded' in page.inner_text('.cc-toast.error').lower()
@@ -786,21 +796,20 @@ def test_failed_run_interpretation_is_labelled_a_diagnosis(page, fake):
     assert entry['success'] is False
 
 
-def test_run_timeout_is_an_executed_failure(page):
-    # L9: a /run timeout is a 500 carrying the sandbox's timeout message. The
-    # script DID run and the outcome is persisted, so it is interpreted.
-    upload(page, 'slow.csv', CSV_A + '69,1,A\n')
+def test_interpret_with_a_run_id_does_not_upload_the_results(page):
+    # 3A C-12: with a run_id the server grounds the interpretation on its own
+    # stored output and plots and ignores the client copy, so the page must
+    # not upload them again (up to ~13 MB of base64 plots per run).
+    bodies = _capture_bodies(page, '/interpret')
+    upload(page, 'interp.csv', CSV_A + '78,1,A\n')
     skip_codebook(page)
     generate(page)
-    page.context.route('**/run', lambda route: route.fulfill(
-        status=500, content_type='application/json',
-        body=json.dumps({'error': 'Execution timed out after 30 seconds. '
-                                  'Simplify the analysis or reduce the data size.'})))
-    page.click('#runBtn')
-    page.wait_for_selector('#pipelineChecklist [data-step="execute"][data-state="failed"]')
-    assert 'timed out' in page.inner_text('#pipelineChecklist [data-step="execute"] .step-note')
-    page.wait_for_function('() => (window.__fetchCalls["/interpret"] || 0) >= 1')
-    assert page.evaluate('() => !CC.state.lastRun.notExecuted') is True
+    run_script(page)
+    assert bodies, 'no /interpret request was made'
+    body = bodies[-1]
+    assert body.get('run_id'), body
+    assert 'plots' not in body and 'output' not in body, sorted(body)
+    assert 'significant' in page.inner_text('#interpretationOutput')
 
 
 def test_export_sends_the_generated_language_and_describes_the_zip(page):
@@ -845,9 +854,25 @@ def test_sign_in_keeps_the_loaded_dataset(page):
     assert page.locator('#dataTableBody td').count() > 0
 
 
-def test_credits_remaining_refreshes_the_balance(page):
+@pytest.mark.parametrize('delays', [{}, {'/check_auth': 800, '/method_prompt': 1600}],
+                         ids=['fast-auth', 'slow-auth'])
+def test_credits_remaining_refreshes_the_balance(browser, e2e_server, fake, delays):
     # Upcoming LLM-layer field: credit-spending replies may carry
     # `credits_remaining`; when present it is the balance to show.
+    # 3A C-01: the page's own boot /check_auth used to race the state this
+    # test seeds: an anonymous reply landing late reset CC.state.user to null
+    # and the predicate threw. 'slow-auth' makes that ordering certain (the
+    # boot auth lands while /method_prompt is still in flight), so it only
+    # passes because the page helper awaits CC.authReady first.
+    page = _new_page(browser, e2e_server['url'], init_script=(
+        f'Object.assign(window.__fetchDelay, {json.dumps(delays)});'))
+    try:
+        _credits_flow(page)
+    finally:
+        page.context.close()
+
+
+def _credits_flow(page):
     page.evaluate("""() => { CC_BOOT.billing = true;
         CC.state.user = {email: 'x@example.test', credits: 50}; }""")
     page.context.route('**/method_prompt', lambda route: route.fulfill(
@@ -855,7 +880,7 @@ def test_credits_remaining_refreshes_the_balance(page):
         body=json.dumps({'status': 'success', 'prompt': 'p', 'rationale': 'r',
                          'credits_remaining': 41})))
     page.evaluate("() => CC.post('/method_prompt', {})")
-    page.wait_for_function("() => CC.state.user.credits === 41")
+    page.wait_for_function("() => CC.state.user && CC.state.user.credits === 41")
     assert page.text_content('#accountCredits').strip() == '41 credits'
     page.context.route('**/converse', lambda route: route.fulfill(
         status=200, content_type='text/event-stream',
@@ -864,7 +889,7 @@ def test_credits_remaining_refreshes_the_balance(page):
     page.click('#tabConverse')
     page.fill('#chatInput', 'question')
     page.press('#chatInput', 'Enter')
-    page.wait_for_function("() => CC.state.user.credits === 40")
+    page.wait_for_function("() => CC.state.user && CC.state.user.credits === 40")
     assert page.text_content('#accountCredits').strip() == '40 credits'
 
 
@@ -910,8 +935,9 @@ def test_wrangle_409_takes_headers_from_dataset_versions(page):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_selector('#changelogList .wrangle-turn')
-    page.wait_for_timeout(300)
+    # The reloaded changelog, not the optimistic pending echo of 'my edit'.
+    page.wait_for_selector('#changelogList .wrangle-turn:not(.pending)')
+    page.wait_for_function('() => !document.querySelector("#changelogList .wrangle-turn.pending")')
     assert not any(b.get('per_page') == 1 for b in probes), probes
 
 
@@ -930,7 +956,8 @@ def test_wrangle_409_header_order_follows_the_server(page, fake):
     page.press('#wrangleInput', 'Enter')
     page.wait_for_selector('.cc-toast.error')
     page.wait_for_function('() => (window.__fetchCalls["/dataset_versions"] || 0) >= 1')
-    page.wait_for_timeout(500)
+    page.wait_for_function(
+        "() => JSON.stringify(CC.state.headers) === '[\"aaa\",\"age\",\"income\",\"group\"]'")
     assert page.evaluate('() => CC.state.headers') == ['aaa', 'age', 'income', 'group']
 
 

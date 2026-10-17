@@ -40,8 +40,9 @@
                     // even if the selector moved since (as Run does, D4-29).
                     language: CC.runLanguage ? CC.runLanguage(code)
                         : document.getElementById('languageSelect').value,
+                    // No interpretation: the server writes the run's own
+                    // stored one into the bundle.
                     history: CC.state.chatHistory,
-                    interpretation: CC.state.latestInterpretation,
                     report: CC.state.report,
                     include_prompts: includePrompts,
                     runs,
@@ -98,7 +99,7 @@
             return;
         }
         if (!inWorkbook && (!CC.state.lastRun || !CC.state.lastRun.output)) {
-            CC.toast('Run an analysis first — the report is grounded in actual results.', 'error');
+            CC.toast('Run an analysis first: the report is grounded in actual results.', 'error');
             return;
         }
         btn.disabled = true;
@@ -254,7 +255,6 @@
         const list = readLocalHistory();
         list.unshift(local);
         writeLocalHistory(list);
-        CC.state.report = CC.state.report || '';
         CC.post('/history', entry).catch(() => { /* anonymous: not persisted */ });
     };
 
@@ -476,11 +476,18 @@
         });
     }
 
+    // One /method_prompt (a billed model call) at a time: a double click
+    // used to send two, and the second captured the spinner as the label.
+    let methodBusy = false;
+
     async function pickMethod(method, btn) {
+        if (methodBusy) return;
         if (!CC.state.filename) {
             CC.toast('Upload a dataset first so I can match the method to your columns.', 'error');
             return;
         }
+        methodBusy = true;
+        btn.disabled = true;
         const orig = btn.innerHTML;
         btn.innerHTML = `<div class="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">${CC.spinner('h-4 w-4')} ${CC.escapeHtml(method.name)}? Matching it to your data…</div>`;
         try {
@@ -494,7 +501,7 @@
                 if (data.usage) CC.addUsage(data.usage);
                 document.getElementById('promptInput').value = data.prompt;
                 CC.modal.close('catalogModal');
-                CC.toast(data.rationale || 'Prompt drafted — review and hit Generate.', 'success');
+                CC.toast(data.rationale || 'Prompt drafted. Review it and hit Generate.', 'success');
             } else {
                 CC.toast((data && data.error) || 'Could not draft a prompt for that method.', 'error');
             }
@@ -502,6 +509,8 @@
             CC.toast('Network error.', 'error');
         } finally {
             btn.innerHTML = orig;
+            btn.disabled = false;
+            methodBusy = false;
         }
     }
 
@@ -579,8 +588,7 @@
      *
      *  `workspace` is the server's report (S5): `{moved: [...], skipped:
      *  [...]}`, stored dataset names. A skipped name already existed in the
-     *  account, whose copy wins; the user is told which ones. A server
-     *  without the report gets the generic notice. */
+     *  account, whose copy wins; the user is told which ones. */
     async function afterSignIn(workspace) {
         let user = null;
         try {
@@ -595,10 +603,10 @@
         CC.modal.close('accountModal');
         document.getElementById('accPassword').value = '';
         const signedIn = 'Signed in as ' + user.email + '.';
-        const report = workspace && Array.isArray(workspace.skipped) ? workspace : null;
-        const skipped = report ? report.skipped.filter(n => typeof n === 'string') : [];
+        const skipped = workspace && Array.isArray(workspace.skipped)
+            ? workspace.skipped.filter(n => typeof n === 'string') : [];
         const current = CC.state.filename;
-        if (report && skipped.length) {
+        if (skipped.length) {
             const others = skipped.filter(n => n !== current);
             const parts = [signedIn];
             if (current && skipped.indexOf(current) !== -1) {
@@ -612,12 +620,8 @@
                     + 'same name: ' + others.join(', ') + '.');
             }
             CC.toast(parts.join(' '), 'info');
-        } else if (current && report) {
-            CC.toast(signedIn + ' ' + CC.datasetLabel() + ' moved into your account.', 'success');
         } else if (current) {
-            CC.toast(signedIn + ' ' + CC.datasetLabel()
-                + ' moved into your account. If the account already had a dataset with that '
-                + 'name, the account copy is kept: upload the file again to replace it.', 'success');
+            CC.toast(signedIn + ' ' + CC.datasetLabel() + ' moved into your account.', 'success');
         } else {
             CC.toast(signedIn, 'success');
         }
@@ -817,7 +821,10 @@
     // Boot
     // =====================================================================
     document.addEventListener('DOMContentLoaded', () => {
-        checkAuth();
+        // Settles once the boot sign-in state is applied (checkAuth never
+        // rejects). Anything that reads or seeds CC.state.user, the browser
+        // tests included, can await it instead of racing the reply.
+        CC.authReady = checkAuth();
         initLegacyPasswordOverlay();
         renderCatalog();
 

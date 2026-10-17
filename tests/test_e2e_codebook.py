@@ -432,3 +432,42 @@ def test_leaving_a_field_shows_the_servers_cleaned_value(page, fake):
     page.keyboard.press('Tab')
     page.wait_for_function(
         f"() => document.querySelector('{row('age')} input.cb-label').value === 'Age in years'")
+
+
+# ---------------------------------------------------------------------------
+# 3A C-21: edits still queued when the page goes away are not lost, even past
+# the 64 KiB keepalive body cap
+# ---------------------------------------------------------------------------
+
+def test_queued_edits_over_the_keepalive_cap_survive_pagehide(page, fake):
+    cols = [f'c{i}' for i in range(40)]
+    csv = '\n'.join([','.join(cols), ','.join('1' for _ in cols),
+                     ','.join('2' for _ in cols)]) + '\n'
+    fake.set('classify', json.dumps(dict.fromkeys(cols, 'Continuous')))
+    upload(page, 'cb-exit.csv', csv)
+    skip_codebook(page)
+    page.click('#tabPdf')
+    page.wait_for_function(
+        f"() => document.querySelector('{row('c39')} select.cb-type').value === 'continuous'")
+    errors = []
+    page.on('pageerror', lambda exc: errors.append(str(exc)))
+    # Frozen timers: the debounced save never fires, so all 40 labels (about
+    # 78 KB of JSON) are still queued when the page is hidden.
+    page.clock.install()
+    page.evaluate("""() => {
+        document.querySelectorAll('#cbList > li.cb-row').forEach((li) => {
+            const input = li.querySelector('input.cb-label');
+            input.value = 'x'.repeat(1900) + ' ' + li.dataset.col;
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+        });
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted: false}));
+    }""")
+    saved = {}
+    for _ in range(50):
+        saved = server_codebook(page)['codebook']
+        if all(saved[c].get('label', '').endswith(' ' + c) for c in cols):
+            break
+        page.wait_for_timeout(100)
+    missing = [c for c in cols if not saved[c].get('label', '').endswith(' ' + c)]
+    assert not missing, f'{len(missing)} queued edits were lost: {missing[:5]}'
+    assert not errors, errors

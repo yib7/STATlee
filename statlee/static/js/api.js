@@ -285,15 +285,6 @@
             '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
     };
 
-    CC.debounce = function (fn, ms) {
-        let t;
-        return function () {
-            clearTimeout(t);
-            const args = arguments;
-            t = setTimeout(() => fn.apply(null, args), ms);
-        };
-    };
-
     // --- usage accounting (3.4 cost display) -----------------------------------
     CC.fmtUSD = function (usd) {
         if (!usd || usd <= 0) return '$0.00';
@@ -359,7 +350,7 @@
      *  /wrangle error does not fit in 4 s), and can be dismissed (D4-14). */
     CC.toast = function (message, type) {
         const area = document.getElementById('toastArea');
-        if (!area) { console.log('[toast]', message); return; }
+        if (!area) return;
         const kind = type || 'info';
         const el = document.createElement('div');
         el.className = 'cc-toast ' + kind;

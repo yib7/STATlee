@@ -228,11 +228,11 @@
                 <div>
                     <label class="label-eyebrow mb-1" for="exportRuns">Runs to include</label>
                     <select id="exportRuns" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-2 px-3 text-sm outline-none">
-                        <option value="all" selected>All runs</option>
+                        <option value="all" selected>All runs on this dataset</option>
                         <option value="starred">Starred runs</option>
                         <option value="latest">Latest run only</option>
                     </select>
-                    <span class="block text-xs text-[var(--text-2)] leading-relaxed mt-1">Each run gets a folder with its output, plots, methods card and interpretation.</span>
+                    <span class="block text-xs text-[var(--text-2)] leading-relaxed mt-1">Each run gets a folder with its output, plots, methods card and interpretation. Runs on other datasets, or on an earlier upload of this one, are not included.</span>
                 </div>
                 <label class="flex items-start gap-3 cursor-pointer" for="exportIncludePrompts">
                     <input type="checkbox" id="exportIncludePrompts" class="cc-switch mt-0.5 cursor-pointer shrink-0" checked>

@@ -6,9 +6,28 @@ contract so wiring (Pro mode) can depend on it, and so a future
 real implementation has a regression net for the "always allowed today"
 behaviour it will replace.
 """
+from datetime import UTC, datetime
+
+import pytest
 from conftest import SAMPLE_CSV, post_json, upload_csv
 
 from statlee import billing
+
+# One second before a month rolls over: a test that read the wall clock
+# separately from billing's own read could straddle the change (3A C-09).
+FROZEN_NOW = datetime(2026, 10, 31, 23, 59, 59, tzinfo=UTC)
+
+
+@pytest.fixture
+def this_month(monkeypatch):
+    """Freeze billing's clock and return the month it now reads."""
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return FROZEN_NOW if tz is None else FROZEN_NOW.astimezone(tz)
+
+    monkeypatch.setattr(billing, 'datetime', _FrozenDatetime)
+    return FROZEN_NOW.strftime('%Y-%m')
 
 
 def test_check_and_debit_allows_anonymous():
@@ -176,11 +195,9 @@ def test_monthly_ceiling_ignores_non_priority():
 
 # --- P2-10: monthly free-credit top-up + honest deny message ----------------
 
-def test_monthly_free_credits_top_up_applied_on_new_month(app):
+def test_monthly_free_credits_top_up_applied_on_new_month(app, this_month):
     """On the first billed request of a new calendar month, a free user's
     balance is topped up to MONTHLY_FREE_CREDITS, and credits_month advances."""
-    from datetime import UTC, datetime
-
     from statlee.config import Config
     from statlee.extensions import db
     from statlee.models import User
@@ -195,18 +212,15 @@ def test_monthly_free_credits_top_up_applied_on_new_month(app):
 
         allowed, message = billing.check_and_debit(
             user, priority=True, config=cfg)
-        this_month = datetime.now(UTC).strftime('%Y-%m')
         # Topped up to 5, then the priority request debited 1 -> 4.
         assert allowed is True and message is None
         assert user.credits == 4
         assert user.credits_month == this_month
 
 
-def test_monthly_free_credits_not_reapplied_same_month(app):
+def test_monthly_free_credits_not_reapplied_same_month(app, this_month):
     """Within the same month the top-up fires once: a second request does not
     refill, it just debits normally (so the balance keeps falling)."""
-    from datetime import UTC, datetime
-
     from statlee.config import Config
     from statlee.extensions import db
     from statlee.models import User
@@ -221,7 +235,6 @@ def test_monthly_free_credits_not_reapplied_same_month(app):
 
         billing.check_and_debit(user, priority=True, config=cfg)   # 5 -> 4
         assert user.credits == 4
-        this_month = datetime.now(UTC).strftime('%Y-%m')
         assert user.credits_month == this_month
 
         # Second request in the SAME month: no refill, just another debit.
@@ -267,16 +280,13 @@ def test_monthly_free_credits_disabled_by_default(app):
         assert user.credits == 0
 
 
-def test_deny_message_promises_reset_only_when_configured(app):
+def test_deny_message_promises_reset_only_when_configured(app, this_month):
     """The out-of-credits message must not promise a monthly reset unless one
     actually exists (MONTHLY_FREE_CREDITS>0)."""
-    from datetime import UTC, datetime
-
     from statlee.config import Config
     from statlee.extensions import db
     from statlee.models import User
 
-    this_month = datetime.now(UTC).strftime('%Y-%m')
     with app.app_context():
         user = User(email='msgtest@example.com')
         user.set_password('password123')

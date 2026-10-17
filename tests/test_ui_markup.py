@@ -288,11 +288,14 @@ def test_classify_failure_still_releases_the_composer():
     """Generation only needs CC.state.filename; the codebook is optional context
     that merges empty. Re-enabling ONLY on the success path stranded the user
     behind a permanently disabled Generate button when /classify_variables
-    failed. The release must be unconditional."""
+    failed. The release must not depend on success (only on the reply still
+    belonging to the loaded dataset, 3A C-16)."""
     data_js = _js_sources()['data.js']
     i = data_js.find('async function fetchCodebook')
     assert i != -1
-    body = data_js[i:i + 1200]
+    end = data_js.find('\n    }\n', i)
+    assert end != -1
+    body = data_js[i:end]
     assert 'finally' in body and 'releaseComposer()' in body, \
         'fetchCodebook must release the composer on the failure path too'
 
@@ -825,8 +828,8 @@ def test_export_dialog_copy_is_plain_and_has_no_em_dashes(client):
     modal = _export_modal(_visible(_index_html(client)))
     text = re.sub(r'<[^>]+>', ' ', modal)
     assert '—' not in text and '–' not in text
-    for words in ('Include my prompts', 'Runs to include', 'All runs',
-                  'Starred runs', 'Latest run only'):
+    for words in ('Include my prompts', 'Runs to include', 'All runs on this dataset',
+                  'Starred runs', 'Latest run only', 'earlier upload of this one'):
         assert words in text, words
 
 

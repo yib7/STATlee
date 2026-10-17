@@ -9,7 +9,6 @@
     CC.store = {
         get(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } },
         set(key, val) { try { window.localStorage.setItem(key, val); return true; } catch (e) { return false; } },
-        remove(key) { try { window.localStorage.removeItem(key); } catch (e) { /* blocked */ } },
     };
 
     // --- theme -------------------------------------------------------------
@@ -171,8 +170,6 @@
     function cap(name) { return name.charAt(0).toUpperCase() + name.slice(1); }
     function contentEl(name) { return document.getElementById('content' + cap(name)); }
 
-    CC.activeTab = function () { return activeA; };
-
     CC.switchTab = function (tabName) {
         if (paneBView === tabName) return; // already visible in pane B
         VIEWS.forEach(n => {
@@ -209,7 +206,7 @@
         }
         if (CC.editor && tabName === 'generate') setTimeout(() => CC.editor.refresh(), 30);
     };
-    window.switchTab = CC.switchTab; // keep inline onclick handlers working
+    window.switchTab = CC.switchTab; // boot.js's data-action dispatch resolves it on window
 
     /** WAI-ARIA tabs keyboard model: Left/Right (and Home/End) move focus and
      *  select; a tab whose view sits in the split pane is skipped. */
@@ -538,6 +535,19 @@
         if (chevron) chevron.style.transform = wrangleVisible ? 'rotate(0deg)' : 'rotate(180deg)';
     };
 
+    // Undo / Redo / Original live in the sidebar panel's header, which is
+    // hidden while the cleaning tool floats: they move into the float's
+    // header with it (same elements, so their handlers and state come along)
+    // and back on dock.
+    const VERSION_BUTTONS = ['undoBtn', 'redoBtn', 'revertBtn'];
+    function moveVersionButtons(target, before) {
+        if (!target) return;
+        VERSION_BUTTONS.forEach((id) => {
+            const b = document.getElementById(id);
+            if (b) target.insertBefore(b, before || null);
+        });
+    }
+
     CC.popOutWrangle = function () {
         if (document.getElementById('wrangleFloat')) return;
         const body = document.getElementById('wrangleBody');
@@ -546,12 +556,15 @@
         float.id = 'wrangleFloat';
         float.className = 'glass-panel border border-slate-300 dark:border-slate-700/60';
         float.innerHTML =
-            '<div id="wrangleFloatHandle" class="cursor-move flex items-center justify-between px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
+            '<div id="wrangleFloatHandle" class="cursor-move flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
             '<span class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300">Data Cleaning</span>' +
+            '<div class="flex items-center gap-1.5 shrink-0">' +
+            '<span id="wrangleFloatVersions" class="flex items-center gap-1.5"></span>' +
             '<button id="wrangleDockBtn" class="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline" aria-label="Dock data cleaning back to sidebar">Dock</button>' +
-            '</div><div class="float-body"></div>';
+            '</div></div><div class="float-body"></div>';
         document.body.appendChild(float);
         float.querySelector('.float-body').appendChild(body);
+        moveVersionButtons(document.getElementById('wrangleFloatVersions'));
         body.style.display = '';
         wrangleVisible = true;
         const lbl = document.getElementById('wrangleToggleLabel');
@@ -569,6 +582,8 @@
         if (!float) return;
         const body = float.querySelector('#wrangleBody');
         const panel = document.getElementById('changelogPanel');
+        const popout = document.getElementById('wranglePopoutBtn');
+        if (popout) moveVersionButtons(popout.parentElement, popout);
         panel.appendChild(body);
         removeFloat(float);
         panel.classList.remove('hidden');

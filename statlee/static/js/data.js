@@ -149,26 +149,32 @@
 
     async function fetchCodebook(filename, quiet) {
         if (!quiet) CC.pipeline.set('classify', 'active');
+        // A background re-classify (after a wrangle or a 409) is not awaited:
+        // by the time it lands another dataset, or a re-upload of this one,
+        // may be loaded. Its reply then describes data that is gone, and must
+        // touch neither the new codebook nor the new dataset's composer.
+        const forUpload = CC.state.uploadedAt;
+        const current = () => filename === CC.state.filename && forUpload === CC.state.uploadedAt;
         try {
             const { ok, data } = await CC.post('/classify_variables', { filename });
+            if (!current()) return;
             if (ok && data.codebook) {
                 CC.state.codebook = data.codebook;
                 CC.renderCodebookUI();
                 if (data.usage) CC.addUsage(data.usage);
                 // The classification is now in the server codebook (SP2),
                 // under any edits the user made: show the merged result.
-                if (CC.codebookEditor && filename === CC.state.filename) CC.codebookEditor.refresh();
+                if (CC.codebookEditor) CC.codebookEditor.refresh();
                 if (!quiet) CC.pipeline.set('classify', 'done', data.cached ? 'cached' : '');
             } else if (!quiet) {
                 CC.pipeline.set('classify', 'failed', (data && data.error) || 'failed');
             }
         } catch (e) {
-            if (!quiet) CC.pipeline.set('classify', 'failed', 'network error');
+            if (!quiet && current()) CC.pipeline.set('classify', 'failed', 'network error');
         } finally {
-            releaseComposer();
+            if (current()) releaseComposer();
         }
     }
-    CC.fetchCodebook = fetchCodebook;
 
     /** /suggest accepts at most 10 `previous` ideas of 500 chars each (S1-B
      *  contract 9). The ideas on screen come first, so a reroll never repeats
@@ -543,7 +549,9 @@
         const panel = document.getElementById('changelogPanel');
         const list = document.getElementById('changelogList');
         if (!changelog) { panel.classList.add('hidden'); return; }
-        panel.classList.remove('hidden');
+        // While the cleaning tool floats, its body is in the float: the
+        // sidebar panel stays hidden until it is docked (dockWrangle).
+        if (!document.getElementById('wrangleFloat')) panel.classList.remove('hidden');
         list.innerHTML = '';
         changelog.versions.forEach(v => {
             const active = v.v === changelog.active;
@@ -602,10 +610,8 @@
     /** Re-read the dataset after a 409 (L1), or after sign-in kept the
      *  account's copy of this name: the cleaning history and the active
      *  version's columns from /dataset_versions (S5: it returns `headers` in
-     *  the frame's own order), then the table. A server without `headers`
-     *  gets the old one-row /data_page probe as a fallback: known columns
-     *  keep their order and new ones are appended. Returns the fresh
-     *  changelog, or null. */
+     *  the frame's own order), then the table. Returns the fresh changelog,
+     *  or null. */
     async function reloadDatasetState() {
         const filename = CC.state.filename;
         if (!filename) return null;
@@ -616,17 +622,8 @@
                 changelog = data.changelog;
                 renderChangelog(changelog);
             }
-            if (ok && Array.isArray(data.headers)) {
-                if (filename === CC.state.filename) adoptHeaders(filename, data.headers);
-            } else {
-                const probe = await CC.post('/data_page', { filename, page: 1, per_page: 1, filters: {} });
-                const row = probe.ok && probe.data && Array.isArray(probe.data.data) ? probe.data.data[0] : null;
-                if (row && filename === CC.state.filename) {
-                    const cols = Object.keys(row);
-                    const known = CC.state.headers.filter(h => cols.indexOf(h) !== -1);
-                    const added = cols.filter(c => CC.state.headers.indexOf(c) === -1);
-                    adoptHeaders(filename, known.concat(added));
-                }
+            if (ok && Array.isArray(data.headers) && filename === CC.state.filename) {
+                adoptHeaders(filename, data.headers);
             }
         } catch (e) { /* the caller's toast still tells the user to reload */ }
         await CC.fetchDataPage(1);
@@ -887,21 +884,32 @@
     }
 
     // --- suggestion reroll (4.5) -----------------------------------------------------------
+    // A reroll skips the server cache by design, so every click is a billed
+    // model call: one user-asked /suggest at a time, the button disabled
+    // while it runs (a double click used to send two).
+    let manualSuggestBusy = false;
+    async function manualSuggest(btn, previous) {
+        if (manualSuggestBusy || !CC.state.filename) return;
+        manualSuggestBusy = true;
+        btn.disabled = true;
+        try {
+            await CC.fetchSuggestions(CC.state.filename, previous);
+        } finally {
+            manualSuggestBusy = false;
+            btn.disabled = false;
+        }
+    }
+
     function initReroll() {
-        document.getElementById('rerollBtn').addEventListener('click', () => {
-            if (!CC.state.filename) return;
-            CC.fetchSuggestions(CC.state.filename, CC.state.suggestions);
-        });
+        const btn = document.getElementById('rerollBtn');
+        btn.addEventListener('click', () => manualSuggest(btn, CC.state.suggestions));
     }
 
     // On-demand suggestions when auto-suggest is off (no re-upload needed).
     function initSuggestNow() {
         const btn = document.getElementById('suggestNowBtn');
         if (!btn) return;
-        btn.addEventListener('click', () => {
-            if (!CC.state.filename) return;
-            CC.fetchSuggestions(CC.state.filename);
-        });
+        btn.addEventListener('click', () => manualSuggest(btn));
     }
 
     document.addEventListener('DOMContentLoaded', () => {

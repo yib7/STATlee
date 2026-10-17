@@ -609,14 +609,31 @@
         }
     }
 
-    /** Leaving the page with an edit still queued: send it anyway. */
+    /** Leaving the page with an edit still queued: send it anyway.
+     *
+     *  The bodies of all in-flight keepalive requests may total 64 KiB at
+     *  most; one batch over that (value labels on several columns) made the
+     *  fetch reject and the edit was lost. Each column goes in its own PUT
+     *  (the server merges them under the dataset lock), with keepalive while
+     *  they fit the budget and as a plain request after that, which still
+     *  completes when the page only went into the back/forward cache. */
+    const KEEPALIVE_BUDGET = 60 * 1024;
     function flushOnExit() {
         if (!Object.keys(cb.pending).length || !cb.pendingFile) return;
-        const body = JSON.stringify({ filename: cb.pendingFile, codebook: cb.pending });
+        const filename = cb.pendingFile;
+        const pending = cb.pending;
         cb.pending = {};
-        try {
-            fetch('/codebook', { method: 'PUT', headers: CC.headers(), body, keepalive: true });
-        } catch (e) { /* the page is going away */ }
+        let budget = KEEPALIVE_BUDGET;
+        Object.keys(pending).forEach((col) => {
+            const body = JSON.stringify({ filename, codebook: { [col]: pending[col] } });
+            const size = new Blob([body]).size;
+            const keepalive = size <= budget;
+            if (keepalive) budget -= size;
+            try {
+                fetch('/codebook', { method: 'PUT', headers: CC.headers(), body, keepalive })
+                    .catch(() => { /* the page is going away */ });
+            } catch (e) { /* the page is going away */ }
+        });
     }
 
     // =====================================================================
@@ -714,9 +731,6 @@
     CC.codebookEditor = {
         refresh,
         show,
-        flush,
-        /** The rows as the editor holds them (for tests and debugging). */
-        columns() { return cb.columns.slice(); },
     };
 
     document.addEventListener('DOMContentLoaded', () => {
