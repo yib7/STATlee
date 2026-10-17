@@ -162,9 +162,21 @@
         malformed: "The model's answer was not in the expected format. Try again; if it keeps "
             + 'happening, rephrase the request.',
     };
+    /** Reasons where the server's message is the better text (it names the
+     *  missing variable, for one), so it is shown as sent; the words here are
+     *  only for a reply that carries no message (3.12). */
+    const REASON_FALLBACKS = {
+        not_configured: 'The AI model is not set up on this server yet: its API key is missing. '
+            + 'Whoever runs the app needs to add the key to .env and restart it.',
+        unreachable: 'Could not reach the AI provider (a network error or timeout). '
+            + "Try again in a moment; if it keeps failing, check the server's internet connection.",
+    };
+    const has = (map, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(map, key);
     CC.reasonMessage = function (reason, serverMessage) {
-        const known = typeof reason === 'string' && Object.prototype.hasOwnProperty.call(REASON_MESSAGES, reason);
-        return known ? REASON_MESSAGES[reason] : CC.explainError(serverMessage);
+        if (has(REASON_MESSAGES, reason)) return REASON_MESSAGES[reason];
+        const text = typeof serverMessage === 'string' ? serverMessage.trim() : '';
+        if (has(REASON_FALLBACKS, reason)) return text || REASON_FALLBACKS[reason];
+        return CC.explainError(serverMessage);
     };
 
     /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
@@ -187,7 +199,7 @@
             else if (parsed.type === 'done') { terminal = true; if (h.onDone) h.onDone(parsed); }
             else if (parsed.type === 'error') {
                 terminal = true;
-                if (h.onError) h.onError(CC.reasonMessage(parsed.reason, parsed.message || 'Stream error.'), parsed);
+                if (h.onError) h.onError(CC.reasonMessage(parsed.reason, parsed.message) || 'Stream error.', parsed);
             }
         };
         const handleEvent = (event) => {

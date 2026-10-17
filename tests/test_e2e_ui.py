@@ -1048,3 +1048,34 @@ def test_unknown_stream_error_reason_keeps_the_server_message(page):
     page.press('#chatInput', 'Enter')
     page.wait_for_selector('#chatLog .bg-red-50')
     assert 'The server explains it.' in page.inner_text('#chatLog')
+
+
+def _converse_error(page, payload):
+    page.context.route('**/converse', lambda route: route.fulfill(
+        status=200, content_type='text/event-stream',
+        body='data: ' + json.dumps(dict(type='error', **payload)) + '\n\n'))
+    page.click('#tabConverse')
+    page.fill('#chatInput', 'question')
+    page.press('#chatInput', 'Enter')
+    page.wait_for_selector('#chatLog .bg-red-50')
+    return page.inner_text('#chatLog')
+
+
+def test_not_configured_keeps_the_server_message_that_names_the_key(page):
+    # 3.12: the server names the missing variable; the UI must not hide it.
+    text = _converse_error(page, {
+        'reason': 'not_configured',
+        'message': 'The AI model is not set up on this server: '
+                   'GEMINI_API_KEY is missing. Add it to .env and restart the app.'})
+    assert 'GEMINI_API_KEY is missing' in text, text
+
+
+@pytest.mark.parametrize('reason, expected', [
+    ('not_configured', 'API key'),
+    ('unreachable', 'Could not reach the AI provider'),
+])
+def test_unavailable_reasons_without_a_message_get_plain_words(page, reason, expected):
+    text = _converse_error(page, {'reason': reason})
+    assert expected in text, text
+    assert 'Stream error' not in text, text
+
