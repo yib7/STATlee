@@ -79,6 +79,9 @@ CSP_POLICY = (
     "form-action 'self'"
 )
 
+# One year: browsers keep using HTTPS for this host after one secure visit.
+HSTS_MAX_AGE = 31536000
+
 # Alembic baseline revision (created by `flask db migrate` for the v1.2.0
 # schema). A legacy create_all() database gets stamped at this revision so that
 # future column-adding migrations apply on redeploy.
@@ -338,6 +341,8 @@ def create_app(config=None):
     app.config['SESSION_COOKIE_SECURE'] = cfg.is_production
     app.config['REMEMBER_COOKIE_HTTPONLY'] = True
     app.config['REMEMBER_COOKIE_SECURE'] = cfg.is_production
+    # Flask-Login sets no SameSite on its remember cookie unless told to.
+    app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
     if cfg.flask_secret_key:
         app.secret_key = cfg.flask_secret_key
@@ -472,6 +477,15 @@ def create_app(config=None):
         response.headers.setdefault('Content-Security-Policy', CSP_POLICY)
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')
+        # Full URLs (a reset link's token, a dataset name) stay on this origin.
+        response.headers.setdefault('Referrer-Policy', 'same-origin')
+        # HSTS only on a production response that arrived over HTTPS (behind a
+        # proxy that needs TRUST_PROXY_HOPS so X-Forwarded-Proto is honoured):
+        # sending it over plain HTTP is ignored, and a local dev server on
+        # http://localhost must never be pinned to HTTPS.
+        if cfg.is_production and request.is_secure:
+            response.headers.setdefault('Strict-Transport-Security',
+                                        f'max-age={HSTS_MAX_AGE}')
         return response
 
     # --- error handling (1.6) ----------------------------------------------------
