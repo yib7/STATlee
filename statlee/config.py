@@ -118,6 +118,10 @@ class Config:
     exec_timeout: int = 60
     exec_memory_mb: int = 2048
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
+    # Largest single file a run may write, in both sandbox modes (B-10). It sits
+    # above the biggest CSV MAX_UPLOAD_CELLS allows, so a /wrangle rewrite of
+    # the dataset fits; all files a run writes together are capped at twice it.
+    exec_file_limit_mb: int = 256
 
     # --- Model routing (3.4) --------------------------------------------------
     # Default code generation runs on gemini-3.8-flash (cheap, fast, the
@@ -311,6 +315,7 @@ class Config:
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
             exec_output_limit=_env_int('EXEC_OUTPUT_LIMIT', 256 * 1024),
+            exec_file_limit_mb=_env_int('EXEC_FILE_LIMIT_MB', 256),
             model_pro=os.environ.get('MODEL_PRO', md['pro']).strip(),
             model_pro_max=os.environ.get('MODEL_PRO_MAX', md['pro_max']).strip(),
             model_flash=os.environ.get('MODEL_FLASH', md['flash']).strip(),

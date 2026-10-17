@@ -416,7 +416,8 @@ def run_code():
         code, language, dataset_path=dataset_path, dataset_name=dataset_name,
         timeout=cfg.exec_timeout, memory_mb=cfg.exec_memory_mb,
         output_limit=cfg.exec_output_limit, mode=cfg.sandbox_mode,
-        runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root)
+        runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root,
+        file_limit_mb=cfg.exec_file_limit_mb)
 
     # SP3: the methods block the script printed, parsed once and kept with
     # the run (the raw block stays in the output).
