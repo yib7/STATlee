@@ -449,8 +449,9 @@ outputs/run_0001/            one folder per included run:
 `POST /run` enforces the **run-guard** (roadmap 0.4). Its gates run in this
 order, each one before anything that costs more:
 
-1. A named dataset whose snapshot is gone (expired or deleted) is a `404` with
-   a re-upload message, before any gate or model call.
+1. A script longer than `RUN_CODE_MAX` (200,000 characters) is a `413`, and a
+   named dataset whose snapshot is gone (expired or deleted) is a `404` with
+   a re-upload message, both before any gate or model call.
 2. The static check runs on every script, approved or not. It is free and
    deterministic, so a script it refuses (`403`) costs no moderation call and
    is never recorded as approved.

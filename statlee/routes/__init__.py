@@ -225,6 +225,11 @@ HISTORY_FIELD_MAX = 2000    # chars kept per field within each turn
 CODEBOOK_MAX = 100000       # serialized codebook budget (wide datasets)
 PLOTS_MAX_COUNT = 3         # prompts only ever attach the first 3 plots
 PLOT_B64_MAX = 2000000      # per-plot base64 payload cap (~1.5 MB decoded)
+# A /run script is refused above this many characters (not clamped: running a
+# cut-off script would be wrong). An edited script goes to a paid moderation
+# call, so the 16 MB request limit alone let one request bill millions of
+# input tokens. Generated scripts are a few thousand characters.
+RUN_CODE_MAX = 200000
 
 
 def clamp(text, limit):

@@ -21,6 +21,7 @@ from ..usage import usage_breakdown
 from . import (
     BACKGROUND_MAX,
     FREE_TEXT_MAX,
+    RUN_CODE_MAX,
     STYLE_FIELD_MAX,
     DebitGuard,
     bool_field,
@@ -377,6 +378,10 @@ def run_code():
 
     if not code:
         return json_error('No code provided.')
+    if len(code) > RUN_CODE_MAX:
+        return json_error(
+            f'The script is too long to run ({len(code):,} characters; the '
+            f'limit is {RUN_CODE_MAX:,}).', 413)
     # D4-29: an unchanged script runs under the language it was generated and
     # approved for, even if the dropdown was switched afterwards (Python code
     # under Rscript only produced a confusing error). Code approved for
