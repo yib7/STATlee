@@ -49,6 +49,7 @@ from . import (
     strip_code_fences,
 )
 from .datasets import (
+    SUGGEST_CONTEXT_MAX,
     ignore_client_codebook,
     read_active_frame,
     read_version_frame,
@@ -835,7 +836,10 @@ def method_prompt():
         return json_error('Invalid filename')
     try:
         codebook, descriptions = server_codebook_context(filename, df)
-        context = datatools.build_column_context(df, codebook, descriptions)
+        # Bounded like /suggest (3A A9): a wide survey names its later
+        # columns instead of billing a full profile of each one.
+        context = datatools.build_column_context(
+            df, codebook, descriptions, max_chars=SUGGEST_CONTEXT_MAX)
         result = llm.get_service().generate(
             'flash',
             prompts.method_prompt(method_name, method_desc, context),

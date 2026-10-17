@@ -113,6 +113,22 @@ def test_classify_reaches_columns_past_80(client, fake_llm):
 # 3A A9: the /suggest column context has a budget
 # ---------------------------------------------------------------------------
 
+def test_method_prompt_is_bounded_on_a_wide_dataset(client, fake_llm):
+    """A9 follow-up: /method_prompt describes a wide frame under the same
+    budget as /suggest, naming the later columns instead of profiling them."""
+    from statlee.routes import datasets
+    upload_csv(client, _wide_csv(n_cols=2000, n_rows=3), 'wide.csv')
+    resp = post_json(client, '/method_prompt', {
+        'filename': 'wide.csv',
+        'method': {'name': 'OLS', 'description': 'Linear regression'}})
+    assert resp.status_code == 200, resp.get_json()
+    prompt = _prompt(fake_llm, 'method_prompt')[0]
+    assert len(prompt) < (datasets.SUGGEST_CONTEXT_MAX
+                          + datatools.NAME_ONLY_TAIL_MAX + 10000)
+    assert "- 'c0' [" in prompt
+    assert 'more columns, names only' in prompt
+
+
 def test_column_context_budget_names_the_later_columns():
     df = pd.DataFrame({f'col_{i}': [i, i + 1, i + 2] for i in range(400)})
     full = datatools.build_column_context(df)

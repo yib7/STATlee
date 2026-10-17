@@ -140,9 +140,10 @@ ANALYSIS_CACHE_MAX = 128
 _MEASUREMENT_LEVELS = {'nominal': 'Nominal', 'ordinal': 'Ordinal',
                        'continuous': 'Continuous'}
 SUGGESTIONS_MAX = 3
-# Chars of column context in the /suggest prompt (~10k tokens). Past it the
-# later columns are named only (datatools.build_column_context), so every
-# suggest and reroll on a wide survey does not bill its whole profile.
+# Chars of column context in the /suggest and /method_prompt prompts (~10k
+# tokens). Past it the later columns are named only
+# (datatools.build_column_context), so every suggest, reroll and catalog pick
+# on a wide survey does not bill its whole profile.
 SUGGEST_CONTEXT_MAX = 40000
 CLASSIFY_CHUNK = 80          # columns per classification call
 CLASSIFY_MAX_CHUNKS = 10     # at most 800 columns classified per dataset
