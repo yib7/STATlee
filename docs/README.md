@@ -44,7 +44,8 @@ pattern with focused modules (entry point: `wsgi:app`, which loads `.env` and ca
 | `statlee/prompts.py` | Every prompt builder in one reviewable place. |
 | `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
 | `statlee/models.py` | SQLAlchemy models (users, runs, issue reports). |
-| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`, `runs`, `codebook`. |
+| `statlee/routes/` | Blueprints: `auth`, `datasets`, `export`, `report`, `analyze`, `converse`, `misc`, `runs`, `codebook`. |
+| `statlee/migrations/` | Alembic schema migrations, applied at boot. |
 
 A deeper architecture walkthrough is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
