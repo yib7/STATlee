@@ -882,21 +882,32 @@
     }
 
     // --- suggestion reroll (4.5) -----------------------------------------------------------
+    // A reroll skips the server cache by design, so every click is a billed
+    // model call: one user-asked /suggest at a time, the button disabled
+    // while it runs (a double click used to send two).
+    let manualSuggestBusy = false;
+    async function manualSuggest(btn, previous) {
+        if (manualSuggestBusy || !CC.state.filename) return;
+        manualSuggestBusy = true;
+        btn.disabled = true;
+        try {
+            await CC.fetchSuggestions(CC.state.filename, previous);
+        } finally {
+            manualSuggestBusy = false;
+            btn.disabled = false;
+        }
+    }
+
     function initReroll() {
-        document.getElementById('rerollBtn').addEventListener('click', () => {
-            if (!CC.state.filename) return;
-            CC.fetchSuggestions(CC.state.filename, CC.state.suggestions);
-        });
+        const btn = document.getElementById('rerollBtn');
+        btn.addEventListener('click', () => manualSuggest(btn, CC.state.suggestions));
     }
 
     // On-demand suggestions when auto-suggest is off (no re-upload needed).
     function initSuggestNow() {
         const btn = document.getElementById('suggestNowBtn');
         if (!btn) return;
-        btn.addEventListener('click', () => {
-            if (!CC.state.filename) return;
-            CC.fetchSuggestions(CC.state.filename);
-        });
+        btn.addEventListener('click', () => manualSuggest(btn));
     }
 
     document.addEventListener('DOMContentLoaded', () => {

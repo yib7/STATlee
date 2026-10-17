@@ -56,3 +56,36 @@ def test_stale_reclassify_does_not_touch_the_next_dataset(page, fake):
     assert page.evaluate("() => document.getElementById('generateBtn').disabled"), \
         'a stale reply re-enabled Generate before B was profiled'
     assert not page.is_visible('#codebookContainer')
+
+
+# ---------------------------------------------------------------------------
+# C-18: a double click on a billed button is one request, not two
+# ---------------------------------------------------------------------------
+
+def test_double_click_on_a_catalog_method_drafts_once(page):
+    upload(page, 'dbl-m.csv', CSV_A + '82,1,A\n')
+    skip_codebook(page)
+    page.click('#catalogBtn')
+    page.wait_for_selector('#catalogModal:not(.hidden)')
+    page.evaluate("() => { window.__fetchDelay['/method_prompt'] = 600; }")
+    method = page.locator('#catalogList button', has_text='Pearson correlation')
+    label = method.text_content()
+    method.dblclick()
+    page.wait_for_selector('.cc-toast.success')
+    assert calls(page, '/method_prompt') == 1
+    # The modal closed on success; the button reads its method again, not
+    # the spinner a second click used to capture as its "original" label.
+    assert method.text_content() == label
+    assert not method.is_disabled()
+
+
+def test_double_click_on_reroll_asks_once(page):
+    upload(page, 'dbl-r.csv', CSV_A + '83,1,A\n')
+    skip_codebook(page)
+    page.wait_for_selector('#suggestionsList button')
+    before = calls(page, '/suggest')
+    page.evaluate("() => { window.__fetchDelay['/suggest'] = 600; }")
+    page.dblclick('#rerollBtn')
+    page.wait_for_function("() => !document.getElementById('rerollBtn').disabled"
+                           " && document.querySelector('#suggestionsList button')")
+    assert calls(page, '/suggest') == before + 1

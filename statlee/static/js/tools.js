@@ -476,11 +476,18 @@
         });
     }
 
+    // One /method_prompt (a billed model call) at a time: a double click
+    // used to send two, and the second captured the spinner as the label.
+    let methodBusy = false;
+
     async function pickMethod(method, btn) {
+        if (methodBusy) return;
         if (!CC.state.filename) {
             CC.toast('Upload a dataset first so I can match the method to your columns.', 'error');
             return;
         }
+        methodBusy = true;
+        btn.disabled = true;
         const orig = btn.innerHTML;
         btn.innerHTML = `<div class="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">${CC.spinner('h-4 w-4')} ${CC.escapeHtml(method.name)}? Matching it to your data…</div>`;
         try {
@@ -502,6 +509,8 @@
             CC.toast('Network error.', 'error');
         } finally {
             btn.innerHTML = orig;
+            btn.disabled = false;
+            methodBusy = false;
         }
     }
 
