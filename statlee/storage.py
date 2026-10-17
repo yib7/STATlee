@@ -948,6 +948,14 @@ def cleanup_old_files(ttl_seconds=7200):
         identity_dir = os.path.join(root, entry)
         if not os.path.isdir(identity_dir) or not entry.startswith('anon_'):
             continue
+        # A fresh marker settles it with one stat; only a workspace whose
+        # marker is missing or old is walked file by file (3A A10).
+        try:
+            seen = os.stat(os.path.join(identity_dir, LAST_SEEN)).st_mtime
+        except OSError:
+            seen = None
+        if seen is not None and now - seen <= ttl_seconds:
+            continue
         last = _last_activity(identity_dir)
         if last is None or now - last > ttl_seconds:
             shutil.rmtree(identity_dir, ignore_errors=True)

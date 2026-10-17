@@ -95,3 +95,25 @@ def test_logged_in_workspace_is_not_expired(app, client):
     _age_files(root)
     _cleanup(app)
     assert os.path.exists(os.path.join(root, 'test.csv'))
+
+
+def test_a_fresh_marker_skips_the_file_walk(app, client, monkeypatch):
+    """3A A10: an active workspace (fresh .last_seen) costs one stat per
+    cleanup, not a walk over every file it holds."""
+    upload_csv(client, SAMPLE_CSV)
+    root = _root(app, client)
+    walked = []
+    real_walk = os.walk
+
+    def counting_walk(top, *a, **k):
+        walked.append(top)
+        return real_walk(top, *a, **k)
+    monkeypatch.setattr(storage.os, 'walk', counting_walk)
+    _cleanup(app)
+    assert root not in walked
+    assert os.path.exists(os.path.join(root, 'test.csv'))
+    # An old marker still falls back to the walk (newest file wins).
+    _age_files(root, skip=('test.csv',))
+    _cleanup(app)
+    assert root in walked
+    assert os.path.exists(os.path.join(root, 'test.csv'))
