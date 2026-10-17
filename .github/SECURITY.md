@@ -66,5 +66,10 @@ These are documented design choices, not bugs to report:
 
 ## Supported versions
 
-This is a single-line project: fixes land on the latest `main`. There is no
-backport branch.
+| Version | Supported |
+|---|---|
+| 1.6.x | Yes |
+| 1.4.x and older | No: upgrade to 1.6 (see "Upgrading from 1.4.x" in [CHANGELOG.md](https://github.com/yib7/STATlee/blob/main/CHANGELOG.md)) |
+
+1.5.0 was never released on its own; its changes ship in 1.6.0. Fixes land on
+`main` and in the next 1.6.x release. There is no backport branch.
