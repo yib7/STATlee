@@ -25,7 +25,7 @@ from flask_login import login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from .. import storage
+from .. import mailer, storage
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..models import AnalysisRun, User
@@ -264,7 +264,6 @@ def _send_verification_email(cfg, email, token):
         if cfg.is_production:
             raise RuntimeError('SMTP is not configured')
         return
-    import smtplib
     from email.message import EmailMessage
 
     msg = EmailMessage()
@@ -274,11 +273,7 @@ def _send_verification_email(cfg, email, token):
     msg.set_content(
         "Welcome to STATlee. Confirm your account by opening this link:\n\n"
         f"{link}\n\nIf you didn't create this account, you can ignore this email.")
-    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15) as server:
-        server.starttls()
-        if cfg.smtp_user:
-            server.login(cfg.smtp_user, cfg.smtp_password)
-        server.send_message(msg)
+    mailer.send(cfg, msg)
 
 
 def _send_password_reset_email(cfg, email, token):
@@ -305,7 +300,6 @@ def _send_password_reset_email(cfg, email, token):
             logger.warning("Password reset requested for %s, but SMTP is not "
                            "configured, so no link was sent.", email)
         return
-    import smtplib
     from email.message import EmailMessage
 
     msg = EmailMessage()
@@ -317,11 +311,7 @@ def _send_password_reset_email(cfg, email, token):
         "link within one hour to choose a new password:\n\n"
         f"{link}\n\nIf you didn't request this, you can ignore this email; "
         "your password stays unchanged.")
-    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15) as server:
-        server.starttls()
-        if cfg.smtp_user:
-            server.login(cfg.smtp_user, cfg.smtp_password)
-        server.send_message(msg)
+    mailer.send(cfg, msg)
 
 
 @bp.route('/verify_email', methods=['GET'])

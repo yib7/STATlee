@@ -6,7 +6,7 @@ import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
-from .. import billing, llm, prompts, storage
+from .. import billing, llm, mailer, prompts, storage
 from .. import methods as methods_card
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
@@ -191,7 +191,6 @@ def report_issue():
 
 
 def _email_report(cfg, report):
-    import smtplib
     from email.message import EmailMessage
 
     msg = EmailMessage()
@@ -204,11 +203,7 @@ def _email_report(cfg, report):
         f"--- Terminal output ---\n{report.output or '(none)'}\n\n"
         f"--- Console errors ---\n{report.console_errors or '(none)'}\n\n"
         f"User-Agent: {report.user_agent}")
-    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15) as server:
-        server.starttls()
-        if cfg.smtp_user:
-            server.login(cfg.smtp_user, cfg.smtp_password)
-        server.send_message(msg)
+    mailer.send(cfg, msg)
 
 
 # ---------------------------------------------------------------------------
