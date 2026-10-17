@@ -87,10 +87,12 @@ _HOST_PREFIXES = None
 
 def _path_pattern(path):
     """Regex for ``path`` that matches either separator, so ``C:\\x\\y`` and
-    ``C:/x/y`` are both found."""
+    ``C:/x/y`` are both found. The match must start a path, not sit inside a
+    longer one: ``/work`` (the docker workdir) must not rewrite
+    ``/home/me/work/STATlee/venv/...`` into ``/home/meSTATlee/venv/...``."""
     parts = [re.escape(part) for part in re.split(r'[\\/]+', path) if part]
     lead = r'[\\/]+' if path[:1] in ('/', '\\') else ''
-    return lead + r'[\\/]+'.join(parts)
+    return r'(?<![\w.~\\/-])' + lead + r'[\\/]+'.join(parts)
 
 
 def _host_prefixes():

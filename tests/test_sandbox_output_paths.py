@@ -64,3 +64,17 @@ def test_redaction_of_the_run_dir_and_docker_workdir():
         'File "/tmp/ccrun_abc/script.py", line 2\n'
         'File "/work/script.py", line 2\n', '/tmp/ccrun_abc')
     assert out == 'File "script.py", line 2\nFile "script.py", line 2\n'
+
+
+def test_docker_workdir_inside_a_longer_path_is_left_alone(monkeypatch):
+    """A checkout under ~/work (the CI runner's /home/runner/work, or any
+    user's) had its "/work/" segment cut out by the docker-workdir rewrite,
+    which turned the venv's site-packages path into one no other rule
+    matched, so the home dir leaked into the run output."""
+    monkeypatch.setattr(sandbox, '_HOST_PREFIXES', [])
+    line = 'File "/home/runner/work/STATlee/STATlee/venv/lib/x.py", line 1'
+    assert sandbox.redact_host_paths(line, '/tmp/ccrun_abc') == line
+    site = '/home/runner/work/STATlee/STATlee/venv/lib/python3.12/site-packages'
+    monkeypatch.setattr(sandbox, '_HOST_PREFIXES', [(site, '<site-packages>')])
+    out = sandbox.redact_host_paths(f'File "{site}/pandas/io/common.py"', None)
+    assert out == 'File "<site-packages>/pandas/io/common.py"'
