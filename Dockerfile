@@ -21,10 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# requirements-postgres.txt adds the psycopg driver for the documented
+# requirements/postgres.txt adds the psycopg driver for the documented
 # production DATABASE_URL=postgresql+psycopg://... (D5-11).
-COPY requirements.txt requirements-postgres.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-postgres.txt
+COPY requirements/base.txt requirements/postgres.txt ./requirements/
+RUN pip install --no-cache-dir -r requirements/base.txt -r requirements/postgres.txt
 
 COPY . .
 

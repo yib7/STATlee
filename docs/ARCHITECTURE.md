@@ -646,8 +646,8 @@ sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
 
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
   read-only, resource-capped sibling container built from `runner.Dockerfile`
-  (whose analysis-library pins come from `requirements-runner.txt` and must
-  match `requirements.txt`; a test enforces it). The shipped app image has **no
+  (whose analysis-library pins come from `requirements/runner.txt` and must
+  match `requirements/base.txt`; a test enforces it). The shipped app image has **no
   `docker` CLI**, so docker mode needs the app on a host (or a derived image)
   with the CLI and daemon access; from the stock image every run fails with
   "Interpreter not available". The two real-Docker integration tests in

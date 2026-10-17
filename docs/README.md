@@ -125,7 +125,7 @@ Running generated code directly on your host is *not recommended for untrusted i
 3. Install dependencies:
 
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements/base.txt
    ```
 
 4. Run the app (development mode does not require an API key to boot, but LLM endpoints will error until one is set):
@@ -148,7 +148,7 @@ openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
 
 ```bash
 # Install dev tooling (pytest + ruff, on top of the app requirements)
-pip install -r requirements-dev.txt
+pip install -r requirements/dev.txt
 
 # Lint
 ruff check .
@@ -165,7 +165,7 @@ The test suite injects a deterministic fake LLM service, so the entire HTTP surf
 * **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
 * **AI Integration:** Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
 * **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
-* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements-postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
+* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements/postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
 
 ## Hosting
 

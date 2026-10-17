@@ -70,29 +70,29 @@ def test_dockerfile_pins_a_persistent_upload_root():
 def test_app_image_installs_the_postgres_driver():
     """D5-11: the documented production DATABASE_URL (postgresql+psycopg://)
     failed at boot with ModuleNotFoundError: psycopg."""
-    assert 'psycopg' in _read('requirements-postgres.txt')
-    assert re.search(r'pip install[^\n]*-r requirements-postgres\.txt',
+    assert 'psycopg' in _read('requirements/postgres.txt')
+    assert re.search(r'pip install[^\n]*-r requirements/postgres\.txt',
                      _read('Dockerfile'))
 
 
 def test_runner_image_pins_match_the_app():
     """D5-12: docker mode and subprocess mode must run the same analysis
     library versions (the runner pinned matplotlib 3.10.8 vs the app's 3.11.0)."""
-    app_pins = _pins('requirements.txt')
-    runner_pins = _pins('requirements-runner.txt')
-    assert runner_pins, 'requirements-runner.txt has no pins'
+    app_pins = _pins('requirements/base.txt')
+    runner_pins = _pins('requirements/runner.txt')
+    assert runner_pins, 'requirements/runner.txt has no pins'
     for pkg, version in runner_pins.items():
         assert app_pins.get(pkg) == version, (pkg, version, app_pins.get(pkg))
-    assert 'requirements-runner.txt' in _read('runner.Dockerfile')
+    assert 'requirements/runner.txt' in _read('runner.Dockerfile')
 
 
 def test_ruff_version_is_the_same_in_ci_pre_commit_and_requirements_dev():
-    """The pre-commit hook pinned ruff v0.15.17 after requirements-dev.txt and
+    """The pre-commit hook pinned ruff v0.15.17 after requirements/dev.txt and
     the CI lint job moved to 0.17.1, so a contributor's hook linted with a
     different rule set than the gate that blocks the merge."""
-    dev = _pins('requirements-dev.txt')['ruff']
+    dev = _pins('requirements/dev.txt')['ruff']
     ci = re.search(r'pip install ruff==([^\s]+)', _read('.github/workflows/ci.yml')).group(1)
     hook = re.search(r'ruff-pre-commit\s*\n\s*rev:\s*v?([^\s]+)',
                      _read('.pre-commit-config.yaml')).group(1)
-    assert ci == dev, f'ci.yml ruff {ci} != requirements-dev.txt {dev}'
-    assert hook == dev, f'.pre-commit-config.yaml ruff {hook} != requirements-dev.txt {dev}'
+    assert ci == dev, f'ci.yml ruff {ci} != requirements/dev.txt {dev}'
+    assert hook == dev, f'.pre-commit-config.yaml ruff {hook} != requirements/dev.txt {dev}'

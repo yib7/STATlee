@@ -66,7 +66,7 @@ def _draft(language='Python'):
 
 
 def test_python_packages_are_allowlisted_and_installed_in_the_runner():
-    runner = (ROOT / 'requirements-runner.txt').read_text(encoding='utf-8')
+    runner = (ROOT / 'requirements' / 'runner.txt').read_text(encoding='utf-8')
     pinned = {line.split('==')[0].strip().lower()
               for line in runner.splitlines()
               if '==' in line and not line.lstrip().startswith('#')}

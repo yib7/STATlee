@@ -20,8 +20,8 @@ malware/illegal requests.
 
 ## Backend (Python)
 
-Direct dependencies, at the versions pinned in `requirements.txt` and
-`requirements-postgres.txt` (`tests/test_credits.py` keeps this table and the
+Direct dependencies, at the versions pinned in `requirements/base.txt` and
+`requirements/postgres.txt` (`tests/test_credits.py` keeps this table and the
 pins in step).
 
 | Library | Version | Purpose | License |
@@ -44,7 +44,7 @@ pins in step).
 | [openpyxl](https://openpyxl.readthedocs.io/) | 3.1.5 | Excel (`.xlsx`) ingestion | MIT |
 | [xlrd](https://github.com/python-excel/xlrd) | 2.0.2 | Legacy Excel (`.xls`) ingestion | BSD-3-Clause |
 | [redis-py](https://github.com/redis/redis-py) | 8.1.0 | Shared rate-limit store (`RATELIMIT_STORAGE_URI=redis://`) | MIT |
-| [psycopg 3](https://www.psycopg.org/psycopg3/) | 3.3.6 | PostgreSQL driver (`requirements-postgres.txt`, production DB) | LGPL-3.0 |
+| [psycopg 3](https://www.psycopg.org/psycopg3/) | 3.3.6 | PostgreSQL driver (`requirements/postgres.txt`, production DB) | LGPL-3.0 |
 | [pyreadstat](https://github.com/Roche/pyreadstat) | 1.3.6 | Stata (`.dta`) / SPSS (`.sav`) ingestion | Apache-2.0 |
 | [pypdf](https://pypdf.readthedocs.io/) | 6.21.0 | PDF codebook reading | BSD-3-Clause |
 | [fpdf2](https://py-pdf.github.io/fpdf2/) | 2.8.9 | TXT→PDF codebook conversion | LGPL-3.0 |

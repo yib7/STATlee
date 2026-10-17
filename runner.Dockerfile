@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-mass \
     && rm -rf /var/lib/apt/lists/*
 
-# Same analysis-library pins as the app (requirements.txt), so docker mode and
-# subprocess mode run identical stacks.
-COPY requirements-runner.txt /tmp/requirements-runner.txt
-RUN pip install --no-cache-dir -r /tmp/requirements-runner.txt \
-    && rm /tmp/requirements-runner.txt
+# Same analysis-library pins as the app (requirements/base.txt), so docker
+# mode and subprocess mode run identical stacks.
+COPY requirements/runner.txt /tmp/runner.txt
+RUN pip install --no-cache-dir -r /tmp/runner.txt \
+    && rm /tmp/runner.txt
 
 # Non-root by default; matches the --user 1000:1000 launch flag.
 RUN useradd --uid 1000 --create-home runner

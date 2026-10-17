@@ -8,7 +8,7 @@ import re
 
 # What the generated script can actually import (D6 quick win 2). The Python
 # list is the analysis libraries the runner image installs
-# (requirements-runner.txt, plus their hard dependencies numpy/scipy/patsy)
+# (requirements/runner.txt, plus their hard dependencies numpy/scipy/patsy)
 # that codecheck also allowlists; tests/test_prompt_quality.py cross-checks
 # both files. Naming a package that is allowlisted but not installed (pingouin,
 # sklearn, ...) would only produce ImportErrors in the sandbox.

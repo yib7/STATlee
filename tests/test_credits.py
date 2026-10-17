@@ -1,5 +1,5 @@
 """docs/CREDITS.md names every direct dependency at the version actually shipped:
-each pin in requirements.txt / requirements-postgres.txt has a row with the
+each pin in requirements/base.txt / requirements/postgres.txt has a row with the
 same version, and each vendored front-end file's own header carries the
 version CREDITS states."""
 import pathlib
@@ -24,7 +24,7 @@ def _pins(name):
     return pins
 
 
-PINS = {**_pins('requirements.txt'), **_pins('requirements-postgres.txt')}
+PINS = {**_pins('requirements/base.txt'), **_pins('requirements/postgres.txt')}
 
 
 @pytest.mark.parametrize('package, version', sorted(PINS.items()))
