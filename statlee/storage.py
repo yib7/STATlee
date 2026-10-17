@@ -668,11 +668,21 @@ def save_codebook_archive(sha256, payload, identity=None):
     _write_json_atomic(path, payload)
     root = os.path.dirname(path)
     try:
-        archived = [os.path.join(root, n) for n in os.listdir(root)
-                    if n.startswith(CODEBOOK_ARCHIVE_PREFIX)
-                    and n.endswith('.json')]
-        archived.sort(key=lambda p: os.stat(p).st_mtime, reverse=True)
-        for old in archived[CODEBOOK_ARCHIVE_MAX:]:
+        others = [os.path.join(root, n) for n in os.listdir(root)
+                  if n.startswith(CODEBOOK_ARCHIVE_PREFIX)
+                  and n.endswith('.json')
+                  and os.path.join(root, n) != path]
+        stamps = {p: os.stat(p).st_mtime_ns for p in others}
+        # Recency is the file mtime. A coarse filesystem clock can give
+        # archives written in quick succession the same stamp, so the one
+        # just written is stamped strictly newer than every other archive;
+        # otherwise the prune below could delete it. The 1 ms step survives
+        # filesystems that round stamps (NTFS keeps 100 ns).
+        newest = max([time.time_ns()]
+                     + [t + 1_000_000 for t in stamps.values()])
+        os.utime(path, ns=(newest, newest))
+        others.sort(key=stamps.__getitem__, reverse=True)
+        for old in others[CODEBOOK_ARCHIVE_MAX - 1:]:
             os.remove(old)
     except OSError:
         logger.warning("Could not prune the codebook archive", exc_info=True)

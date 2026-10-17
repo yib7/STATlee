@@ -3,6 +3,8 @@ seeds from native .sav metadata, /classify_variables and
 /extract_pdf_codebook, sha256 restore on re-upload, and wrangle inheritance."""
 import io
 import json
+import os
+import time
 
 import pandas as pd
 import pytest
@@ -337,6 +339,30 @@ def test_archive_is_pruned(app, client, monkeypatch):
         assert storage.load_codebook_archive(f'{3:064x}', ident) is not None
         assert storage.load_codebook_archive(f'{0:064x}', ident) is None
         assert storage.load_codebook_archive('../evil', ident) is None
+
+
+def test_archive_prune_keeps_the_newest_when_mtimes_tie(app, client, monkeypatch):
+    """A coarse filesystem clock stamps quick writes alike (seen on a Windows
+    CI runner); the archive just written must still survive the prune."""
+    monkeypatch.setattr(storage, 'CODEBOOK_ARCHIVE_MAX', 2)
+    ident = _identity(client)
+    with app.app_context():
+        for i in range(2):
+            storage.save_codebook_archive(f'{i:064x}', {'layers': {}},
+                                          identity=ident)
+        tick = time.time_ns() + 10 * 10**9     # same stamp, ahead of the clock
+        for i in range(2):
+            path = storage._codebook_archive_path(f'{i:064x}', ident)
+            os.utime(path, ns=(tick, tick))
+        storage.save_codebook_archive(f'{2:064x}', {'layers': {}},
+                                      identity=ident)
+        assert storage.load_codebook_archive(f'{2:064x}', ident) is not None
+        storage.save_codebook_archive(f'{3:064x}', {'layers': {}},
+                                      identity=ident)
+        assert storage.load_codebook_archive(f'{3:064x}', ident) is not None
+        assert storage.load_codebook_archive(f'{2:064x}', ident) is not None
+        assert storage.load_codebook_archive(f'{0:064x}', ident) is None
+        assert storage.load_codebook_archive(f'{1:064x}', ident) is None
 
 
 # ---------------------------------------------------------------------------

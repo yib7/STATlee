@@ -328,10 +328,13 @@ def test_wide_dataset_renders_once_and_refreshes_in_place(page, fake):
     page.wait_for_timeout(200)
     assert page.evaluate(f"() => document.querySelector('{row('v150')}').__kept === true")
     assert page.input_value(row('v150') + ' input.cb-label') == 'half typed'
-    bodies = put_bodies(page)
-    with expect_put(page, carrying='half typed'):
+    # The typing debounce may already have sent this save before Tab, so
+    # check the body of whichever PUT carried the text rather than counting
+    # requests seen from here on.
+    with expect_put(page, carrying='half typed') as saved:
         page.keyboard.press('Tab')
-    assert bodies[-1]['codebook'] == {'v150': {'label': 'half typed'}}
+    body = json.loads(saved.value.request.post_data or '{}')
+    assert body['codebook'] == {'v150': {'label': 'half typed'}}
     assert '300 variables' in page.text_content('#cbSummary')
 
 
