@@ -9,7 +9,7 @@
       script that floods stdout cannot exhaust the app's memory.
 - 0.3 Optional true container isolation: SANDBOX_MODE=docker launches a
       sibling container (network-less, non-root, read-only, resource-capped)
-      per execution using the image built from runner.Dockerfile.
+      per execution using the image built from docker/runner.Dockerfile.
 - 5.2 All ``plot*.png`` files produced by the run are collected, not just one,
       up to ``PLOTS_MAX`` plots and ``PLOTS_BYTES_MAX`` bytes of them per run
       (every run's plots are kept in the session workbook). Only regular files

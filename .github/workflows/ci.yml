@@ -97,7 +97,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements/dev.txt
       - name: Build the runner image
-        run: docker build -f runner.Dockerfile -t statlee-runner .
+        run: docker build -f docker/runner.Dockerfile -t statlee-runner .
       - name: Run the sandbox tests, real-Docker ones included
         env:
           APP_ENV: testing
@@ -115,7 +115,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build the app image
-        run: docker build -t statlee-web .
+        run: docker build -f docker/app.Dockerfile -t statlee-web .
       - name: Check the runtime user and the build context
         run: |
           test "$(docker run --rm statlee-web id -u)" != "0"

@@ -16,7 +16,7 @@ PYTHON_PACKAGES = ('pandas', 'numpy', 'scipy', 'statsmodels', 'patsy',
                    'matplotlib', 'seaborn')
 PYTHON_STDLIB_HINT = ('math', 'statistics', 'itertools', 'collections', 're',
                       'warnings')
-# The CRAN packages runner.Dockerfile installs next to base R.
+# The CRAN packages docker/runner.Dockerfile installs next to base R.
 R_PACKAGES = ('dplyr', 'ggplot2', 'MASS')
 
 # Rigor guidance for generated analyses (D6 quick win 3). The checks, effect

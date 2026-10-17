@@ -1,7 +1,9 @@
 # Compose v2 no longer needs the top-level `version` key.
 services:
   statlee-web:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
     ports:
       # Published on localhost only. The app trusts no proxy by default
       # (TRUST_PROXY_HOPS=0); if you put a reverse proxy in front, publish

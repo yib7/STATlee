@@ -53,9 +53,9 @@ def test_compose_forwards_the_documented_env_file():
 
 def test_dockerfile_runs_as_a_non_root_user():
     """D5-17: generated code in subprocess mode ran as root in the container."""
-    lines = _lines('Dockerfile')
+    lines = _lines('docker/app.Dockerfile')
     users = [ln.split(None, 1)[1] for ln in lines if ln.upper().startswith('USER ')]
-    assert users, 'Dockerfile has no USER instruction'
+    assert users, 'docker/app.Dockerfile has no USER instruction'
     assert users[-1].split(':')[0] not in ('root', '0')
     last_copy = max(i for i, ln in enumerate(lines) if ln.upper().startswith('COPY '))
     last_user = max(i for i, ln in enumerate(lines) if ln.upper().startswith('USER '))
@@ -64,7 +64,7 @@ def test_dockerfile_runs_as_a_non_root_user():
 
 def test_dockerfile_pins_a_persistent_upload_root():
     """D5-9: the image set no UPLOAD_ROOT, so storage moved on every restart."""
-    assert 'UPLOAD_ROOT=/app/instance/uploads' in _read('Dockerfile')
+    assert 'UPLOAD_ROOT=/app/instance/uploads' in _read('docker/app.Dockerfile')
 
 
 def test_app_image_installs_the_postgres_driver():
@@ -72,7 +72,7 @@ def test_app_image_installs_the_postgres_driver():
     failed at boot with ModuleNotFoundError: psycopg."""
     assert 'psycopg' in _read('requirements/postgres.txt')
     assert re.search(r'pip install[^\n]*-r requirements/postgres\.txt',
-                     _read('Dockerfile'))
+                     _read('docker/app.Dockerfile'))
 
 
 def test_runner_image_pins_match_the_app():
@@ -83,7 +83,7 @@ def test_runner_image_pins_match_the_app():
     assert runner_pins, 'requirements/runner.txt has no pins'
     for pkg, version in runner_pins.items():
         assert app_pins.get(pkg) == version, (pkg, version, app_pins.get(pkg))
-    assert 'requirements/runner.txt' in _read('runner.Dockerfile')
+    assert 'requirements/runner.txt' in _read('docker/runner.Dockerfile')
 
 
 def test_ruff_version_is_the_same_in_ci_pre_commit_and_requirements_dev():

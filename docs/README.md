@@ -102,8 +102,8 @@ the file itself stays masked inside it. The SQLite DB and uploads persist in the
 `statlee-instance` named volume. The container runs as an unprivileged user.
 
 **Docker sandbox mode.** `SANDBOX_MODE=docker` runs each analysis in a
-throwaway container built from `runner.Dockerfile`
-(`docker build -f runner.Dockerfile -t statlee-runner .`). The app image does
+throwaway container built from `docker/runner.Dockerfile`
+(`docker build -f docker/runner.Dockerfile -t statlee-runner .`). The app image does
 **not** include the `docker` CLI, so docker mode only works when the app itself
 runs on a host (or a derived image) with the docker CLI and daemon access; from
 the shipped compose setup every run would fail with "Interpreter not available".

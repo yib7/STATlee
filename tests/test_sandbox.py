@@ -14,7 +14,7 @@ from statlee import sandbox
 # Real-Docker integration (P2-10). All other sandbox tests use subprocess mode
 # or a mocked subprocess.run; this one exercises the genuine SANDBOX_MODE=docker
 # path end to end. It is skipped unless (a) the Docker daemon is reachable and
-# (b) the runner image has been built (`docker build -f runner.Dockerfile -t
+# (b) the runner image has been built (`docker build -f docker/runner.Dockerfile -t
 # statlee-runner .`), so CI/dev hosts without Docker stay green.
 RUNNER_IMAGE = os.environ.get('RUNNER_IMAGE', 'statlee-runner')
 
@@ -39,7 +39,7 @@ docker_required = pytest.mark.skipif(
     not _docker_ready(RUNNER_IMAGE),
     reason=(f"Docker daemon unreachable or runner image {RUNNER_IMAGE!r} not "
             "built; skipping the real-sandbox integration test. Build it with "
-            "`docker build -f runner.Dockerfile -t statlee-runner .` and start "
+            "`docker build -f docker/runner.Dockerfile -t statlee-runner .` and start "
             "Docker to run it."))
 
 

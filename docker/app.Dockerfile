@@ -1,5 +1,9 @@
-# Web application image. Untrusted analysis code should run in the separate
-# runner image (runner.Dockerfile) via SANDBOX_MODE=docker; the R/Python
+# Web application image. docker compose builds it (docker-compose.yml); by hand,
+# from the repo root (the build context):
+#   docker build -f docker/app.Dockerfile -t statlee-web .
+#
+# Untrusted analysis code should run in the separate
+# runner image (docker/runner.Dockerfile) via SANDBOX_MODE=docker; the R/Python
 # stack here covers SANDBOX_MODE=subprocess deployments.
 #
 # NOTE: this image ships no `docker` CLI, so SANDBOX_MODE=docker does not work

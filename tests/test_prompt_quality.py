@@ -80,7 +80,7 @@ def test_python_packages_are_allowlisted_and_installed_in_the_runner():
 
 
 def test_r_packages_match_the_runner_image():
-    dockerfile = (ROOT / 'runner.Dockerfile').read_text(encoding='utf-8')
+    dockerfile = (ROOT / 'docker' / 'runner.Dockerfile').read_text(encoding='utf-8')
     cran = {m.lower() for m in re.findall(r'r-cran-([a-z0-9.]+)', dockerfile)}
     assert {p.lower() for p in prompts.R_PACKAGES} == cran
 

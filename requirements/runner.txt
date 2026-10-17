@@ -1,5 +1,5 @@
 # Analysis libraries installed in the SANDBOX_MODE=docker runner image
-# (runner.Dockerfile). Every pin here must equal its pin in base.txt so
+# (docker/runner.Dockerfile). Every pin here must equal its pin in base.txt so
 # docker mode and subprocess mode run the same library stack;
 # tests/test_container_files.py enforces that. numpy/scipy are transitive in
 # both and resolve from these pins.

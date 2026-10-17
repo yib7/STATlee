@@ -13,8 +13,8 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Read by code but not operator settings: PATH is forwarded to the sandbox
 # child; STATLEE_INPROCESS_MIGRATION is a flag app.py sets for migrations/env.py.
 _INTERNAL = {'PATH', 'STATLEE_INPROCESS_MIGRATION'}
-# Documented, consumed outside the Python package (the Dockerfile's CMD).
-_CONSUMED_ELSEWHERE = {'WEB_CONCURRENCY': 'Dockerfile'}
+# Documented, consumed outside the Python package (the app image's CMD).
+_CONSUMED_ELSEWHERE = {'WEB_CONCURRENCY': 'docker/app.Dockerfile'}
 
 _READ_PATTERNS = (
     re.compile(r"""os\.environ\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),

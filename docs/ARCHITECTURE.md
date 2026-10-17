@@ -169,7 +169,7 @@ original upload while its later versions survive.
 
 The storage root is `UPLOAD_ROOT`, or `instance/uploads` when unset (testing
 uses a throwaway temp dir). In a container, keep it on a persistent volume (the
-Dockerfile sets `UPLOAD_ROOT=/app/instance/uploads` and compose mounts a named
+`docker/app.Dockerfile` sets `UPLOAD_ROOT=/app/instance/uploads` and compose mounts a named
 volume at `/app/instance`), or logged-in users' files go with the container.
 
 An upload that cannot be read is refused with a `422` that says what to do, and
@@ -645,7 +645,7 @@ host network and filesystem, so run it only where the host holds nothing
 sensitive. **`SANDBOX_MODE=docker`** makes the boundary kernel-enforced:
 
 - **`SANDBOX_MODE=docker`**: runs each execution in a network-less, non-root,
-  read-only, resource-capped sibling container built from `runner.Dockerfile`
+  read-only, resource-capped sibling container built from `docker/runner.Dockerfile`
   (whose analysis-library pins come from `requirements/runner.txt` and must
   match `requirements/base.txt`; a test enforces it). The shipped app image has **no
   `docker` CLI**, so docker mode needs the app on a host (or a derived image)
