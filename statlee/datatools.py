@@ -43,7 +43,13 @@ class DatasetParseError(ValueError):
 def decode_text_bytes(raw):
     """Decode uploaded text: UTF-8 (BOM tolerated) first, then cp1252 (what
     Excel on Windows and many SPSS exports write), then latin-1, which cannot
-    fail. Returns ``(text, encoding)``."""
+    fail. Returns ``(text, encoding)``. A UTF-16 byte-order mark (Excel's
+    "Unicode Text" export) is honoured first."""
+    if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+        try:
+            return raw.decode('utf-16'), 'utf-16'
+        except UnicodeDecodeError:
+            pass
     for enc in ('utf-8-sig', 'cp1252'):
         try:
             return raw.decode(enc), enc
@@ -69,9 +75,10 @@ def _read_delimited(path, sep=','):
     """Full parse of a CSV/TSV with clear, user-facing failures (D1-8). The
     whole file is parsed, not a 100-row preview, so a ragged row deep in the
     file is caught at upload instead of breaking /data_page later."""
+    _refuse_binary(path)
     _transcode_to_utf8(path)
     try:
-        return pd.read_csv(path, sep=sep)
+        df = pd.read_csv(path, sep=sep)
     except pd.errors.EmptyDataError as e:
         raise DatasetParseError(
             'The file is empty. Upload a file with a header row and data.') from e
@@ -83,6 +90,55 @@ def _read_delimited(path, sep=','):
             'Could not parse the file: the rows do not all have the same '
             f'number of columns.{where} Check the delimiter and quoting, then '
             'upload again.') from e
+    return df
+
+
+_BINARY_SNIFF_BYTES = 64 * 1024
+# Control bytes that never appear in a text CSV (everything below 0x20 except
+# tab, newline, form feed and carriage return).
+_CONTROL_BYTES = frozenset(range(32)) - {9, 10, 12, 13}
+
+
+def _refuse_binary(path):
+    """A file named .csv/.tsv that holds binary data (an Excel workbook
+    renamed, a corrupt download) has NUL bytes or a run of control bytes in
+    its first block; text has neither, except UTF-16, which starts with a
+    byte-order mark. Refusing it here gives an actionable message instead of
+    a ragged-rows error or a one-column dataset of garbage."""
+    with open(path, 'rb') as f:
+        head = f.read(_BINARY_SNIFF_BYTES)
+    if not head or head.startswith((b'\xff\xfe', b'\xfe\xff')):
+        return
+    control = sum(1 for byte in head if byte in _CONTROL_BYTES)
+    if b'\x00' in head or control > len(head) // 100:
+        raise DatasetParseError(
+            'This file is not plain text, so it cannot be read as a CSV. If '
+            'it is an Excel, Stata or SPSS file, upload it with its real '
+            'extension (.xlsx, .xls, .dta or .sav); otherwise export it as '
+            'CSV and upload again.')
+
+
+# Format names and the program that writes them, for _damaged().
+_FORMAT_NAMES = {
+    '.xlsx': ('Excel workbook (.xlsx)', 'Excel'),
+    '.xls': ('Excel 97-2003 workbook (.xls)', 'Excel'),
+    '.dta': ('Stata file (.dta)', 'Stata'),
+    '.sav': ('SPSS file (.sav)', 'SPSS'),
+}
+
+
+def _damaged(ext):
+    name, program = _FORMAT_NAMES[ext]
+    return DatasetParseError(
+        f'Could not read this {name}: it looks damaged, or it is not really '
+        f'that format. Open it in {program} (or the program that made it) and '
+        'save it again, or export it as CSV, then upload again.')
+
+
+def _no_rows_error():
+    return DatasetParseError(
+        'The file has column names but no data rows. Upload a file with at '
+        'least one row of data.')
 
 
 _VALUE_LABELS_MAX = 40
@@ -213,13 +269,23 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
     if info is None:
         info = {}
     info.setdefault('warnings', [])
+    try:
+        empty = os.path.getsize(src_path) == 0
+    except OSError:
+        empty = False
+    if empty and ext in SUPPORTED_EXTENSIONS:
+        raise DatasetParseError(
+            'The file is empty. Upload a file with a header row and data.')
 
     if ext == '.csv':
         # Kept in place (an uncompressed CSV is already bounded by the request
         # body cap, so no cell guard), but transcoded to UTF-8 if needed and
         # fully parsed so an unreadable file fails HERE with a clear 422
         # instead of a 500 later (D1-8).
-        info['frame'] = _read_delimited(src_path)
+        df = _read_delimited(src_path)
+        if df.empty and len(df.columns):
+            raise _no_rows_error()
+        info['frame'] = df
         return src_path, labels
 
     if ext == '.tsv':
@@ -248,6 +314,10 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
                 f"Excel support requires the '{engine_pkg}' package on the "
                 "server. Please upload a CSV instead, or ask the administrator "
                 f"to install {engine_pkg}.") from e
+        except DatasetParseError:
+            raise
+        except Exception as e:
+            raise _damaged(ext) from e
     elif ext in ('.dta', '.sav'):
         try:
             import pyreadstat
@@ -259,14 +329,21 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
         reader = pyreadstat.read_sav if ext == '.sav' else pyreadstat.read_dta
         # Read metadata only (no data rows) first, so an oversized dataset is
         # rejected before every cell is materialized into memory.
-        if max_cells:
-            _, meta = reader(src_path, metadataonly=True)
-            n_rows = getattr(meta, 'number_rows', 0) or 0
-            n_cols = getattr(meta, 'number_columns', 0) or 0
-            if n_rows * n_cols > max_cells:
-                raise ParseLimitError(
-                    _cell_limit_message(n_rows * n_cols, max_cells))
-        df, meta = reader(src_path)
+        try:
+            if max_cells:
+                _, meta = reader(src_path, metadataonly=True)
+                n_rows = getattr(meta, 'number_rows', 0) or 0
+                n_cols = getattr(meta, 'number_columns', 0) or 0
+                if n_rows * n_cols > max_cells:
+                    raise ParseLimitError(
+                        _cell_limit_message(n_rows * n_cols, max_cells))
+            df, meta = reader(src_path)
+        except ParseLimitError:
+            raise
+        except Exception as e:
+            # pyreadstat raises its own ReadstatError for a truncated or
+            # mislabelled file.
+            raise _damaged(ext) from e
         # Native variable AND value labels seed the codebook (no LLM call).
         names = list(getattr(meta, 'column_names', []) or [])
         col_labels = list(getattr(meta, 'column_labels', []) or [])
@@ -293,6 +370,11 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
     if max_cells and df.shape[0] * df.shape[1] > max_cells:
         raise ParseLimitError(
             _cell_limit_message(df.shape[0] * df.shape[1], max_cells))
+    if df.empty:
+        if len(df.columns):
+            raise _no_rows_error()
+        raise DatasetParseError(
+            'The file has no data. Upload a file with a header row and data.')
 
     csv_path = os.path.splitext(src_path)[0] + '.csv'
     df.to_csv(csv_path, index=False)
