@@ -1,7 +1,18 @@
-/** Tailwind build config (roadmap 3.2 — replaces the CDN runtime). */
+/**
+ * Tailwind build config (replaces the CDN runtime). Builds tailwind.css, the
+ * purged stylesheet the app serves, from tailwind.src.css beside it. From the
+ * repo root:
+ *   npx tailwindcss@3.2.7 -c statlee/static/css/tailwind.config.js \
+ *     -i statlee/static/css/tailwind.src.css \
+ *     -o statlee/static/css/tailwind.css --minify
+ * Content globs resolve relative to this file, so any working directory works.
+ */
 module.exports = {
   darkMode: 'class',
-  content: ['./statlee/templates/**/*.html', './statlee/static/js/**/*.js'],
+  content: {
+    relative: true,
+    files: ['../../templates/**/*.html', '../js/**/*.js'],
+  },
   safelist: ['dark'],
   theme: {
     extend: {

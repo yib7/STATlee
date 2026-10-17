@@ -755,6 +755,21 @@ the XSS defense (roadmap 0.5).
 `templates/landing.html` is the standalone marketing page at `/welcome`
 (self-contained CSS, independent of the app shell).
 
+**Styles.** `static/css/tailwind.css` is a purged Tailwind 3.2.7 build, committed
+so the app needs no Node toolchain. Its inputs sit beside it:
+`static/css/tailwind.src.css` (the three `@tailwind` directives) and
+`static/css/tailwind.config.js` (theme, and the templates and scripts it scans
+for class names). After using a
+utility class the build does not contain yet, rebuild it from the repo root:
+
+```bash
+npx tailwindcss@3.2.7 -c statlee/static/css/tailwind.config.js \
+  -i statlee/static/css/tailwind.src.css -o statlee/static/css/tailwind.css --minify
+```
+
+Hand-written rules (theme tokens, the run lifecycle chrome, focus rings) live in
+`static/css/app.css`, which loads after `tailwind.css`.
+
 ## Testing (`tests/`)
 
 `conftest.py` injects a `FakeLLMService` that maps each prompt to a canned
