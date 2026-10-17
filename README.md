@@ -73,24 +73,31 @@ is in [docs/README.md](docs/README.md).
 ## How it works
 
 ```mermaid
-flowchart TD
-    A["Upload: CSV, TSV, Excel, Stata, SPSS"] --> B["Normalize to CSV, profile columns"]
-    B --> C["Layered codebook<br/>your edits > file labels > PDF > model"]
-    C --> D["Plain-English request"]
-    D --> E{{"Moderation (LLM)"}}
-    E -->|allowed| F["Draft script<br/>role-based LLM layer"]
-    F --> G["Validate pass (LLM)"]
-    G --> H{{"AST static pre-check<br/>import allowlist, no LLM"}}
-    P["Script you edited"] --> H
-    H -->|passes| I{{"Run-guard<br/>server-approved, or LLM re-review"}}
-    I -->|passes| J["Sandbox run<br/>secret-free env, subprocess or Docker"]
-    J --> K["Results: output, plots,<br/>methods and assumptions card"]
-    K --> L["Interpretation and report"]
-    K --> M["Reproducibility bundle (.zip)"]
-    L --> M
-    E -->|blocked| X["Refused, nothing runs"]
-    H -->|refused| X
-    I -->|blocked| X
+flowchart LR
+    subgraph prep["1. Prepare"]
+        direction TB
+        A["Upload<br/>CSV, TSV, Excel, Stata, SPSS"] --> B["Normalize to CSV,<br/>profile columns"]
+        B --> C["Layered codebook<br/>your edits > file labels<br/>> PDF > model"]
+        C --> D["Plain-English request"]
+    end
+    subgraph gen["2. Generate and check"]
+        direction TB
+        E{{"Moderation (LLM)"}} --> F["Draft script<br/>role-based LLM layer"]
+        F --> G["Validate pass (LLM)"]
+        G --> H{{"AST static pre-check<br/>import allowlist, no LLM"}}
+        P["Script you edited"] --> H
+        H --> I{{"Run-guard<br/>server-approved,<br/>or LLM re-review"}}
+        E -. blocked .-> X["Refused,<br/>nothing runs"]
+        H -. refused .-> X
+        I -. blocked .-> X
+    end
+    subgraph run["3. Run and package"]
+        direction TB
+        J["Sandbox run<br/>secret-free env,<br/>subprocess or Docker"] --> K["Results: output, plots,<br/>methods and assumptions card"]
+        K --> L["Interpretation<br/>and report"]
+        L --> M["Reproducibility<br/>bundle (.zip)"]
+    end
+    prep --> gen --> run
 ```
 
 A freshly drafted script gets both checks before the server approves it. At run
