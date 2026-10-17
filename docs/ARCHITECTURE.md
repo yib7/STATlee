@@ -218,7 +218,9 @@ The store is capped by `MAX_RUNS_PER_IDENTITY` and by a byte budget: 25 percent
 of `MAX_BYTES_PER_IDENTITY` (`runs.RUNS_BYTES_SHARE_PERCENT`; 50 MB of the
 default 200 MB, or 50 MB when that cap is off), so stored runs always leave room
 for uploads. Past either cap the oldest unstarred run is evicted (the oldest run
-when all are starred; never the run just saved). A run keeps at most 20 plots
+when all are starred; never the run just saved). Each eviction is logged at
+INFO, naming a starred victim as such, and `runs.record_run` returns the evicted
+runs (`{run_id, name, starred}`) next to the new id. A run keeps at most 20 plots
 and 10 MB of plots (`sandbox.PLOTS_MAX`, `sandbox.PLOTS_BYTES_MAX`); the output
 says how many were not kept. `/run` reads the dataset's version number, path and
 hash from one manifest read before the sandbox starts, so a wrangle that lands

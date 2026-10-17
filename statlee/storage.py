@@ -989,6 +989,7 @@ from .runs import (  # noqa: E402, F401 (re-exported API)
     latest_run_id,
     list_runs,
     load_run,
+    record_run,
     run_artifacts,
     run_ids,
     run_interpretation,

@@ -361,7 +361,22 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
              returncode=None, timed_out=False, prompt=None, filename=None,
              dataset_version=None, dataset_sha256=None, model=None, role=None,
              methods=None, prompt_inherited=False):
-    """Persist one run's artifacts as a new run and return its ``run_id``.
+    """``record_run`` without the eviction report: returns the ``run_id``."""
+    return record_run(
+        output, plots_b64, script=script, language=language,
+        identity=identity, returncode=returncode, timed_out=timed_out,
+        prompt=prompt, filename=filename, dataset_version=dataset_version,
+        dataset_sha256=dataset_sha256, model=model, role=role,
+        methods=methods, prompt_inherited=prompt_inherited)[0]
+
+
+def record_run(output, plots_b64, script=None, language=None, identity=None,
+               returncode=None, timed_out=False, prompt=None, filename=None,
+               dataset_version=None, dataset_sha256=None, model=None,
+               role=None, methods=None, prompt_inherited=False):
+    """Persist one run's artifacts as a new run. Returns ``(run_id,
+    evicted)``: ``evicted`` lists the runs this save pushed out, as
+    ``{run_id, name, starred}``, so a caller can tell the user (3A A3).
 
     ``script`` is the exact script that produced the run (P2-1/P2-7: /export
     and /interpret read it, never the shared approved store's "most recent").
@@ -373,7 +388,8 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
     Allocation, write, index update and eviction all happen under the index
     lock. Over ``MAX_RUNS_PER_IDENTITY`` runs or ``byte_budget()`` bytes the
     oldest unstarred run is evicted (the oldest run when all are starred);
-    the new run is never the victim.
+    the new run is never the victim. Every eviction is logged at INFO, and
+    a starred victim says so.
     """
     st = _st()
     _ensure_adopted(identity)
@@ -412,8 +428,9 @@ def save_run(output, plots_b64, script=None, language=None, identity=None,
         _save_index(root, index)
         # The index no longer lists them; a failed delete is swept later.
         for victim in doomed:
-            shutil.rmtree(os.path.join(root, victim), ignore_errors=True)
-    return run_id
+            shutil.rmtree(os.path.join(root, victim['run_id']),
+                          ignore_errors=True)
+    return run_id, doomed
 
 
 def _write_plots(run_dir, plots_b64, run_id):
@@ -438,21 +455,33 @@ def _write_plots(run_dir, plots_b64, run_id):
 def _evictions(root, index):
     """Runs to drop so the workbook holds at most ``_cap()`` runs and
     ``byte_budget()`` bytes: the oldest unstarred run first (the oldest run
-    when all are starred); never the run just saved."""
+    when all are starred); never the run just saved. Returns
+    ``[{run_id, name, starred}]`` and logs each one."""
     cap = _cap()
     budget = byte_budget()
     sizes = {r: _dir_bytes(os.path.join(root, r)) for r in index['runs']}
+    metas = {}
+
+    def meta_of(run_id):
+        if run_id not in metas:
+            metas[run_id] = _read_meta(os.path.join(root, run_id))
+        return metas[run_id]
+
     doomed = []
     while len(index['runs']) > 1 and (
             len(index['runs']) > cap
             or sum(sizes[r] for r in index['runs']) > budget):
+        over_count = len(index['runs']) > cap
         candidates = index['runs'][:-1]       # never the run just saved
-        victim = next(
-            (r for r in candidates
-             if not _read_meta(os.path.join(root, r)).get('starred')),
-            candidates[0])
+        victim = next((r for r in candidates
+                       if not meta_of(r).get('starred')), candidates[0])
         index['runs'].remove(victim)
-        doomed.append(victim)
+        meta = meta_of(victim)
+        starred = bool(meta.get('starred'))
+        name = meta.get('name') if isinstance(meta.get('name'), str) else None
+        logger.info("Evicted %srun %s (%s)", 'starred ' if starred else '',
+                    victim, 'run cap' if over_count else 'byte budget')
+        doomed.append({'run_id': victim, 'name': name, 'starred': starred})
     return doomed
 
 

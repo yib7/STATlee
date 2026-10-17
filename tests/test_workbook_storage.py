@@ -346,3 +346,36 @@ def test_locked_legacy_dir_is_left_in_place_and_adopted_later(
     assert storage.load_run('r0001', identity=ident)['output'] == \
         'LOCKED LEGACY'
     assert not os.path.exists(legacy)
+
+
+def test_evictions_are_reported_and_logged_with_the_starred_flag(
+        ctx, caplog):
+    """3A A3: a starred run pushed out by the cap is no longer evicted
+    silently: record_run reports it and the log says it was starred."""
+    ctx.config['STATLEE'].max_runs_per_identity = 2
+    ident = 'anon_wbevictlog'
+    for i in range(2):
+        rid = storage.save_run(str(i), [], identity=ident)
+        storage.update_run_meta(rid, starred=True, name=f'Model {i}',
+                                identity=ident)
+    with caplog.at_level('INFO', logger='statlee.runs'):
+        new, evicted = storage.record_run('new', [], identity=ident)
+    assert new == 'r0003'
+    assert evicted == [{'run_id': 'r0001', 'name': 'Model 0',
+                        'starred': True}]
+    lines = [r.getMessage() for r in caplog.records
+             if r.name == 'statlee.runs']
+    assert any('starred run r0001' in line and 'run cap' in line
+               for line in lines), lines
+    # Nothing evicted: an empty report.
+    assert storage.record_run('x', [], identity='anon_wbevict2')[1] == []
+
+
+def test_byte_budget_evictions_are_reported(ctx):
+    big = base64.b64encode(b'x' * 4000).decode('ascii')
+    ctx.config['STATLEE'].max_bytes_per_identity = 4_000
+    ident = 'anon_wbbytes3'
+    first = storage.save_run('o', [big], identity=ident)
+    _new, evicted = storage.record_run('o', [big], identity=ident)
+    assert [e['run_id'] for e in evicted] == [first]
+    assert evicted[0]['starred'] is False
