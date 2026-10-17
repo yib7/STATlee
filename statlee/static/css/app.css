@@ -175,11 +175,11 @@ body { font-family: var(--font-ui); }
    purged build with no local toolchain: a new utility class here would need a
    rebuild and would silently no-op until then.
    Markup contract (index.html + analyze.js):
-     #genHeader  .lc-header > #genPhase + (#genModelChip, #genElapsed)
-     #execHeader .lc-header > #execPhase + (#execElapsed)
-     #streamState / #autoScrollNote  - streaming editor chrome
-     #termState / #execProgress      - terminal chrome + running bar
-     #debugFrame .lc-debug           - the AI debug frame
+     `#genHeader .lc-header > #genPhase + (#genModelChip, #genElapsed)`
+     `#execHeader .lc-header > #execPhase + (#execElapsed)`
+     `#streamState`, `#autoScrollNote`: streaming editor chrome
+     `#termState`, `#execProgress`: terminal chrome and the running bar
+     `#debugFrame .lc-debug`: the AI debug frame
    Every .lc-* rule that sets `display` also declares an `.hidden` override:
    app.css loads after tailwind.css, so at equal specificity these would
    otherwise beat Tailwind's own `.hidden { display: none }`. */
