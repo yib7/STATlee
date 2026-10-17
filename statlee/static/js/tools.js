@@ -278,7 +278,7 @@
 
     async function openHistory() {
         const list = document.getElementById('historyList');
-        list.innerHTML = `<div class="p-4 text-sm text-slate-500 flex items-center gap-2">${CC.spinner('h-4 w-4')} Loading…</div>`;
+        list.innerHTML = `<div class="p-4 text-sm text-[var(--text-3)] flex items-center gap-2">${CC.spinner('h-4 w-4')} Loading…</div>`;
         CC.modal.open('historyModal');
 
         const entries = readLocalHistory();
@@ -310,7 +310,7 @@
 
         entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         if (!entries.length) {
-            list.innerHTML = '<div class="p-6 text-sm text-slate-500 italic">No past analyses yet. Run a script and it will be saved here.</div>';
+            list.innerHTML = '<div class="p-6 text-sm text-[var(--text-3)] italic">No past analyses yet. Run a script and it will be saved here.</div>';
             return;
         }
         list.innerHTML = serverNote;
@@ -320,7 +320,7 @@
             const when = entry.ts ? new Date(entry.ts).toLocaleString() : '';
             item.innerHTML =
                 `<div class="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">${CC.escapeHtml(entry.prompt || '(no prompt)')}</div>` +
-                `<div class="text-[11px] font-mono text-slate-500 mt-0.5">${CC.escapeHtml(entry.dataset_label || entry.dataset_name || '')} ·${CC.escapeHtml(entry.language || '')} · ${when}${entry.server ? ' · account' : ''}</div>`;
+                `<div class="text-[11px] font-mono text-[var(--text-3)] mt-0.5">${CC.escapeHtml(entry.dataset_label || entry.dataset_name || '')} ·${CC.escapeHtml(entry.language || '')} · ${when}${entry.server ? ' · account' : ''}</div>`;
             item.addEventListener('click', () => restoreHistory(entry));
             list.appendChild(item);
         });

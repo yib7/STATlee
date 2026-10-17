@@ -67,7 +67,7 @@
 
     function checksBlock(assumptions) {
         const wrap = el('div', 'mc-section');
-        wrap.appendChild(el('h4', 'mc-sub', 'Assumption checks'));
+        wrap.appendChild(el('h3', 'mc-sub', 'Assumption checks'));
         if (!assumptions.length) {
             wrap.appendChild(el('p', 'mc-empty-sub', NOT_REPORTED + '.'));
             return wrap;
@@ -89,7 +89,7 @@
 
     function effectsBlock(effects) {
         const wrap = el('div', 'mc-section');
-        wrap.appendChild(el('h4', 'mc-sub', 'Effect sizes'));
+        wrap.appendChild(el('h3', 'mc-sub', 'Effect sizes'));
         if (!effects.length) {
             wrap.appendChild(el('p', 'mc-empty-sub', 'No effect sizes reported.'));
             return wrap;

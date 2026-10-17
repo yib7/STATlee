@@ -552,6 +552,80 @@ def test_narrow_viewport_has_no_horizontal_scroll(browser, e2e_server, fake):
 
 
 # ---------------------------------------------------------------------------
+# 2026-10-16 release pass, Phase 7: layout and keyboard checks found by the
+# axe-core + screenshot audit
+# ---------------------------------------------------------------------------
+
+# Elements a stylesheet rule shows despite Tailwind's .hidden. Skips the
+# deliberate cases: a `dark:block` icon pair, and an inline display the JS sets.
+HIDDEN_BUT_SHOWN = """() => Array.from(document.querySelectorAll('.hidden')).filter(el => {
+    const cls = el.getAttribute('class') || '';
+    if (/dark:(block|flex|inline)/.test(cls) || el.style.display) return false;
+    return getComputedStyle(el).display !== 'none';
+}).map(el => el.id || cls)"""
+
+# Controls that stick out past the panel, dialog or floating window they sit in.
+CONTROLS_PAST_THEIR_PANEL = """() => {
+    const out = [];
+    for (const el of document.querySelectorAll('button, a, input, select, textarea')) {
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const box = el.parentElement && el.parentElement.closest(
+            '.panel, #wrangleFloat, #codebookFloat, .cc-modal > div');
+        if (!box) continue;
+        const b = box.getBoundingClientRect();
+        if (r.right > b.right + 1 || r.left < b.left - 1) out.push(el.id || el.textContent.trim());
+    }
+    return out;
+}"""
+
+
+@pytest.mark.parametrize('width,height', [(1440, 900), (390, 844)])
+def test_loaded_workspace_has_no_stray_or_spilling_elements(browser, e2e_server, fake,
+                                                           width, height):
+    p = _new_page(browser, e2e_server['url'], width=width, height=height)
+    try:
+        upload(p, 'tidy.csv', CSV_A + '81,1,A\n')
+        skip_codebook(p)
+        p.wait_for_selector('#changelogPanel:not(.hidden)')
+        # .cc-dataset-warnings used to show an empty bordered box here.
+        assert p.evaluate(HIDDEN_BUT_SHOWN) == []
+        # Undo / Redo / Original / Pop out used to run past the panel edge.
+        assert p.evaluate(CONTROLS_PAST_THEIR_PANEL) == []
+        p.click('#wranglePopoutBtn')
+        p.wait_for_selector('#wrangleFloat')
+        assert p.get_attribute('#wrangleFloat', 'role') == 'region'
+        assert p.evaluate(CONTROLS_PAST_THEIR_PANEL) == []
+        assert p.evaluate('() => document.documentElement.scrollWidth') <= width
+    finally:
+        p.context.close()
+
+
+def test_resizer_reports_its_position(page):
+    before = int(page.get_attribute('#resizer', 'aria-valuenow'))
+    assert 20 <= before <= 50, before
+    page.focus('#resizer')
+    for _ in range(3):
+        page.keyboard.press('ArrowLeft')
+    after = int(page.get_attribute('#resizer', 'aria-valuenow'))
+    width = page.evaluate(
+        "() => document.getElementById('leftSidebar').getBoundingClientRect().width")
+    assert after < before
+    assert after == round(width / 1440 * 100)
+
+
+def test_editor_takes_typing_through_its_contenteditable_surface(page):
+    # inputStyle 'contenteditable' (the screen-reader mode): the code area is
+    # the focus target, and typing on the empty editor still lands in it.
+    box = page.locator('#codeEditorHost').bounding_box()
+    page.mouse.click(box['x'] + 200, box['y'] + 60)
+    page.keyboard.type('print(42)')
+    assert page.evaluate('() => CC.getCode()') == 'print(42)'
+    assert page.evaluate("() => document.activeElement.classList.contains('CodeMirror-code')")
+    assert page.get_attribute('.CodeMirror-code', 'contenteditable') == 'true'
+
+
+# ---------------------------------------------------------------------------
 # Review screenshots (opt-in)
 # ---------------------------------------------------------------------------
 

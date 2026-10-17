@@ -9,9 +9,22 @@
  */
 module.exports = {
   darkMode: 'class',
+  // Only the app shell loads tailwind.css: landing.html and reset_password.html
+  // (and their scripts) carry their own <style> and never link it, so they are
+  // not scanned. Comments are stripped before class extraction, so a class
+  // named in prose (e.g. "min-h-[150px] is not in the build") stays out.
   content: {
     relative: true,
-    files: ['../../templates/**/*.html', '../js/**/*.js'],
+    files: [
+      '../../templates/index.html',
+      '../js/**/*.js',
+      '!../js/landing.js',
+      '!../js/reset_password.js',
+    ],
+    transform: {
+      html: (src) => src.replace(/<!--[\s\S]*?-->/g, ''),
+      js: (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
+    },
   },
   safelist: ['dark'],
   theme: {

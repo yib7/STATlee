@@ -336,6 +336,13 @@
         const leftSidebar = document.getElementById('leftSidebar');
         if (!resizer || !leftSidebar) return;
         let isResizing = false;
+        // role=separator carries its position: the sidebar's share of the
+        // window, in percent, kept current as it is dragged or arrowed.
+        const syncValue = () => {
+            const pct = leftSidebar.getBoundingClientRect().width / window.innerWidth * 100;
+            resizer.setAttribute('aria-valuenow', String(Math.round(pct)));
+        };
+        syncValue();
         resizer.addEventListener('mousedown', (e) => {
             isResizing = true;
             document.body.style.cursor = 'col-resize';
@@ -349,6 +356,7 @@
             if (w < 320) w = 320;
             if (w > window.innerWidth * 0.5) w = window.innerWidth * 0.5;
             leftSidebar.style.width = `${w}px`;
+            syncValue();
         });
         document.addEventListener('mouseup', () => {
             if (isResizing) {
@@ -363,6 +371,7 @@
             const cur = leftSidebar.getBoundingClientRect().width;
             if (e.key === 'ArrowLeft') leftSidebar.style.width = `${Math.max(320, cur - 24)}px`;
             if (e.key === 'ArrowRight') leftSidebar.style.width = `${Math.min(window.innerWidth * 0.5, cur + 24)}px`;
+            syncValue();
         });
     }
 
@@ -461,6 +470,8 @@
         const list = document.getElementById('codebookList');
         const float = document.createElement('div');
         float.id = 'codebookFloat';
+        float.setAttribute('role', 'region');
+        float.setAttribute('aria-label', 'Intelligent codebook');
         float.className = 'glass-panel border border-slate-300 dark:border-slate-700/60';
         float.innerHTML =
             '<div id="codebookFloatHandle" class="cursor-move flex items-center justify-between px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
@@ -554,10 +565,13 @@
         if (!body) return;
         const float = document.createElement('div');
         float.id = 'wrangleFloat';
+        // A floating panel outside the sidebar: a named region keeps it a landmark.
+        float.setAttribute('role', 'region');
+        float.setAttribute('aria-label', 'Data cleaning');
         float.className = 'glass-panel border border-slate-300 dark:border-slate-700/60';
         float.innerHTML =
-            '<div id="wrangleFloatHandle" class="cursor-move flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
-            '<span class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300">Data Cleaning</span>' +
+            '<div id="wrangleFloatHandle" class="cursor-move flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-300 dark:border-slate-700/50">' +
+            '<span class="text-xs font-bold uppercase tracking-wider whitespace-nowrap text-slate-800 dark:text-slate-300">Data Cleaning</span>' +
             '<div class="flex items-center gap-1.5 shrink-0">' +
             '<span id="wrangleFloatVersions" class="flex items-center gap-1.5"></span>' +
             '<button id="wrangleDockBtn" class="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-400 hover:underline" aria-label="Dock data cleaning back to sidebar">Dock</button>' +

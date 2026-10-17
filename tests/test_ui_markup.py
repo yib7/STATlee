@@ -852,3 +852,125 @@ def test_export_dialog_does_not_overpromise_prompt_removal(client):
     text = ' '.join(re.sub(r'<[^>]+>', ' ', modal).split())
     assert 'may still restate' in text
     assert 'Turn off to share the bundle without them.' not in text
+
+
+# --- 2026-10-16 release pass, Phase 7 (axe-core audit, light + dark) -------
+
+def _theme_tokens(css):
+    light = _tokens(css[css.find(':root {'):css.find('}', css.find(':root {'))])
+    dark = _tokens(css[css.find('.dark {'):css.find('}', css.find('.dark {'))])
+    return light, {**light, **dark}
+
+
+def test_primary_button_and_accent_tokens_meet_wcag_aa():
+    """White on the button fill, the dark theme's muted text on every surface
+    it sits on (the selected run row is --indigo-soft), the violet +CREDITS
+    tag, and the always-dark terminal's status words: all 4.5:1 or better.
+    Before: white on the dark --indigo button was 3.6:1, dark --text-3 4.0:1
+    on the selected run row, light --violet 3.9:1, the terminal's "exit 0"
+    2.9:1 in the light theme."""
+    css = _read('statlee', 'static', 'css', 'app.css')
+    light, dark = _theme_tokens(css)
+    for name, theme in (('light', light), ('dark', dark)):
+        for fill in ('btn-bg', 'btn-bg-hover'):
+            ratio = _contrast('#ffffff', theme[fill])
+            assert ratio >= 4.5, f'{name} white on --{fill} is {ratio:.2f}:1'
+    for bg in ('s0', 's1', 's2', 's3', 'indigo-soft'):
+        ratio = _contrast(dark['text-3'], dark[bg])
+        assert ratio >= 4.5, f'dark --text-3 on --{bg} is {ratio:.2f}:1'
+    for bg in ('s0', 's1', 's2'):
+        ratio = _contrast(light['violet'], light[bg])
+        assert ratio >= 4.5, f'light --violet on --{bg} is {ratio:.2f}:1'
+    assert _contrast('#ffffff', light['violet-solid']) >= 4.5
+    for fg in ('code-ok', 'code-accent', 'code-muted', 'code-err'):
+        for bg in ('code-bg', 'code-chrome'):
+            ratio = _contrast(light[fg], light[bg])
+            assert ratio >= 4.5, f'--{fg} on --{bg} is {ratio:.2f}:1'
+
+
+def test_primary_button_uses_the_button_token_not_the_text_accent():
+    src = _read('statlee', 'static', 'css', 'tailwind.src.css')
+    built = _read('statlee', 'static', 'css', 'tailwind.css')
+    assert 'bg-[var(--btn-bg)]' in src and 'bg-[var(--indigo)] hover' not in src
+    assert re.search(r'\.btn-primary\{[^}]*background-color:var\(--btn-bg\)', built), \
+        'tailwind.css was not rebuilt after the .btn-primary change'
+    css = _read('statlee', 'static', 'css', 'app.css')
+    assert re.search(r'\.es-browse \{[^}]*background: var\(--btn-bg\)', css)
+    assert '.lc-term-state.done { color: var(--code-ok); }' in css
+
+
+def test_standalone_pages_keep_their_token_copies_legible():
+    """landing.html and reset_password.html are fixed-dark and carry their own
+    copy of the tokens; their buttons and muted text get the same fixes."""
+    for page in ('landing.html', 'reset_password.html'):
+        html = _read('statlee', 'templates', page)
+        root = _tokens(html[html.find(':root {'):html.find('}', html.find(':root {'))])
+        assert _contrast('#ffffff', root['btn-bg']) >= 4.5, page
+        assert _contrast(root['text-3'], root['s2']) >= 4.5, page
+        assert re.search(r'\.btn-primary \{[^}]*background: var\(--btn-bg\)', html), page
+        if 'code-com' in root:
+            assert _contrast(root['code-com'], root['code-bg']) >= 4.5, page
+
+
+def test_workspace_has_main_and_complementary_landmarks(client):
+    html = _index_html(client)
+    assert re.search(r'<main id="rightContent"', html)
+    assert re.search(r'<aside id="leftSidebar" aria-label="[^"]+"', html)
+    aside = html[html.find('<aside id="leftSidebar"'):html.find('</aside>')]
+    sep = re.search(r'<div id="resizer"[^>]*>', aside)
+    assert sep, 'the resizer lives inside the sidebar landmark'
+    for attr in ('role="separator"', 'aria-valuenow=', 'aria-valuemin=', 'aria-valuemax='):
+        assert attr in sep.group(0), attr
+    main = html[html.find('<main id="rightContent"'):html.find('</main>')]
+    assert 'id="expandSidebarBtn"' in main
+    landing = _read('statlee', 'templates', 'landing.html')
+    assert landing.count('<main>') == 1 and landing.count('</main>') == 1
+
+
+def test_workspace_heading_levels_do_not_skip(client):
+    """h1 (STATlee) and h2 (dialog and card titles) only in the shell; the
+    methods card's sub-sections are h3 under its h2 title."""
+    html = _visible(_index_html(client))
+    assert not re.search(r'<h[3-6]\b', html)
+    assert re.search(r'<h2 id="methodsCardTitle"', html)
+    assert re.search(r'<h2 id="runRailTitle"', html)
+    js = _js_sources()
+    assert "el('h3', 'mc-sub'" in js['methods.js'] and "'h4'" not in js['methods.js']
+    assert '<h3 ' not in js['analyze.js']
+
+
+def test_scrollable_output_regions_are_keyboard_reachable(client):
+    html = _index_html(client)
+    tag = re.search(r'<div[^>]*lc-term-body[^>]*>', html).group(0)
+    assert 'tabindex="0"' in tag and 'aria-label="Terminal output"' in tag
+    assert "inputStyle: 'contenteditable'" in _js_sources()['analyze.js']
+
+
+def test_floating_panels_are_named_regions():
+    ui = _js_sources()['ui.js']
+    for label in ('Data cleaning', 'Intelligent codebook'):
+        assert f"float.setAttribute('aria-label', '{label}')" in ui, label
+    assert ui.count("float.setAttribute('role', 'region')") == 2
+
+
+def test_tailwind_build_scans_only_the_app_shell_without_comments():
+    """The purged build must come from class names the app shell actually
+    uses: not landing/reset CSS, not words in comments (the 2026-10-16 audit
+    found .outline/.invisible/.min-h-[150px] that way), and every real class
+    present (`mt-5` on the pipeline header was missing from the old build)."""
+    cfg = _read('statlee', 'static', 'css', 'tailwind.config.js')
+    assert "'!../js/landing.js'" in cfg and "'!../js/reset_password.js'" in cfg
+    assert "'../../templates/index.html'" in cfg and 'transform' in cfg
+    built = _read('statlee', 'static', 'css', 'tailwind.css')
+    for junk in (r'.min-h-\[150px\]{', '.invisible{', '.outline{', '.antialiased{'):
+        assert junk not in built, junk
+    for needed in ('.mt-5{', '.flex-wrap{', '.whitespace-nowrap{'):
+        assert needed in built, needed
+
+
+def test_dataset_warnings_box_obeys_hidden():
+    """.cc-dataset-warnings sets display:flex in app.css, which loads after
+    tailwind.css and so beat .hidden: an empty bordered box showed under
+    "Loaded <file>" on every clean upload."""
+    css = _read('statlee', 'static', 'css', 'app.css')
+    assert '.cc-dataset-warnings.hidden { display: none; }' in css

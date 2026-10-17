@@ -797,9 +797,11 @@ the XSS defense (roadmap 0.5).
 **Styles.** `static/css/tailwind.css` is a purged Tailwind 3.2.7 build, committed
 so the app needs no Node toolchain. Its inputs sit beside it:
 `static/css/tailwind.src.css` (the three `@tailwind` directives) and
-`static/css/tailwind.config.js` (theme, and the templates and scripts it scans
-for class names). After using a
-utility class the build does not contain yet, rebuild it from the repo root:
+`static/css/tailwind.config.js` (theme, and the files it scans for class names:
+`templates/index.html` and the workspace scripts, with comments stripped first;
+`landing.html` and `reset_password.html` carry their own styles and never load
+the build). After using a utility class the build does not contain yet, rebuild
+it from the repo root:
 
 ```bash
 npx tailwindcss@3.2.7 -c statlee/static/css/tailwind.config.js \
@@ -807,7 +809,11 @@ npx tailwindcss@3.2.7 -c statlee/static/css/tailwind.config.js \
 ```
 
 Hand-written rules (theme tokens, the run lifecycle chrome, focus rings) live in
-`static/css/app.css`, which loads after `tailwind.css`.
+`static/css/app.css`, which loads after `tailwind.css`. Because it loads later, an
+`app.css` rule that sets `display` beats Tailwind's `.hidden`; such a rule needs
+its own `.x.hidden { display: none; }` line. Primary buttons fill with
+`--btn-bg`, not `--indigo` (the dark `--indigo` is a text accent, too light for
+white text).
 
 ## Testing (`tests/`)
 

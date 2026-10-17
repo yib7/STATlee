@@ -3,9 +3,11 @@
 @tailwind utilities;
 
 @layer components {
-    /* One primary CTA in both themes - solid indigo token, 10px radius (1A). */
+    /* One primary CTA in both themes - solid button token, 10px radius (1A).
+       --btn-bg, not --indigo: the dark theme's --indigo is a light text accent
+       and white on it is 3.6:1; the button fill keeps white text at 4.5:1+. */
     .btn-primary {
-        @apply bg-[var(--indigo)] hover:bg-[var(--indigo-2)] text-white font-semibold rounded-[10px]
+        @apply bg-[var(--btn-bg)] hover:bg-[var(--btn-bg-hover)] text-white font-semibold rounded-[10px]
                transition-all duration-2 ease-std disabled:opacity-50 disabled:cursor-not-allowed;
     }
 

@@ -110,6 +110,17 @@ reproducibility bundle that records what produced what.
 - Signing in now carries codebook archives into the account, so re-uploading the
   same file there restores your codebook edits.
 - The run rail ends the read-only view of a run that left the workbook.
+- Accessibility and layout pass (axe-core 4.10.2, zero violations on every
+  workspace screen, the landing page and the reset page, light and dark):
+  primary buttons, the dark theme's muted text, the light theme's violet tag,
+  the terminal's status words and the editor's line numbers reach 4.5:1
+  contrast; the workspace has `main` and sidebar landmarks, headings no longer
+  skip levels, the sidebar resizer reports its position, the terminal output
+  and the script editor are reachable by keyboard. An empty bordered box no
+  longer shows under "Loaded <file>" after every upload, the docked cleaning
+  panel's buttons no longer run past its edge, and the pipeline header gets
+  the spacing its markup asked for (the rebuilt Tailwind file now holds every
+  class the app shell uses and none taken from comments).
 
 ### Security
 - Outgoing email verifies the SMTP server's certificate before logging in;

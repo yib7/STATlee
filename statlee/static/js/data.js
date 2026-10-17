@@ -80,7 +80,7 @@
         const tbody = document.getElementById('dataTableBody');
         let html = '';
         if (!rows || rows.length === 0) {
-            html = `<tr><td colspan="${headers.length}" class="px-4 py-12 text-center text-slate-500 italic">No matching results found.</td></tr>`;
+            html = `<tr><td colspan="${headers.length}" class="px-4 py-12 text-center text-[var(--text-3)] italic">No matching results found.</td></tr>`;
         } else {
             rows.forEach(row => {
                 html += '<tr class="border-b border-slate-100/50 dark:border-slate-800/30 hover:bg-slate-50/50 dark:hover:bg-indigo-900/10 transition-colors">';

@@ -127,7 +127,7 @@
                 <form id="accForm" novalidate>
                     <label class="label-eyebrow mb-1.5" for="accEmail">Email</label>
                     <input type="email" id="accEmail" autocomplete="email" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-4 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="you@university.edu">
-                    <label class="label-eyebrow mb-1.5" for="accPassword">Password <span class="font-normal normal-case tracking-normal opacity-70">(8+ characters)</span></label>
+                    <label class="label-eyebrow mb-1.5" for="accPassword">Password <span class="font-normal normal-case tracking-normal">(8+ characters)</span></label>
                     <input type="password" id="accPassword" autocomplete="current-password" class="w-full bg-[var(--s1)] border border-[var(--border-strong)] rounded-[10px] py-3 px-4 mb-2 outline-none focus:ring-2 focus:ring-[var(--indigo)] text-base" placeholder="••••••••">
                     <div class="flex justify-end mb-4">
                         <button type="button" id="accForgotBtn" class="acc-link">Forgot password?</button>
@@ -249,13 +249,8 @@
     <!-- ===================== Main row (footer sits BELOW, fixing 4.1) ===================== -->
     <div id="mainRow" class="flex flex-1 min-h-0 relative">
 
-        <!-- Floating handle to reopen a collapsed sidebar -->
-        <button id="expandSidebarBtn" data-action="toggleSidebar" class="hidden fixed top-1/2 -translate-y-1/2 left-0 z-40 btn-primary p-2 rounded-l-none rounded-r-lg shadow-lg" title="Expand sidebar" aria-label="Expand sidebar">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
-        </button>
-
         <!-- Left Sidebar -->
-        <div id="leftSidebar" style="width: 33.333%;" class="glass-panel shrink-0 min-w-[320px] border-r border-[var(--border)] flex flex-col z-10 transition-colors duration-500">
+        <aside id="leftSidebar" aria-label="Dataset and analysis setup" style="width: 33.333%;" class="glass-panel relative shrink-0 min-w-[320px] border-r border-[var(--border)] flex flex-col z-10 transition-colors duration-500">
 
             <!-- Header -->
             <div class="p-6 pb-4 border-b border-[var(--border)]">
@@ -382,8 +377,12 @@
 
                 <!-- Conversational data cleaning + version control (5.16) -->
                 <div id="changelogPanel" class="hidden panel p-5 animate-fade-in-up">
-                    <div class="flex items-center justify-between gap-2 mb-3">
-                        <button id="wrangleToggleBtn" type="button" class="flex items-center gap-2 label-eyebrow group" aria-label="Toggle data cleaning visibility">
+                    <!-- flex-wrap: at the default sidebar width the title plus
+                         Undo / Redo / Original / Pop out do not fit on one line;
+                         the buttons drop under the title instead of spilling
+                         past the panel edge. -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <button id="wrangleToggleBtn" type="button" class="flex items-center gap-2 label-eyebrow group whitespace-nowrap" aria-label="Toggle data cleaning visibility">
                             Data Cleaning
                             <span class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-[var(--text-3)] group-hover:text-[var(--indigo)] transition-colors normal-case tracking-normal">
                                 <span id="wrangleToggleLabel">Hide</span>
@@ -473,13 +472,18 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Resizer -->
-        <div id="resizer" class="w-1 cursor-col-resize bg-transparent hover:bg-[var(--indigo)] active:bg-[var(--indigo)] z-50 shrink-0 transition-colors duration-150" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize sidebar (arrow keys)"></div>
+            <!-- Resizer: inside the sidebar landmark, pinned over its right edge -->
+            <div id="resizer" class="absolute top-0 bottom-0 -right-0.5 w-1 cursor-col-resize bg-transparent hover:bg-[var(--indigo)] active:bg-[var(--indigo)] z-50 shrink-0 transition-colors duration-150" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize sidebar (arrow keys)" aria-valuemin="0" aria-valuemax="100" aria-valuenow="33"></div>
+        </aside>
 
         <!-- Right Content Area -->
-        <div id="rightContent" class="flex-1 min-w-0 bg-[var(--s0)] flex flex-col relative z-0 transition-colors duration-500">
+        <main id="rightContent" class="flex-1 min-w-0 bg-[var(--s0)] flex flex-col relative z-0 transition-colors duration-500">
+
+            <!-- Floating handle to reopen a collapsed sidebar (position: fixed, so
+                 living inside <main> does not move it) -->
+            <button id="expandSidebarBtn" data-action="toggleSidebar" class="hidden fixed top-1/2 -translate-y-1/2 left-0 z-40 btn-primary p-2 rounded-l-none rounded-r-lg shadow-lg" title="Expand sidebar" aria-label="Expand sidebar">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
+            </button>
 
             <!-- Tabs + workspace controls -->
             <div class="px-6 pt-4 bg-[var(--s1)] border-b border-[var(--border)] flex justify-between items-end flex-wrap gap-2">
@@ -653,7 +657,7 @@
                              stays hidden while the workbook is empty. -->
                         <section id="runRail" class="wb-rail hidden" aria-labelledby="runRailTitle">
                             <div class="wb-rail-head">
-                                <h3 id="runRailTitle" class="label-eyebrow m-0">Runs this session</h3>
+                                <h2 id="runRailTitle" class="label-eyebrow m-0">Runs this session</h2>
                                 <span id="runRailCount" class="wb-rail-count"></span>
                             </div>
                             <ol id="runList" class="wb-run-list"></ol>
@@ -695,7 +699,7 @@
                              with text nodes only; hidden until a run has one. -->
                         <section id="methodsCard" class="mc-card hidden" aria-labelledby="methodsCardTitle">
                             <div class="mc-head">
-                                <h3 id="methodsCardTitle" class="label-eyebrow m-0">Methods and assumptions</h3>
+                                <h2 id="methodsCardTitle" class="label-eyebrow m-0">Methods and assumptions</h2>
                                 <span id="methodsCardSummary" class="mc-summary"></span>
                             </div>
                             <div id="methodsCardBody" class="mc-body"></div>
@@ -703,10 +707,10 @@
 
                         <div class="bg-[var(--code-bg)] border border-[var(--code-border)] rounded-[14px] shadow-[var(--e2)] flex flex-col overflow-hidden lc-term-box">
                             <div class="bg-[var(--code-chrome)] border-b border-[var(--code-border)] px-4 py-3 flex items-center justify-between gap-2">
-                                <h3 class="text-xs font-mono uppercase text-[var(--code-text)] font-semibold tracking-widest flex items-center gap-2 m-0">
+                                <h2 class="text-xs font-mono uppercase text-[var(--code-text)] font-semibold tracking-widest flex items-center gap-2 m-0">
                                     <svg id="termIcon" class="w-4 h-4 text-emerald-400 lc-term-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 8l4 4-4 4M13 16h6"></path><rect x="2" y="3" width="20" height="18" rx="2"></rect></svg>
                                     Sandbox · Terminal Output
-                                </h3>
+                                </h2>
                                 <!-- Reads "idle" until execRunning() takes it over. -->
                                 <span id="termState" class="lc-term-state"><span class="lc-dot"></span>idle</span>
                             </div>
@@ -714,7 +718,7 @@
                                  skeleton standing in. min-height is inline because
                                  `min-h-[150px]` is not in the purged Tailwind build
                                  and would silently do nothing. -->
-                            <div class="relative flex-1 min-h-0 lc-term-body" style="min-height:150px">
+                            <div class="relative flex-1 min-h-0 lc-term-body" tabindex="0" role="region" aria-label="Terminal output" style="min-height:150px">
                                 <pre id="runOutput" class="text-[var(--code-text)] font-mono text-sm whitespace-pre-wrap leading-relaxed p-5 m-0"></pre>
                                 <div class="es-skels es-run" aria-hidden="true">
                                     <div class="es-skel" style="height:9px;width:40%"></div>
@@ -744,10 +748,10 @@
                             </div>
                         </div>
                         <div class="bg-[var(--s1)] border border-[var(--border)] rounded-[14px] p-8 flex-1 shadow-[var(--e1)]">
-                            <h3 class="label-eyebrow mb-6 flex items-center gap-2 border-b border-[var(--border)] pb-4">
+                            <h2 class="label-eyebrow mb-6 flex items-center gap-2 border-b border-[var(--border)] pb-4">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 3a9 9 0 00-9 9c0 4 3 6 3 8h12c0-2 3-4 3-8a9 9 0 00-9-9zM9 21h6"></path></svg>
                                 <span id="interpretationTitle">Interpretation</span>
-                            </h3>
+                            </h2>
                             <div class="relative" style="min-height:76px">
                                 <div id="interpretationOutput" class="text-[var(--text-1)] text-base leading-relaxed markdown-body"></div>
                                 <!-- Plots render once, beside (not inside) the
@@ -816,10 +820,10 @@
                     <div id="contentPdf" role="tabpanel" aria-labelledby="tabPdf" class="tab-content h-full p-8 overflow-hidden hidden">
                         <div class="w-full h-full bg-[var(--s0)] rounded-[14px] border border-[var(--border)] shadow-[var(--e1)] overflow-hidden flex flex-col">
                             <div class="cb-head bg-[var(--s1)] border-b border-[var(--border)] p-4 flex justify-between items-center z-10">
-                                <h3 class="label-eyebrow flex items-center gap-2">
+                                <h2 class="label-eyebrow flex items-center gap-2">
                                     <svg class="w-4 h-4 text-[var(--indigo)]" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
                                     Codebook
-                                </h3>
+                                </h2>
                                 <!-- SP2: the server codebook (one editable row per
                                      column) and the attached PDF/TXT document are two
                                      views of this tab. codebook.js owns the switch. -->
@@ -915,10 +919,10 @@
                     <!-- REPORT BUILDER TAB (5.17) -->
                     <div id="contentReport" role="tabpanel" aria-labelledby="tabReport" class="tab-content h-full p-8 overflow-auto hidden flex flex-col gap-3">
                         <div class="flex items-center justify-between flex-wrap gap-2">
-                            <h3 class="label-eyebrow flex items-center gap-2">
+                            <h2 class="label-eyebrow flex items-center gap-2">
                                 <svg class="w-4 h-4 text-[var(--indigo)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                 AI Report Builder
-                            </h3>
+                            </h2>
                             <span class="text-[11px] text-[var(--text-3)]">Grounded in the runs you select.</span>
                         </div>
 
@@ -1003,7 +1007,7 @@
                     <div id="paneBContent" class="flex-1 min-h-0 relative overflow-hidden"></div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <!-- Footer - in normal flow so it can never cover the UI (4.1) -->

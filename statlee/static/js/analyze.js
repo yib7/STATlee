@@ -352,6 +352,10 @@
             lineWrapping: false,
             indentUnit: 4,
             readOnly: false,
+            // contenteditable, not the hidden-textarea default: the editable
+            // code is then the focusable thing inside the scroll area, which
+            // CodeMirror documents as the better mode for screen readers.
+            inputStyle: 'contenteditable',
             screenReaderLabel: 'Generated analysis script (editable)',
         });
         // One hook for every way the editor gains content: the generation stream
@@ -566,7 +570,7 @@
         const label = plots.length > 1
             ? `Generated Visualizations (${plots.length})` : 'Generated Visualization';
         let html = `<div class="mt-8 border-t border-slate-200 dark:border-slate-800 pt-6">
-            <h3 class="text-[10px] font-mono uppercase text-slate-400 font-bold mb-4 tracking-widest">${label}</h3>
+            <h2 class="text-[10px] font-mono uppercase text-[var(--text-3)] font-bold mb-4 tracking-widest">${label}</h2>
             <div class="flex flex-col gap-6">`;
         plots.forEach((p, i) => {
             html += `<img src="data:image/png;base64,${p}" alt="Generated plot ${i + 1}" class="max-w-full rounded-xl border border-slate-200 shadow-xl dark:border-slate-700 bg-white">`;
