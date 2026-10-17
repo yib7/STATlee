@@ -316,6 +316,12 @@
                         Anonymous · uploads auto-deleted
                         </p>
                     </div>
+                    {% if sample_available %}
+                    <!-- First run (6.12): data to try before you have your own.
+                         Outside the dropzone, whose full-bleed file input would
+                         swallow the click. -->
+                    <p class="cc-sample-link">No data handy? <a href="{{ url_for('misc.sample_dataset') }}" download>Download the sample survey</a> (synthetic, 320 rows), then drop it above.</p>
+                    {% endif %}
                     <!-- The loaded dataset (D1-1): the name the user picked, plus
                          the stored name scripts read when the two differ, and any
                          upload warnings (D1-13: skipped sheets, ...). -->

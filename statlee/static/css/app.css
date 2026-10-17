@@ -438,6 +438,14 @@ body.cc-no-run .es-staged { opacity: 0.55; pointer-events: none; user-select: no
 }
 body.cc-no-data .es-hint { display: block; }
 
+/* Sample-dataset offer under the dropzone, until a dataset is loaded. */
+.cc-sample-link {
+    display: none; margin-top: 0.6rem; text-align: center;
+    font-size: 0.75rem; color: var(--text-2); line-height: 1.45;
+}
+body.cc-no-data .cc-sample-link { display: block; }
+.cc-sample-link a { color: var(--indigo); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+
 /* Pipeline header: eyebrow + the right-hand status note ("awaiting data"). */
 .es-pipe-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.7rem; }
 #pipelineStatus { font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-3); }

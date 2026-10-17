@@ -1,10 +1,20 @@
-"""Index, health, metrics (3.3) and issue reporting (6.3)."""
+"""Index, sample dataset, health, metrics (3.3) and issue reporting (6.3)."""
 import hmac
 import logging
+import os
 import threading
 import time
 
-from flask import Blueprint, current_app, jsonify, render_template, request, session
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+    send_file,
+    session,
+)
 
 from .. import llm, mailer
 from ..extensions import db, limiter
@@ -23,6 +33,13 @@ register_field_errors(bp)
 
 _START_TIME = time.time()
 
+# The synthetic sample survey the README points first-time users at
+# (docs/examples/README.md). It ships in the repository and the Docker image,
+# not in an installed wheel, so the upload area offers it only when present.
+SAMPLE_DATASET = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'docs', 'examples', 'sample_survey.csv')
+
 
 def _cfg():
     return current_app.config['STATLEE']
@@ -40,7 +57,18 @@ def index():
         # the model actually doing the work ('pro_max' is the Pro-mode
         # upgrade). Display only: naming a model never selects or bills one.
         model_roles={'draft': cfg.model_pro, 'pro_max': cfg.model_pro_max},
+        sample_available=os.path.isfile(SAMPLE_DATASET),
     )
+
+
+@bp.route('/sample_survey.csv')
+def sample_dataset():
+    """Download the synthetic sample survey, so a first run has data to try.
+    Behind the same sign-in gate as the app itself."""
+    if not os.path.isfile(SAMPLE_DATASET):
+        abort(404)
+    return send_file(SAMPLE_DATASET, mimetype='text/csv', as_attachment=True,
+                     download_name='sample_survey.csv')
 
 
 @bp.route('/welcome')
