@@ -15,8 +15,9 @@ runner image in docker mode). A failure (or an R probe that did not finish) is
 cached for ``FAILURE_TTL`` seconds, so a broken sandbox is not re-probed on
 every export; environment.txt then says the environment could not be captured,
 and the export still succeeds. The probes never run under the module lock: one
-caller runs them, concurrent callers wait once on its result. Raw sandbox output from a failed
-probe is never written into the bundle (it can carry server paths).
+caller runs them, concurrent callers wait once on its result. Raw sandbox
+output from a failed probe is never written into the bundle (it can carry
+server paths).
 """
 import logging
 import shutil

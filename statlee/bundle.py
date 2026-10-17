@@ -145,7 +145,8 @@ def eligible_runs(dataset_name, dataset_shas=None):
             continue
         if (meta.get('filename') or None) != (dataset_name or None):
             continue
-        if dataset_shas is not None and                 meta.get('dataset_sha256') not in dataset_shas:
+        if (dataset_shas is not None
+                and meta.get('dataset_sha256') not in dataset_shas):
             left_out += 1
             continue
         metas.append((run_id, meta))
@@ -319,7 +320,8 @@ def provenance(cfg, lineage, records, include_prompts, root, steps=None):
     caller already computed them (``lineage_steps``), so the dataset versions
     are hashed once per export."""
     if steps is None:
-        steps = lineage_steps(lineage, include_prompts, root) if lineage             else []
+        steps = (lineage_steps(lineage, include_prompts, root) if lineage
+                 else [])
     steps = list(steps)
     for run_id, record in records:
         steps += _run_steps(run_id, record, include_prompts)

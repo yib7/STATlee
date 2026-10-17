@@ -140,6 +140,10 @@ ANALYSIS_CACHE_MAX = 128
 _MEASUREMENT_LEVELS = {'nominal': 'Nominal', 'ordinal': 'Ordinal',
                        'continuous': 'Continuous'}
 SUGGESTIONS_MAX = 3
+CLASSIFY_CHUNK = 80          # columns per classification call
+CLASSIFY_MAX_CHUNKS = 10     # at most 800 columns classified per dataset
+FRAME_CACHE_MAX = 4
+FILTERED_CACHE_MAX = 8
 
 
 def _normalize_suggestions(value):
@@ -160,10 +164,6 @@ def _normalize_suggestions(value):
     if not out:
         raise llm.MalformedReplyError(detail='no suggestions')
     return out[:SUGGESTIONS_MAX]
-CLASSIFY_CHUNK = 80          # columns per classification call
-CLASSIFY_MAX_CHUNKS = 10     # at most 800 columns classified per dataset
-FRAME_CACHE_MAX = 4
-FILTERED_CACHE_MAX = 8
 
 
 def _cache_get(cache, key):
