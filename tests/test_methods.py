@@ -372,3 +372,33 @@ def test_markup_like_values_are_not_mistaken_for_placeholders():
     card = methods.parse(out)
     assert card['method']['test'] == '<b>t</b>'
     assert card['assumptions'][0]['status'] == 'pass'
+
+
+# ---------------------------------------------------------------------------
+# A diagnostic the script could not compute is a caveat, never a pass
+# (2026-10-17: the draft prompt asks for "not computed (<error>) -> WARN")
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize('line', [
+    "Influence (Cook's distance): not computed (AttributeError) -> WARN",
+    "Influence (Cook's distance): not computed (AttributeError) -> PASS",
+    "Influence (Cook's distance): not computed -> OK",
+    "Deviance residuals: not computed",
+    "Outliers: could not be computed (KeyError: 'x') -> PASS",
+    "Linearity of the logit: cannot compute, pass",
+    "VIF: not calculated -> PASS",
+])
+def test_a_not_computed_check_is_a_warning(line):
+    (_name, _detail, status), = _checks(line)
+    assert status == 'warn'
+
+
+def test_a_not_computed_fail_stays_a_fail():
+    (_name, _detail, status), = _checks('Outliers: not computed -> FAIL')
+    assert status == 'fail'
+
+
+def test_computed_wording_is_not_mistaken_for_not_computed():
+    assert [s for _n, _d, s in _checks(
+        'Normality: computed on residuals, p=0.3 -> PASS',
+        'Cooks distance: max 0.04, nothing notable -> PASS',
+        'Normality: did not pass')] == ['pass', 'pass', 'unknown']

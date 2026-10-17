@@ -128,6 +128,15 @@ reproducibility bundle that records what produced what.
   saved-run view, `/history`, the interpretation's grounding and
   `provenance.json`) instead of being titled with the traceback sent to the
   model, and is marked "fixes run N".
+- Generated Python scripts no longer crash in the assumption checks after a
+  correct fit: the draft, review and failure-diagnosis prompts name the
+  installed pandas, numpy, scipy, statsmodels, matplotlib and seaborn versions
+  and the statsmodels diagnostics that exist in them (a Logit fit's
+  `MLEInfluence` has `cooks_distance`, `resid_studentized` and
+  `hat_matrix_diag`, not the OLS-only `resid_studentized_internal`), and ask
+  for an optional check that raises to be reported as "not computed" instead
+  of stopping the script. The Methods card reads a "not computed" check as
+  WARN, never PASS.
 
 ### Security
 - Outgoing email verifies the SMTP server's certificate before logging in;

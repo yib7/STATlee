@@ -79,6 +79,13 @@ _ARROW_NOTE_RE = re.compile(
 _PLACEHOLDER_RE = re.compile(
     r'<(?:name|vars?|int|reason|check name|statistic/result|effect size name|'
     r'value|lo|hi)>|PASS\|WARN\|FAIL', re.I)
+# A check the script could not compute ("not computed (<error>) -> WARN", the
+# draft prompt's fallback for a diagnostic that raised) is a caveat: it reads
+# as WARN even when the line says PASS or gives no verdict. FAIL stays FAIL.
+_NOT_COMPUTED_RE = re.compile(
+    r"\b(?:not|never)\s+(?:be(?:en)?\s+)?(?:computed|calculated|estimated)\b"
+    r"|\b(?:could|can)\s*(?:not|n['’]t)\s+(?:be\s+)?"
+    r"(?:compute|calculate|estimate)", re.I)
 _STATUS_MAP = {'pass': 'pass', 'passed': 'pass', 'ok': 'pass',
                'warn': 'warn', 'warning': 'warn',
                'fail': 'fail', 'failed': 'fail'}
@@ -243,6 +250,8 @@ def _parse_assumptions(lines):
         if _SEPARATOR_RE.match(line) or _PLACEHOLDER_RE.search(line):
             continue
         body, status, note = _verdict(line)
+        if status in ('pass', 'unknown') and _NOT_COMPUTED_RE.search(line):
+            status = 'warn'
         name, detail = _split_check(body)
         if not name:
             continue

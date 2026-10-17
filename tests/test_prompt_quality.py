@@ -163,3 +163,88 @@ def test_txt_codebook_is_delimited_in_the_extraction_call(client, fake_llm):
 def test_moderation_delimits_the_request():
     assert _is_delimited(prompts.moderation(INJECTION))
     assert _is_delimited(prompts.code_moderation(INJECTION, 'Python'))
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-17: the code prompts name the installed library versions and the
+# model-diagnostics API that exists in them (two live takes crashed on
+# MLEInfluence.resid_studentized_internal / .resid_dev under statsmodels 0.15)
+# ---------------------------------------------------------------------------
+VERSIONED = ('pandas', 'numpy', 'scipy', 'statsmodels', 'matplotlib', 'seaborn')
+GUIDANCE_NAMES = ('cooks_distance[0]', 'resid_studentized', 'hat_matrix_diag',
+                  'resid_dev', 'resid_deviance', 'not computed')
+
+
+def _installed(pkg):
+    from importlib import metadata
+    return metadata.version(pkg)
+
+
+def _code_prompts():
+    return {
+        'draft': _draft('Python'),
+        'refine (Fix with AI)': prompts.draft(
+            'd.csv', ['a', 'b'], {}, 'Python', '{}', [],
+            'The script failed in the sandbox with this error: ...',
+            current_code="print('x')"),
+        'validation': prompts.validation('Python', 'd.csv', "print('x')"),
+        'debug interpretation': prompts.interpret(
+            'Traceback ...', False, failed=True, code="print('x')"),
+    }
+
+
+def test_code_prompts_name_the_installed_library_versions():
+    for name, p in _code_prompts().items():
+        for pkg in VERSIONED:
+            assert f'{pkg} {_installed(pkg)}' in p, (name, pkg)
+
+
+def test_code_prompts_carry_the_model_diagnostics_guidance():
+    for name, p in _code_prompts().items():
+        for needle in GUIDANCE_NAMES:
+            assert needle in p, (name, needle)
+        assert 'MLEInfluence' in p and 'try' in p, name
+        assert '—' not in prompts.DIAGNOSTICS_GUIDANCE
+
+
+def test_r_prompts_get_the_not_computed_rule_but_not_the_python_api():
+    p = _draft('R')
+    assert 'not computed' in p and 'tryCatch' in p
+    assert 'MLEInfluence' not in p and 'statsmodels 0' not in p
+
+
+def test_every_statsmodels_attribute_named_in_the_guidance_exists():
+    """A statsmodels bump that renames any of these fails here, not live."""
+    import numpy as np
+    import pandas as pd
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=200)
+    d = pd.DataFrame({'x': x, 'y': (x + rng.normal(size=200) > 0).astype(int),
+                      'z': 2 * x + rng.normal(size=200)})
+    logit = smf.logit('y ~ x', data=d).fit(disp=0)
+    probit = smf.probit('y ~ x', data=d).fit(disp=0)
+    glm = smf.glm('y ~ x', data=d, family=sm.families.Binomial()).fit()
+    ols = smf.ols('z ~ x', data=d).fit()
+
+    for res in (logit, probit):
+        infl = res.get_influence()
+        assert type(infl).__name__ == 'MLEInfluence'
+        assert len(infl.cooks_distance[0]) == 200
+        assert len(infl.resid_studentized) == 200
+        assert len(infl.hat_matrix_diag) == 200
+        assert len(res.resid_dev) == 200
+        # The OLS-only names the guidance warns about really are absent.
+        assert not hasattr(infl, 'resid_studentized_internal')
+        assert not hasattr(infl, 'resid_dev')
+    assert len(glm.resid_deviance) == 200
+    gi = glm.get_influence()
+    assert len(gi.cooks_distance[0]) == 200 and len(gi.resid_studentized) == 200
+    oi = ols.get_influence()
+    assert len(oi.resid_studentized_internal) == 200
+    assert len(oi.cooks_distance[0]) == 200
+    # The guidance only names attributes on these objects.
+    for attr in ('cooks_distance', 'resid_studentized', 'hat_matrix_diag'):
+        assert attr in prompts.DIAGNOSTICS_GUIDANCE

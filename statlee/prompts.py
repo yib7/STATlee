@@ -3,8 +3,10 @@
 Routes call these builders and pass the result to ``llm.get_service()`` —
 no prompt text lives in route bodies.
 """
+import functools
 import json
 import re
+from importlib import metadata
 
 # What the generated script can actually import (D6 quick win 2). The Python
 # list is the analysis libraries the runner image installs
@@ -18,6 +20,45 @@ PYTHON_STDLIB_HINT = ('math', 'statistics', 'itertools', 'collections', 're',
                       'warnings')
 # The CRAN packages docker/runner.Dockerfile installs next to base R.
 R_PACKAGES = ('dplyr', 'ggplot2', 'MASS')
+
+# Libraries whose installed version the Python code prompts name, so the model
+# writes for the API that exists rather than from older habits. The server's
+# versions are the sandbox's: subprocess mode runs this interpreter, and the
+# docker runner pins equal base.txt (tests/test_container_files.py).
+VERSIONED_PACKAGES = ('pandas', 'numpy', 'scipy', 'statsmodels', 'matplotlib',
+                      'seaborn')
+
+
+@functools.lru_cache(maxsize=1)
+def library_versions():
+    """'pandas 3.0.6, numpy 2.3.5, ...' for the installed packages."""
+    found = []
+    for name in VERSIONED_PACKAGES:
+        try:
+            found.append(f'{name} {metadata.version(name)}')
+        except metadata.PackageNotFoundError:
+            continue
+    return ', '.join(found)
+
+
+# Two live takes of the flagship logistic-regression demo crashed after a
+# correct fit on MLEInfluence.resid_studentized_internal / .resid_dev (OLS
+# habits). Every attribute named here is checked against the installed
+# statsmodels by tests/test_prompt_quality.py.
+DIAGNOSTICS_GUIDANCE = """MODEL DIAGNOSTICS (statsmodels):
+    - Logit/Probit: res.get_influence() returns MLEInfluence. Use its
+      .cooks_distance[0], .resid_studentized and .hat_matrix_diag; it has no
+      resid_studentized_internal (OLS only) and no resid_dev. Deviance
+      residuals live on the result: res.resid_dev for Logit/Probit,
+      res.resid_deviance for sm.GLM / smf.glm.
+    - Wrap each optional diagnostic in try/except; on an error print
+      '<check name>: not computed (<error>) -> WARN' and carry on, so one
+      diagnostic never stops the script."""
+
+
+def _python_environment():
+    return (f"\n    INSTALLED VERSIONS (use only APIs that exist in these): "
+            f"{library_versions()}.\n    {DIAGNOSTICS_GUIDANCE}\n")
 
 # Rigor guidance for generated analyses (D6 quick win 3). The checks, effect
 # sizes and N it asks for are reported through the methods block below (SP3),
@@ -56,8 +97,16 @@ _METHODS_HOW = {
 }
 
 
+# Python gets this rule inside DIAGNOSTICS_GUIDANCE.
+_R_NOT_COMPUTED = """    Wrap each optional diagnostic in tryCatch(); on an error write
+    '<check name>: not computed (<error>) -> WARN' and carry on, so one
+    diagnostic never stops the script.
+"""
+
+
 def _methods_block(language):
-    how = _METHODS_HOW['r' if language.lower() == 'r' else 'python']
+    is_r = language.lower() == 'r'
+    how = _METHODS_HOW['r' if is_r else 'python']
     block = '\n'.join('      ' + line for line in METHODS_BLOCK.splitlines())
     return f"""
     METHODS BLOCK: at the very end of the output, after everything else,
@@ -67,7 +116,7 @@ def _methods_block(language):
     effect size. Fill every <...> with the real values the script computed,
     never placeholders or made-up numbers ('none' when there are no
     predictors, 'dropped: 0' when no rows were dropped). Print the block once.
-"""
+""" + (_R_NOT_COMPUTED if is_r else '')
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +333,8 @@ def draft(filename, headers, codebook, language, metadata_summary,
             + ', '.join(PYTHON_STDLIB_HINT) + "). For tests use "
             "scipy.stats and statsmodels (statsmodels.stats.multitest for "
             "corrections). print() important statistical summaries to stdout. "
-            "Use plt.savefig('plot.png', bbox_inches='tight') for plots.\n")
+            "Use plt.savefig('plot.png', bbox_inches='tight') for plots.\n"
+            + _python_environment())
     else:
         system += (
             "\n    AVAILABLE PACKAGES: only use base R and these installed "
@@ -339,17 +389,21 @@ def validation(language, filename, draft_code, user_prompt=None,
     THE DATASET'S COLUMNS (dtype, missingness, ranges):
     {untrusted('COLUMN METADATA', meta)}
     """
-    packages = (', '.join(PYTHON_PACKAGES) if language.lower() == 'python'
+    is_python = language.lower() == 'python'
+    packages = (', '.join(PYTHON_PACKAGES) if is_python
                 else 'base R, ' + ', '.join(R_PACKAGES))
+    # An attribute missing from the installed version is a concrete defect.
+    environment = _python_environment() if is_python else ''
     return f"""
     You are a senior code reviewer. Review the following {language} script designed to analyze a dataset named '{filename}'.
-    {context}
+    {context}{environment}
     DRAFT CODE:
     {untrusted('DRAFT CODE', draft_code)}
 
     TASKS:
     1. Fix only concrete defects: a syntax error, a missing import, a column
-       name that is not in the dataset, a TypeError, or an analysis that does
+       name that is not in the dataset, a TypeError, an attribute or function
+       that does not exist in the installed version, or an analysis that does
        not answer the user's request. Only these packages are installed:
        {packages}.
     2. Missing values: keep them handled per analysis, on the variables that
@@ -387,6 +441,10 @@ def interpret(output, has_plot, failed=False, code=None, question=None,
 
     ERROR OUTPUT (a traceback can quote dataset values):
     {untrusted('ERROR OUTPUT', output or '(no output captured)')}
+
+    For a Python script, the fix must use only APIs that exist in the
+    installed versions: {library_versions()}.
+    {DIAGNOSTICS_GUIDANCE}
 
     Respond in clean Markdown with exactly these sections:
     ### What went wrong

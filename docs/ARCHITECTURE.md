@@ -392,7 +392,9 @@ test: <name>; outcome: <var>; predictors: <vars>; n_used: <int>; dropped: <int> 
 synonyms, Windows line endings, R's `[1] "..."` prefixes, a missing `END`, extra
 lines, a repeated block (the last wins) and a verdict followed by a short note.
 A check line with no verdict, or a negated one ("did not pass"), is kept with
-status `unknown` rather than guessed as a pass. Lines that are the contract's own
+status `unknown` rather than guessed as a pass. A check the script reports as
+"not computed" (the prompts' fallback for a diagnostic that raised) is `warn`
+unless it says FAIL, never `pass`. Lines that are the contract's own
 unfilled placeholders are dropped. The result is
 `{method, assumptions: [{name, detail, status}], effects, reported}`; with no
 block it is the empty card with `reported: false`.
