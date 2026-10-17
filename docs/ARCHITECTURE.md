@@ -474,7 +474,9 @@ or a timeout); it stores its text with the run.
 
 `/wrangle` puts its generated transform through the same gates: instruction
 moderation, code moderation, the static check and the sandbox, then the
-version-token check above before the new version is saved.
+version-token check above before the new version is saved. The static check
+runs on the transform and again on the harness script that wraps it, so it
+covers exactly the text the sandbox executes.
 
 ### Grounding of `/converse` and `/generate_report`
 

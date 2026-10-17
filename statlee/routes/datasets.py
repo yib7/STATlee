@@ -846,7 +846,14 @@ def wrangle():
     # Static pre-check (P1-1a): a non-LLM AST gate on the generated transform,
     # run AFTER the (bypassable) LLM code_moderation as defense-in-depth, before
     # the transform is approved and the harness executes it.
+    # The transform runs inside WRANGLE_HARNESS, so the assembled script is
+    # checked too: the gate then covers exactly the text the sandbox executes.
+    dataset_basename = os.path.basename(active_path)
+    script = WRANGLE_HARNESS.format(src=dataset_basename,
+                                    code=plan['code'])
     static_blocked, static_reason = codecheck.check_code(plan['code'], 'Python')
+    if not static_blocked:
+        static_blocked, static_reason = codecheck.check_code(script, 'Python')
     if static_blocked:
         return json_error(
             f'The generated transform was rejected by the safety check '
@@ -857,9 +864,6 @@ def wrangle():
     # recorded" invariant as the /chat -> /run path (0.4 run-guard).
     storage.save_approved_script(plan['code'], 'Python', source='wrangle')
 
-    dataset_basename = os.path.basename(active_path)
-    script = WRANGLE_HARNESS.format(src=dataset_basename,
-                                    code=plan['code'])
     run = sandbox.run_in_sandbox(
         script, 'Python', dataset_path=active_path,
         dataset_name=dataset_basename,
