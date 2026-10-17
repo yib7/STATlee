@@ -7,7 +7,7 @@ security boundaries, and where each responsibility lives.
 ## Big picture
 
 STATlee is a **Flask app-factory** (`app.py`) wiring together focused modules and
-seven route blueprints. The frontend is **vanilla JavaScript** (no build step)
+eight route blueprints. The frontend is **vanilla JavaScript** (no build step)
 organized under a single `CC` namespace, talking to the backend over JSON and
 **Server-Sent Events** (SSE) for streamed generation. There is no SPA framework
 and no client bundler; `static/js/*.js` files are served as-is.
@@ -20,7 +20,8 @@ Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate
    │
    ├─ routes/misc.py      /  /welcome  /health  /metrics  /report_issue  /generate_report
    ├─ routes/auth.py      /login /register /logout /check_auth /history
-   ├─ routes/datasets.py  /upload /data_page /classify_variables /suggest /wrangle /export …
+   ├─ routes/datasets.py  /upload /data_page /classify_variables /suggest /wrangle /reset …
+   ├─ routes/export.py    /export (the reproducibility bundle zip)
    ├─ routes/analyze.py   /chat /run /interpret /method_prompt
    ├─ routes/runs.py      /runs (the session workbook)
    ├─ routes/codebook.py  /codebook (+ import, export)
@@ -366,7 +367,7 @@ gets no card. The block depends on the model following the format: the parser is
 lenient, but when a script prints no block the card reads "Assumptions not
 reported" and nothing is inferred.
 
-### Reproducibility bundle (`/export`, `bundle.py`, `environment.py`)
+### Reproducibility bundle (`routes/export.py`, `bundle.py`, `environment.py`)
 
 The zip runs as unzipped. Its layout:
 

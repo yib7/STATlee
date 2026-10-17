@@ -544,7 +544,7 @@ def test_zip_is_spooled_to_a_temp_file_and_closed_after_the_response(
         client, full_session, monkeypatch):
     import tempfile
 
-    from statlee.routes import datasets
+    from statlee.routes import export
     made = []
     real = tempfile.SpooledTemporaryFile
 
@@ -552,7 +552,7 @@ def test_zip_is_spooled_to_a_temp_file_and_closed_after_the_response(
         spool = real(*args, **kwargs)
         made.append((kwargs.get('max_size'), spool))
         return spool
-    monkeypatch.setattr(datasets.tempfile, 'SpooledTemporaryFile', spy)
+    monkeypatch.setattr(export.tempfile, 'SpooledTemporaryFile', spy)
     resp = post_json(client, '/export', {'filename': 'test.csv'})
     assert resp.status_code == 200
     assert int(resp.headers['Content-Length']) == len(resp.data)

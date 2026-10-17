@@ -33,7 +33,7 @@ LIMITED = {
     'analyze.method_prompt', 'converse.converse', 'misc.generate_report',
     'datasets.suggest_analysis', 'datasets.wrangle',
     'datasets.classify_variables', 'datasets.extract_pdf_codebook',
-    'datasets.upload_pdf', 'datasets.upload_file', 'datasets.export_project',
+    'datasets.upload_pdf', 'datasets.upload_file', 'export.export_project',
     'misc.report_issue', 'auth.login', 'auth.register',
     'auth.request_password_reset', 'auth.reset_password', 'auth.verify_email',
 }

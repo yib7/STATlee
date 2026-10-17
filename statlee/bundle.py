@@ -1,7 +1,7 @@
 """Reproducibility bundle v2 (SP4): the pieces of the project export that
 document what produced it.
 
-``/export`` (routes/datasets.py) assembles the zip; this module owns the parts
+``/export`` (routes/export.py) assembles the zip; this module owns the parts
 that are not plain file copies:
 
 * which workbook runs go in (``runs=all|starred|latest``, capped at

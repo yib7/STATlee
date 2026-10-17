@@ -371,10 +371,20 @@ def create_app(config=None):
         _init_schema(app, cfg)
 
     # --- blueprints ---------------------------------------------------------
-    from .routes import analyze, auth, codebook, converse, datasets, misc, runs
+    from .routes import (
+        analyze,
+        auth,
+        codebook,
+        converse,
+        datasets,
+        export,
+        misc,
+        runs,
+    )
     app.register_blueprint(misc.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(datasets.bp)
+    app.register_blueprint(export.bp)
     app.register_blueprint(codebook.bp)
     app.register_blueprint(analyze.bp)
     app.register_blueprint(converse.bp)
