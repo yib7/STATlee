@@ -30,7 +30,7 @@ EXPECTED_PUBLIC = {
 # credential endpoints a guesser would hammer.
 LIMITED = {
     'analyze.chat', 'analyze.run_code', 'analyze.interpret_results',
-    'analyze.method_prompt', 'converse.converse', 'misc.generate_report',
+    'analyze.method_prompt', 'converse.converse', 'report.generate_report',
     'datasets.suggest_analysis', 'datasets.wrangle',
     'datasets.classify_variables', 'datasets.extract_pdf_codebook',
     'datasets.upload_pdf', 'datasets.upload_file', 'export.export_project',

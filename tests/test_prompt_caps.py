@@ -164,7 +164,7 @@ def test_interpret_drops_oversized_plots(client, fake_llm):
 
 
 # ---------------------------------------------------------------------------
-# /generate_report (misc.py) - caps side of P1-2
+# /generate_report (routes/report.py) - caps side of P1-2
 # ---------------------------------------------------------------------------
 
 def test_generate_report_oversized_fields_are_clamped(client, fake_llm):

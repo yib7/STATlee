@@ -379,12 +379,14 @@ def create_app(config=None):
         datasets,
         export,
         misc,
+        report,
         runs,
     )
     app.register_blueprint(misc.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(datasets.bp)
     app.register_blueprint(export.bp)
+    app.register_blueprint(report.bp)
     app.register_blueprint(codebook.bp)
     app.register_blueprint(analyze.bp)
     app.register_blueprint(converse.bp)

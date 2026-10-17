@@ -286,7 +286,7 @@ def test_report_without_a_server_run_has_no_card(app, client, fake_llm):
 
 
 def test_report_cards_are_clamped(app, client, fake_llm):
-    from statlee.routes.misc import REPORT_METHODS_MAX
+    from statlee.routes.report import REPORT_METHODS_MAX
     huge = {'method': {'test': 'T' * 300},
             'assumptions': [{'name': f'a{i}' + 'n' * 200, 'detail': 'd' * 400,
                              'status': 'pass'} for i in range(40)],

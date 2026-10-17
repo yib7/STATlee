@@ -7,7 +7,7 @@ security boundaries, and where each responsibility lives.
 ## Big picture
 
 STATlee is a **Flask app-factory** (`app.py`) wiring together focused modules and
-eight route blueprints. The frontend is **vanilla JavaScript** (no build step)
+nine route blueprints. The frontend is **vanilla JavaScript** (no build step)
 organized under a single `CC` namespace, talking to the backend over JSON and
 **Server-Sent Events** (SSE) for streamed generation. There is no SPA framework
 and no client bundler; `static/js/*.js` files are served as-is.
@@ -18,10 +18,11 @@ Browser (static/js/*, templates/index.html)
    ▼
 Flask app factory (app.py)  ── middleware: request-id, CSRF, auth gate, rate limit, ProxyFix
    │
-   ├─ routes/misc.py      /  /welcome  /health  /metrics  /report_issue  /generate_report
+   ├─ routes/misc.py      /  /welcome  /health  /metrics  /report_issue
    ├─ routes/auth.py      /login /register /logout /check_auth /history
    ├─ routes/datasets.py  /upload /data_page /classify_variables /suggest /wrangle /reset …
    ├─ routes/export.py    /export (the reproducibility bundle zip)
+   ├─ routes/report.py    /generate_report (the report builder)
    ├─ routes/analyze.py   /chat /run /interpret /method_prompt
    ├─ routes/runs.py      /runs (the session workbook)
    ├─ routes/codebook.py  /codebook (+ import, export)
