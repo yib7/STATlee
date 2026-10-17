@@ -107,3 +107,44 @@ def test_classify_reaches_columns_past_80(client, fake_llm):
     prompts = _prompt(fake_llm, 'classify')
     assert any('"c95"' in p for p in prompts)
     assert all('__truncated__' not in p for p in prompts)
+
+
+# ---------------------------------------------------------------------------
+# 3A A9: the /suggest column context has a budget
+# ---------------------------------------------------------------------------
+
+def test_column_context_budget_names_the_later_columns():
+    df = pd.DataFrame({f'col_{i}': [i, i + 1, i + 2] for i in range(400)})
+    full = datatools.build_column_context(df)
+    capped = datatools.build_column_context(df, max_chars=5000)
+    assert len(full) > 20000
+    assert len(capped) <= 5000 + datatools.NAME_ONLY_TAIL_MAX
+    assert "- 'col_0' [" in capped
+    assert "- 'col_399' [" not in capped
+    # Every column is still named.
+    assert "'col_399'" in capped
+    assert 'more columns, names only' in capped
+    # Under the budget nothing changes.
+    small = df.iloc[:, :3]
+    assert datatools.build_column_context(small, max_chars=100000) == \
+        datatools.build_column_context(small)
+
+
+def test_column_context_name_tail_is_bounded():
+    df = pd.DataFrame({('n' * 50) + str(i): [1] for i in range(2000)})
+    capped = datatools.build_column_context(df, max_chars=2000)
+    assert len(capped) <= 2000 + datatools.NAME_ONLY_TAIL_MAX
+    assert capped.rstrip().endswith('more)')
+
+
+def test_suggest_prompt_is_bounded_on_a_wide_dataset(client, fake_llm):
+    from statlee.routes import datasets
+    upload_csv(client, _wide_csv(n_cols=2000, n_rows=3), 'wide.csv')
+    fake_llm.set('suggest', json.dumps({'suggestions': ['a', 'b', 'c']}))
+    resp = post_json(client, '/suggest', {'filename': 'wide.csv'})
+    assert resp.status_code == 200, resp.get_json()
+    prompt = _prompt(fake_llm, 'suggest')[0]
+    assert len(prompt) < (datasets.SUGGEST_CONTEXT_MAX
+                          + datatools.NAME_ONLY_TAIL_MAX + 10000)
+    assert "- 'c0' [" in prompt
+    assert 'more columns, names only' in prompt

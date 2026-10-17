@@ -316,6 +316,26 @@ def profile_dataframe(df):
 _SAMPLE_SCAN_ROWS = 200
 
 
+def _column_summary(series):
+    """One column's entry of ``summarize_dataframe``."""
+    n_rows = len(series)
+    entry = {
+        'dtype': str(series.dtype),
+        'n_unique': int(series.nunique(dropna=True)),
+        'missing': int(series.isna().sum()),
+    }
+    if n_rows > 0:
+        entry['missing_pct'] = round(100.0 * entry['missing'] / n_rows, 1)
+    if pd.api.types.is_numeric_dtype(series) and series.notna().any():
+        desc = series.describe()
+        entry['min'] = round(float(desc.get('min', float('nan'))), 4)
+        entry['median'] = round(float(series.median()), 4)
+        entry['max'] = round(float(desc.get('max', float('nan'))), 4)
+    entry['samples'] = (series.head(_SAMPLE_SCAN_ROWS).dropna().astype(str)
+                        .unique()[:3].tolist())
+    return entry
+
+
 def summarize_dataframe(df, max_columns=80):
     """Per-column structural metadata for LLM prompts (5.10).
 
@@ -330,22 +350,7 @@ def summarize_dataframe(df, max_columns=80):
     summary = {'__dataset__': {'rows': int(len(df)),
                                'columns': int(len(df.columns))}}
     for col in df.columns[:max_columns]:
-        series = df[col]
-        entry = {
-            'dtype': str(series.dtype),
-            'n_unique': int(series.nunique(dropna=True)),
-            'missing': int(series.isna().sum()),
-        }
-        if len(df) > 0:
-            entry['missing_pct'] = round(100.0 * entry['missing'] / len(df), 1)
-        if pd.api.types.is_numeric_dtype(series) and series.notna().any():
-            desc = series.describe()
-            entry['min'] = round(float(desc.get('min', float('nan'))), 4)
-            entry['median'] = round(float(series.median()), 4)
-            entry['max'] = round(float(desc.get('max', float('nan'))), 4)
-        entry['samples'] = (series.head(_SAMPLE_SCAN_ROWS).dropna().astype(str)
-                            .unique()[:3].tolist())
-        summary[col] = entry
+        summary[col] = _column_summary(df[col])
     if len(df.columns) > max_columns:
         summary['__truncated__'] = (
             f"{len(df.columns) - max_columns} additional columns omitted")
@@ -356,19 +361,30 @@ def metadata_json(df, max_columns=80):
     return json.dumps(summarize_dataframe(df, max_columns), indent=1, default=str)
 
 
-def build_column_context(df, codebook=None, descriptions=None):
+# The name-only tail ``build_column_context`` appends past its budget.
+NAME_ONLY_TAIL_MAX = 8000
+
+
+def build_column_context(df, codebook=None, descriptions=None, max_chars=None):
     """Rich per-column context lines for /suggest and /method_prompt.
 
     Layers: codebook classification, description (PDF/survey/native label),
     and the structural metadata summary.
+
+    With ``max_chars``, columns are described in full, in order, while the
+    text stays within that budget; the remaining columns are then listed by
+    name only (at most ``NAME_ONLY_TAIL_MAX`` more characters), so a wide
+    survey neither bills its whole profile on every prompt nor hides that
+    the later columns exist. Columns past the budget are not profiled.
     """
     codebook = codebook or {}
     desc_lower = {str(k).lower(): v for k, v in (descriptions or {}).items()}
-    summary = summarize_dataframe(df, max_columns=len(df.columns))
     lines = [f"  (dataset: {len(df):,} rows x {len(df.columns)} columns; "
              "statistics cover every row, samples are from the first rows)"]
-    for col in df.columns:
-        meta = summary.get(col, {})
+    used = len(lines[0])
+    columns = list(df.columns)
+    for i, col in enumerate(columns):
+        meta = _column_summary(df.iloc[:, i])
         classification = codebook.get(col, 'Unknown')
         parts = [f"dtype={meta.get('dtype')}",
                  f"unique={meta.get('n_unique')}",
@@ -376,8 +392,30 @@ def build_column_context(df, codebook=None, descriptions=None):
         if 'min' in meta:
             parts.append(f"range=[{meta['min']}..{meta['max']}], median={meta['median']}")
         line = f"  - '{col}' [{classification}; {', '.join(parts)}; samples={meta.get('samples')}]"
-        description = desc_lower.get(col.lower(), '')
+        description = desc_lower.get(str(col).lower(), '')
         if description:
             line += f"\n      Codebook description: {description}"
+        if max_chars is not None and used + 1 + len(line) > max_chars:
+            lines.append(_name_only_tail(columns[i:]))
+            break
         lines.append(line)
+        used += 1 + len(line)
     return "\n".join(lines)
+
+
+def _name_only_tail(columns):
+    """``  (N more columns, names only: 'a', 'b', ...)`` within
+    ``NAME_ONLY_TAIL_MAX`` characters."""
+    head = f"  ({len(columns)} more columns, names only: "
+    names, size = [], len(head)
+    for col in columns:
+        quoted = repr(str(col))
+        if size + len(quoted) + 2 > NAME_ONLY_TAIL_MAX:
+            break
+        names.append(quoted)
+        size += len(quoted) + 2
+    rest = len(columns) - len(names)
+    tail = ', '.join(names)
+    if rest:
+        tail += f"{', ' if names else ''}and {rest} more"
+    return head + tail + ")"
