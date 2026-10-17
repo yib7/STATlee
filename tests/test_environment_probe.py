@@ -106,6 +106,22 @@ def test_probe_runs_through_codecheck_and_the_sandbox(app, monkeypatch):
     assert 'pandas 2.2.0' in text and 'R version 4.4.0' in text
 
 
+def test_probe_uses_the_configured_file_limit(app, monkeypatch):
+    seen = []
+
+    def fake_run(code, language='Python', **kwargs):
+        seen.append(kwargs.get('file_limit_mb'))
+        return _Result('Python 3.12.1\n')
+
+    monkeypatch.setattr(environment.sandbox, 'run_in_sandbox', fake_run)
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: None)
+    cfg = app.config['STATLEE']
+    monkeypatch.setattr(cfg, 'exec_file_limit_mb', 33)
+    with app.app_context():
+        environment.capture(cfg)
+    assert seen == [33]
+
+
 def test_cache_is_per_sandbox_mode(app, monkeypatch):
     calls = []
 

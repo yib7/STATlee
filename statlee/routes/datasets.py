@@ -866,7 +866,8 @@ def wrangle():
         timeout=cfg.exec_timeout, memory_mb=cfg.exec_memory_mb,
         output_limit=cfg.exec_output_limit,
         mode=cfg.sandbox_mode, runner_image=cfg.runner_image,
-        work_root=cfg.sandbox_work_root, collect=('__wrangled.csv',))
+        work_root=cfg.sandbox_work_root, collect=('__wrangled.csv',),
+        file_limit_mb=cfg.exec_file_limit_mb)
 
     if not run.success or '__wrangled.csv' not in run.files:
         logger.warning("Wrangle execution failed: %s", run.output[:500])

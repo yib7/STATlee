@@ -123,7 +123,8 @@ def _probe(cfg, code, language):
             code, language, timeout=cfg.exec_timeout,
             memory_mb=cfg.exec_memory_mb, output_limit=cfg.exec_output_limit,
             mode=cfg.sandbox_mode, runner_image=cfg.runner_image,
-            work_root=cfg.sandbox_work_root)
+            work_root=cfg.sandbox_work_root,
+            file_limit_mb=cfg.exec_file_limit_mb)
     except Exception:
         logger.exception("Environment probe (%s) crashed", language)
         return None
