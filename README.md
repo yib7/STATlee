@@ -41,7 +41,7 @@ that code runs:
 <table>
   <tr>
     <td><img src="docs/images/screenshot-workspace.png" width="440" alt="Workspace with the sample survey loaded: suggested analyses and the plain-English prompt in the sidebar, and the generated Python script in the code editor"></td>
-    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the numbered run rail with a failed first run and its fixed rerun, the Methods and assumptions card with three passing assumption checks and the odds ratio, and the sandbox terminal output with the logistic regression table"></td>
+    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the run rail titled with the question, the Methods and assumptions card with two passing assumption checks and the odds ratio, and the sandbox terminal output with the logistic regression table"></td>
   </tr>
   <tr>
     <td><img src="docs/images/screenshot-codebook.png" width="440" alt="Codebook tab: an editable table of every variable with its type, label, value labels, missing codes and role"></td>
@@ -249,7 +249,7 @@ both Docker images and these README steps on every push
 ## Demo
 
 <p align="center">
-  <img src="docs/images/demo.gif" width="900" alt="Walkthrough: load the sample survey, label two variables in the Codebook tab, ask whether income predicts turnout, watch the script stream in and run, see the first run fail and Fix with AI repair it, read the Methods and assumptions card, interpretation and plot, build a report, and export the reproducibility bundle">
+  <img src="docs/images/demo.gif" width="900" alt="Walkthrough: load the sample survey, label two variables in the Codebook tab, ask whether income predicts turnout, watch the script stream in and run in the sandbox, read the plot, the plain-English interpretation and the Methods and assumptions card, build a report, and export the reproducibility bundle">
 </p>
 
 The run uses [docs/examples/sample_survey.csv](docs/examples/sample_survey.csv),
