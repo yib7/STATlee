@@ -1,6 +1,6 @@
-# Credits & Attribution
+# Credits and attribution
 
-STATlee is built on excellent open-source libraries and a commercial AI API.
+STATlee is built on open-source libraries and a commercial AI API.
 Thank you to the maintainers of every project below. Each dependency is governed
 by its own license; consult the linked project for full terms.
 
@@ -14,7 +14,7 @@ runtime.
 | **Anthropic Claude** (via the `anthropic` SDK) | Optional provider (`LLM_PROVIDER=anthropic`). | [Anthropic Usage Policies](https://www.anthropic.com/legal/aup) |
 | **OpenAI** (via the `openai` SDK) | Optional provider (`LLM_PROVIDER=openai`). | [OpenAI Usage Policies](https://openai.com/policies/usage-policies/) |
 
-AI analysis is **powered by your configured provider** (Google Gemini by default).
+Your configured provider (Google Gemini by default) runs the AI analysis.
 STATlee's moderation gate enforces the provider's prohibited-use rules by blocking
 malware/illegal requests.
 

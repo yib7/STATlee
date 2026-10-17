@@ -18,21 +18,21 @@
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
 
-An LLM writes the analysis code, so the interesting part is what happens before
-that code runs:
+An LLM writes the analysis code. What STATlee adds around it:
 
-- A non-LLM AST check (`statlee/codecheck.py`) refuses any Python import outside
-  an allowlist, then an LLM run-guard re-reviews any script the server did not
-  approve itself.
+- The static pre-check (`statlee/codecheck.py`, an AST check with no LLM)
+  refuses any Python import outside an allowlist, then an LLM run-guard
+  re-reviews any script the server did not approve itself.
 - The script runs in a throwaway directory with secrets scrubbed from its
   environment and a time limit. `SANDBOX_MODE=docker` gives each run its own
   network-less, read-only, non-root container.
 - Every model call goes through one role-based layer (`pro`, `pro_max`, `draft`,
   `flash`, `lite`) over Gemini, Claude or OpenAI. Changing a model or provider
   is a setting, not a code change.
-- The export is a zip that runs as unzipped: data, `cleaning.py`, the analysis
-  script, per-run outputs, the codebook, and a `provenance.json` with SHA-256
-  hashes of what produced what.
+- The reproducibility bundle is a zip that runs as unzipped: data,
+  `cleaning.py`, the analysis script, per-run outputs, the codebook
+  (`codebook.json`), and a `provenance.json` with SHA-256 hashes of what
+  produced what.
 - 1,500+ tests run offline against a fake LLM, Playwright browser tests
   included, on Linux and Windows in CI.
 
@@ -61,9 +61,10 @@ that code runs:
   by default).
 - Keeps every run in a run rail: star, rename, reopen, or pick the runs a report
   is built from.
-- Shows a methods and assumptions card per run: test, N, assumption checks and
+- Shows a Methods and assumptions card per run: test, N, assumption checks and
   effect sizes.
-- Cleans data through chat, with undo, redo and a revert to the original upload.
+- Cleans data through chat in the Data Cleaning panel, with Undo, Redo and
+  Original (revert to the upload).
 - Writes a plain-English interpretation, a debugging hint when a run fails, and
   a report drafted only from your outputs.
 
@@ -100,8 +101,9 @@ flowchart LR
     prep --> gen --> run
 ```
 
-A freshly drafted script gets both checks before the server approves it. At run
-time the static check runs on every script, and the LLM review is skipped only
+A freshly drafted script goes through both the static pre-check and the
+run-guard's LLM review before the server approves it. At run time the static
+pre-check runs on every script, and the run-guard's LLM review is skipped only
 for the exact script the server approved. The request lifecycle and every module
 are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -122,7 +124,7 @@ are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 STATlee runs in Docker, so generated analysis code runs inside a container
 rather than on your machine.
 
-**You need:**
+You need:
 
 - [Docker](https://docs.docker.com/get-started/get-docker/) with Compose 2.24 or
   newer, running (Docker Desktop on Windows and macOS; Docker Engine with the
@@ -134,38 +136,38 @@ rather than on your machine.
 Tested on Linux and Windows. macOS is untested but should work, since
 everything runs inside Docker.
 
-**Step 1.** Clone the repository and enter it.
+1. Clone the repository and enter it.
 
-```bash
-git clone https://github.com/yib7/STATlee.git
-cd STATlee
-```
+   ```bash
+   git clone https://github.com/yib7/STATlee.git
+   cd STATlee
+   ```
 
-**Step 2.** Create your settings file from the template (`cp` works in
-PowerShell too).
+2. Create your settings file from the template (`cp` works in PowerShell
+   too).
 
-```bash
-cp .env.example .env
-```
+   ```bash
+   cp .env.example .env
+   ```
 
-**Step 3.** Open `.env` in any text editor and replace `your_api_key_here`
-with your Gemini key.
+3. Open `.env` in any text editor and replace `your_api_key_here` with your
+   Gemini key.
 
-```env
-GEMINI_API_KEY=your_api_key_here
-```
+   ```env
+   GEMINI_API_KEY=your_api_key_here
+   ```
 
-**Step 4.** Build and start STATlee. The first build installs R and the
-analysis libraries into the image and takes a few minutes.
+4. Build and start STATlee. The first build installs R and the analysis
+   libraries into the image and takes a few minutes.
 
-```bash
-docker compose up --build
-```
+   ```bash
+   docker compose up --build
+   ```
 
-**Step 5.** Open <http://localhost:5000>, click **Download the sample survey**
-under the upload box, and drop the file into the box to run a first analysis.
+5. Open <http://localhost:5000>, click "Download the sample survey" under the
+   upload box, and drop the file into the box to run a first analysis.
 
-**Next time,** start it from the same folder with one command, and stop it
+Next time, start it from the same folder with one command, and stop it
 with `Ctrl+C`. The database and uploads live in the `statlee-instance` Docker
 volume, so they survive restarts and rebuilds.
 
@@ -198,47 +200,47 @@ For contributors. This runs the app directly on your machine, where generated
 code runs on your host with no container around it, so use it for development
 only.
 
-**You need:** Python 3.11 or newer (3.12 is pinned in `.python-version`) and a
-clone of the repository (Quickstart Step 1). No API key: the tests use a
+You need Python 3.11 or newer (3.12 is pinned in `.python-version`) and a
+clone of the repository (Quickstart step 1). No API key: the tests use a
 deterministic fake LLM and run offline.
 
-**Step 1.** Create and activate a virtual environment in the repository folder.
+1. Create and activate a virtual environment in the repository folder.
 
-```bash
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-```
+   ```bash
+   python -m venv venv
+   source venv/bin/activate        # Windows: venv\Scripts\activate
+   ```
 
-**Step 2.** Install the locked dependencies (app, test and lint tools).
+2. Install the locked dependencies (app, test and lint tools).
 
-```bash
-pip install -r requirements/dev.lock
-```
+   ```bash
+   pip install -r requirements/dev.lock
+   ```
 
-**Step 3.** Run the tests and the linter.
+3. Run the tests and the linter.
 
-```bash
-python -m pytest
-python -m ruff check .
-```
+   ```bash
+   python -m pytest
+   python -m ruff check .
+   ```
 
-**Step 4.** Start the development server at <http://localhost:5000>. It boots
-without a key; add one to `.env` (Quickstart Steps 2 and 3) when you want live
-model calls.
+4. Start the development server at <http://localhost:5000>. It boots without
+   a key; add one to `.env` (Quickstart steps 2 and 3) when you want live
+   model calls.
 
-```bash
-python wsgi.py
-```
+   ```bash
+   python wsgi.py
+   ```
 
-**Optional extras:**
+Optional extras:
 
-- **Browser tests** (skip unless you change the UI; they skip themselves when
+- Browser tests (skip unless you change the UI; they skip themselves when
   Chromium is missing): `python -m playwright install chromium`.
-- **R** (skip unless you work on R analyses): R scripts run with `Rscript` from
+- R (skip unless you work on R analyses): R scripts run with `Rscript` from
   your PATH. Without it, Python analyses work as usual and an R run reports
   "Interpreter not available". The Docker images include R.
-- **Node.js** (only to rebuild the committed Tailwind CSS after changing
-  classes): see "Styles" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- Node.js (only to rebuild the committed Tailwind CSS after changing
+  classes): see [Styles](docs/ARCHITECTURE.md#styles) in docs/ARCHITECTURE.md.
 
 Dependencies are pinned and hashed in `requirements/*.lock`, compiled from the
 hand-edited `requirements/*.txt`; the regeneration commands are at the top of
@@ -258,14 +260,15 @@ model are sped up in the recording.
 
 ## Limitations
 
-- Self-host only. There is no hosted service or public demo.
+- Self-hosted only. There is no hosted service or public demo.
 - It does not replace a statistician. Review the generated code and results;
-  the methods card is only as complete as what the script printed.
+  the Methods and assumptions card is only as complete as what the script
+  printed.
 - The default `SANDBOX_MODE=subprocess` is not kernel isolation: the script
-  shares the network and filesystem of wherever the app runs, so the two checks
-  are the boundary. Docker mode isolates each run, but needs the Docker CLI where
-  the app runs (the shipped Compose setup uses subprocess mode inside the app
-  container).
+  shares the network and filesystem of wherever the app runs, so the static
+  pre-check and the run-guard are the boundary. Docker mode isolates each run,
+  but needs the Docker CLI where the app runs (the shipped Compose setup uses
+  subprocess mode inside the app container).
 - No survey weighting or APA tables yet. R scripts are checked by a regex
   denylist only, which is best effort.
 - Tested on Linux and Windows; macOS is untested.
@@ -312,4 +315,4 @@ To report a vulnerability, see [SECURITY.md](.github/SECURITY.md).
 Source-available under the [Elastic License 2.0](LICENSE). You can use, modify
 and self-host it, but not offer it to third parties as a hosted or managed
 service. Model calls are subject to your provider's terms (Gemini by default;
-see [CREDITS.md](docs/CREDITS.md)), which the moderation gate enforces.
+see [CREDITS.md](docs/CREDITS.md)), and STATlee's moderation enforces them.

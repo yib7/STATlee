@@ -4,8 +4,8 @@
 
 Please report security issues privately, not in a public issue or pull request.
 
-Use GitHub's private reporting: open the repository's **Security** tab and choose
-**Report a vulnerability** ([Privately reporting a security
+Use GitHub's private reporting: open the repository's Security tab and choose
+"Report a vulnerability" ([Privately reporting a security
 vulnerability](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)).
 That opens a private advisory only the maintainer can see.
 
@@ -20,23 +20,23 @@ maintained by one person, so timelines are best-effort rather than contractual.
 
 STATlee runs model-generated code, so the parts most worth scrutiny are:
 
-- **Sandbox escape** (`statlee/sandbox.py`) where generated Python/R could read
+- Sandbox escape (`statlee/sandbox.py`), where generated Python/R could read
   host secrets, reach the network, or persist outside its throwaway directory.
-- **Run-guard bypass** (`statlee/routes/analyze.py`) where a hand-edited script
+- Run-guard bypass (`statlee/routes/analyze.py`), where a hand-edited script
   reaches execution without being re-moderated.
-- **Static pre-check bypass** (`statlee/codecheck.py`) where a Python script
+- Static pre-check bypass (`statlee/codecheck.py`), where a Python script
   reaches a refused module, a dangerous `os`/`sys`/`shutil` member, a
   reflection escape, or a constant out-of-directory path in a way the allowlist
   is meant to catch (the limitations listed below excepted).
-- **Moderation bypass** (`statlee/prompts.py` plus the route gates) that lets a
+- Moderation bypass (`statlee/prompts.py` plus the route gates) that lets a
   disallowed request through.
-- **Cross-identity data access** where one session or account reads another's
+- Cross-identity data access, where one session or account reads another's
   uploads or results.
-- **Auth, CSRF, and rate-limit keying** weaknesses that allow account takeover,
+- Auth, CSRF, and rate-limit keying weaknesses that allow account takeover,
   forged state-changing requests, or resetting a rate-limit bucket.
-- **Emailed-link poisoning**, where a reset or verification link points anywhere
+- Emailed-link poisoning, where a reset or verification link points anywhere
   other than `PUBLIC_BASE_URL`, or its token is logged outside development.
-- **Operator data exposure**, where `/metrics` answers without its token in
+- Operator data exposure, where `/metrics` answers without its token in
   production.
 
 ## Known boundaries (not vulnerabilities)

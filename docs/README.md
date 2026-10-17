@@ -1,28 +1,28 @@
 # STATlee
 
-**An AI-Assisted Data Analysis Platform for Social Scientists**
+AI-assisted data analysis for social scientists.
 
-STATlee is a web-based, AI-driven data analysis platform that abstracts away the coding process. Designed primarily for social science students and researchers, it lets users upload datasets and use natural language to request complex analytical workflows without writing Python or R syntax.
+STATlee is a web app that writes the analysis code for you. It is built mainly for social science students and researchers: upload a dataset, ask for an analysis in natural language, and get results without writing Python or R.
 
-It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic Claude, and OpenAI) to generate, validate, and securely execute code in an isolated sandbox, then returns statistical interpretations and visualizations natively.
+Each step is routed by role to a model from a pluggable provider (Google Gemini, Anthropic Claude, or OpenAI). STATlee generates and validates the code, runs it in an isolated sandbox, and returns the statistical interpretation and plots.
 
-## Key Features
+## Features
 
-* **Editable codebook:** The Codebook tab lists every variable with its type, label, value labels, missing codes, role (analyze, ID, survey weight, ignore) and scale group. It is seeded from `.sav`/`.dta` labels, a PDF data dictionary or survey questionnaire, and a model classification of a data sample; your edits always win, survive cleaning, and export and import as JSON. The model is told about missing codes, weights and ID columns.
-* **Run workbook:** Every run is kept in a numbered run rail in Results: star or rename a run, reopen an older one read-only (output, plots, its own interpretation), load its script back into the editor, and choose which runs the report is grounded in.
-* **Methods and assumptions card:** Each script prints a short summary of the test, N used, assumption checks (pass, warn, fail) and effect sizes, shown as a card above the terminal and cited in the interpretation. If a script prints none, the card says so.
-* **Multi-format ingestion:** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and SPSS (`.sav`), normalized to CSV internally, with native variable labels seeding the codebook for free.
-* **Role-based model routing:** Each step is addressed by a *role* (`pro`/`pro_max`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
-* **Sandboxed execution:** Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
-* **Static pre-check:** Before any execution, a non-LLM AST check (`statlee/codecheck.py`) refuses Python imports outside an allowlist, dangerous `os`/`sys` members, reflection escapes and constant paths outside the run directory; R scripts get a regex denylist.
-* **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
-* **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo and a revert to the original upload. It runs on the cheapest model tier (`WRANGLE_ROLE=lite`).
-* **AI interpretation & auto-debugging:** Translates dense terminal output and p-values into plain-English Markdown insights, and switches to a debugging assistant when a run fails.
-* **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits.
-* **Reproducibility bundle:** The export zip runs as unzipped: the analysed data and the original upload, `cleaning.py` replaying your cleaning steps, the analysis script, `codebook.json`, `provenance.json` (every upload, cleaning step, run and interpretation with times, models and SHA-256 hashes), `environment.txt`, a README, and one folder per run. Choose all, starred or the latest run, and whether your typed prompts are included.
-* **Pro mode:** A toggle that switches code generation to a larger model (`MODEL_PRO_MAX`, `gemini-4-argon` by default) for hard or unusual analyses.
-* **Converse tab:** A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a rigorous, ready-to-run analysis prompt.
-* **Optional accounts:** Anonymous use by default, with uploads deleted after `FILE_TTL_SECONDS` of inactivity; optional email/password accounts persist datasets and analysis history.
+* Editable codebook: The Codebook tab lists every variable with its type, label, value labels, missing codes, role (analyze, ID, survey weight, ignore) and scale group. It is seeded from `.sav`/`.dta` labels, a PDF data dictionary or survey questionnaire, and a model classification of a data sample; your edits always win, survive cleaning, and export and import as JSON. The model is told about missing codes, weights and ID columns.
+* Run workbook: Every run is kept in a numbered run rail in Results: star or rename a run, reopen an older one read-only (output, plots, its own interpretation), load its script back into the editor, and choose which runs the report is grounded in.
+* Methods and assumptions card: Each script prints a short summary of the test, N used, assumption checks (PASS, WARN, FAIL) and effect sizes, shown as a card above the terminal and cited in the interpretation. If a script prints none, the card says so.
+* Multi-format ingestion: CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and SPSS (`.sav`), normalized to CSV internally, with native variable labels seeding the codebook for free.
+* Role-based model routing: Each step is addressed by a *role* (`pro`/`pro_max`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
+* Sandboxed execution: Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
+* Static pre-check: Before any execution, a non-LLM AST check (`statlee/codecheck.py`) refuses Python imports outside an allowlist, dangerous `os`/`sys` members, reflection escapes and constant paths outside the run directory; R scripts get a regex denylist.
+* Run-guard: The server remembers the script it produced; you can edit it in the code editor, and any hand-edited script is re-moderated before it is allowed to run.
+* Conversational data wrangling: Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version, with Undo, Redo and Original (revert to the upload). It runs on the cheapest model tier (`WRANGLE_ROLE=lite`).
+* AI interpretation and auto-debugging: Translates dense terminal output and p-values into plain-English Markdown insights, and switches to a debugging assistant when a run fails.
+* Report builder: Writes an academic report grounded strictly in your run outputs, with targeted "revise this passage" edits.
+* Reproducibility bundle: The export zip runs as unzipped: the analysed data and the original upload, `cleaning.py` replaying your cleaning steps, the analysis script, `codebook.json`, `provenance.json` (every upload, cleaning step, run and interpretation with times, models and SHA-256 hashes), `environment.txt`, a README, and one folder per run. Choose all, starred or the latest run, and whether your typed prompts are included.
+* Pro mode: A toggle that switches code generation to a larger model (`MODEL_PRO_MAX`, `gemini-4-argon` by default) for hard or unusual analyses.
+* Converse tab: A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a ready-to-run analysis prompt.
+* Optional accounts: Anonymous use by default, with uploads deleted after `FILE_TTL_SECONDS` of inactivity; optional email/password accounts persist datasets and analysis history.
 
 ## Architecture
 
@@ -51,11 +51,11 @@ pattern with focused modules (entry point: `wsgi:app`, which loads `.env` and ca
 
 A deeper architecture walkthrough is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Operations:** the (illustrative) pricing model and how the billing seam backs
-it are in [Pricing](PRICING.md). STATlee is not currently deployed to a public
+The (illustrative) pricing model and how the billing seam backs it are in
+[Pricing](PRICING.md). STATlee is not currently deployed to a public
 website; it runs locally.
 
-## Getting Started
+## Getting started
 
 Install and first run are the numbered steps in the main README:
 [Quickstart](../README.md#quickstart) (Docker Compose, the supported way to run
@@ -96,7 +96,7 @@ analysis in a throwaway, network-less container built from
 docker build -f docker/runner.Dockerfile -t statlee-runner .
 ```
 
-The app image does **not** include the `docker` CLI, so docker mode only works
+The app image does not include the `docker` CLI, so docker mode only works
 when the app itself runs on a host (or a derived image) with the docker CLI and
 daemon access; from the shipped compose setup every run would fail with
 "Interpreter not available".
@@ -116,13 +116,13 @@ only; `BIND_HOST=0.0.0.0` exposes it to your network, where anyone could run
 generated code billed to your key. To install only what the app needs (no test
 tools), use `pip install -r requirements/app.lock` instead of `dev.lock`.
 
-**LLM.** Pick a provider with `LLM_PROVIDER` (gemini default, anthropic, or
+Pick an LLM provider with `LLM_PROVIDER` (gemini default, anthropic, or
 openai) and set that vendor's key (`GEMINI_API_KEY` / `ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY`), required in production. Model ids per role can be pinned with
 `MODEL_PRO` / `MODEL_PRO_MAX` / `MODEL_FLASH` / `MODEL_FLASH_LITE`. See
 `.env.example` for all variables.
 
-## Development & Testing
+## Development and testing
 
 The commands are in the README's [Development](../README.md#development)
 steps (`pip install -r requirements/dev.lock`, `python -m pytest`,
@@ -130,20 +130,20 @@ steps (`pip install -r requirements/dev.lock`, `python -m pytest`,
 
 The test suite injects a deterministic fake LLM service, so the entire HTTP surface (uploads, codebook, wrangling, run-guard, converse, export, auth, CSRF) is exercised offline. CI runs ruff, pip-audit on the lockfiles, pytest on Linux and Windows, both Docker images and the README setup steps on every push and PR (see `.github/workflows/ci.yml`). Optional local hooks are configured in `.pre-commit-config.yaml` (`pre-commit install`).
 
-**Dependencies.** `requirements/*.txt` hold the hand-edited direct pins;
+`requirements/*.txt` hold the hand-edited direct dependency pins;
 `requirements/app.lock`, `dev.lock` and `runner.lock` are compiled from them
 with every transitive package pinned and hashed, and everything installs from
 the locks. After editing a `.txt`, regenerate the locks with the `uv pip compile`
 commands at the top of `requirements/base.txt`; `tests/test_lockfiles.py` fails
 until you do.
 
-## Tech Stack
+## Tech stack
 
-* **Frontend:** Vanilla JavaScript (modular `CC` namespace), HTML5, Tailwind CSS, CodeMirror, vendored/pinned `marked` + `DOMPurify`.
-* **Backend:** Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
-* **AI Integration:** Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
-* **Data formats:** pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
-* **Infrastructure:** Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements/postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
+* Frontend: Vanilla JavaScript (modular `CC` namespace), HTML5, Tailwind CSS, CodeMirror, vendored/pinned `marked` + `DOMPurify`.
+* Backend: Python, Flask (app factory + blueprints), Pandas, Flask-SQLAlchemy, Flask-Login, Flask-Limiter.
+* AI integration: Pluggable LLM provider: Google GenAI SDK (default), with optional Anthropic and OpenAI SDKs.
+* Data formats: pandas, openpyxl (Excel), pyreadstat (Stata/SPSS), pypdf + fpdf2 (codebooks).
+* Infrastructure: Docker, Docker Compose, Gunicorn; SQLite (dev) / PostgreSQL (prod, `psycopg` driver from `requirements/postgres.txt`, included in the Docker image; migrations are tested against PostgreSQL in CI).
 
 ## Hosting
 
