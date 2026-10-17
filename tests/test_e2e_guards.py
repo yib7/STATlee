@@ -89,3 +89,25 @@ def test_double_click_on_reroll_asks_once(page):
     page.wait_for_function("() => !document.getElementById('rerollBtn').disabled"
                            " && document.querySelector('#suggestionsList button')")
     assert calls(page, '/suggest') == before + 1
+
+
+# ---------------------------------------------------------------------------
+# C-19: a second Copy click within 2 s must not leave "Copied!" for good
+# ---------------------------------------------------------------------------
+
+def test_copy_button_label_comes_back_after_two_quick_clicks(page):
+    upload(page, 'copy.csv', CSV_A + '84,1,A\n')
+    skip_codebook(page)
+    generate(page)
+    page.click('#tabGenerate')
+    page.wait_for_selector('#copyBtn', state='visible')
+    label = page.text_content('#copyBtn').strip()
+    assert 'Copied' not in label
+    page.evaluate("() => { navigator.clipboard.writeText = () => Promise.resolve(); }")
+    page.clock.install()
+    page.click('#copyBtn')
+    page.wait_for_function("() => document.getElementById('copyBtn').textContent.includes('Copied!')")
+    page.clock.run_for(500)
+    page.click('#copyBtn')
+    page.clock.run_for(5000)
+    assert page.text_content('#copyBtn').strip() == label

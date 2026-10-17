@@ -907,8 +907,12 @@
         const proToggle = byId('proToggle');
         if (proToggle) proToggle.addEventListener('change', showModelChip);
 
-        document.getElementById('copyBtn').addEventListener('click', async () => {
-            const btn = document.getElementById('copyBtn');
+        // The label is read once: a second click within the 2 s window used
+        // to capture "Copied!" as the label to restore, for good.
+        const copyBtn = document.getElementById('copyBtn');
+        const copyLabel = copyBtn.innerHTML;
+        let copyTimer = null;
+        copyBtn.addEventListener('click', async () => {
             try {
                 await navigator.clipboard.writeText(CC.getCode());
             } catch (e) {
@@ -917,9 +921,9 @@
                 CC.toast('Could not copy to the clipboard. Select the code and copy it manually.', 'error');
                 return;
             }
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied!';
-            setTimeout(() => { btn.innerHTML = orig; }, 2000);
+            copyBtn.innerHTML = '<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied!';
+            clearTimeout(copyTimer);
+            copyTimer = setTimeout(() => { copyBtn.innerHTML = copyLabel; }, 2000);
         });
     });
 }());
