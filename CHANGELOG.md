@@ -6,7 +6,7 @@ All notable changes to STATlee are recorded here. The format follows
 
 ## [1.6.0] - 2026-10-17
 
-A session workbook, an editable codebook, a methods and assumptions card, and a
+A session workbook, an editable codebook, a Methods and assumptions card, and a
 reproducibility bundle that records what produced what. This release also
 ships everything listed under 1.5.0, which was never tagged on its own.
 
@@ -36,17 +36,17 @@ ships everything listed under 1.5.0, which was never tagged on its own.
   plots under `outputs/run_NNNN/`.
 
 ### Added
-- **Session workbook.** Every run is kept under `runs/<run_id>/` (output, plots,
+- Session workbook: every run is kept under `runs/<run_id>/` (output, plots,
   script, status, interpretation, provenance), not just the last one. The
   Results tab has a numbered run rail: star a run, rename it, open an older one
   read-only with its own write-up, load its script back into the editor, or
-  interpret it. The report builder takes a checklist of runs and grounds on each
+  interpret it. The Report builder takes a checklist of runs and grounds on each
   one's stored output. `MAX_RUNS_PER_IDENTITY` (default 50) caps the store and
   evicts the oldest unstarred run first. New routes: `GET /runs`,
   `GET /runs/<run_id>`, `PATCH /runs/<run_id>`. `/interpret` and `/converse`
   accept `run_id`, `/generate_report` accepts `run_ids`, and account history
   rows link to their run.
-- **Editable codebook.** The Codebook tab is now a per-variable editor (type,
+- Editable codebook: the Codebook tab is now a per-variable editor (type,
   label, value labels, missing codes, role, scale group) with a filter and JSON
   import and export. It is stored on the server in layers merged as
   user > file > PDF > model, so a re-classification or a new PDF never
@@ -56,18 +56,17 @@ ships everything listed under 1.5.0, which was never tagged on its own.
   missing, ID and ignored columns are not modelled, and a survey weight column
   is named. New routes: `GET`/`PUT /codebook`, `POST /codebook/import`,
   `GET /codebook/export`.
-- **Methods and assumptions card.** Scripts print a `METHOD`, `ASSUMPTIONS`,
+- Methods and assumptions card: scripts print a `METHOD`, `ASSUMPTIONS`,
   `EFFECT` block. It is parsed leniently, stored with the run, shown above the
   terminal, and cited by the interpretation and the report. A script that prints
   none gets a card that says assumptions were not reported.
-- **Reproducibility bundle v2.** The export adds `provenance.json` (upload,
+- Reproducibility bundle v2: the export adds `provenance.json` (upload,
   cleaning, run and interpretation steps with hashes, models, roles and
   timestamps), `codebook.json`, `environment.txt` (Python and R versions and the
   analysis package versions, captured through the sandbox) and a per-run
   `outputs/run_NNNN/` folder. The export dialog chooses all, starred or the
   latest run, and whether your prompts are included.
-
-- **Sample dataset on first run.** With no dataset loaded, the upload area
+- Sample dataset on first run: with no dataset loaded, the upload area
   links to the synthetic sample survey (`GET /sample_survey.csv`, served from
   `docs/examples/`), so a new install has data to try.
 
@@ -164,7 +163,7 @@ ships everything listed under 1.5.0, which was never tagged on its own.
   `MLEInfluence` has `cooks_distance`, `resid_studentized` and
   `hat_matrix_diag`, not the OLS-only `resid_studentized_internal`), and ask
   for an optional check that raises to be reported as "not computed" instead
-  of stopping the script. The Methods card reads a "not computed" check as
+  of stopping the script. The Methods and assumptions card reads a "not computed" check as
   WARN, never PASS.
 - On Linux, sandboxed Python runs no longer fail with `pthread_create failed`
   when the app's user already runs many processes (a browser, the test
@@ -214,7 +213,7 @@ ships everything listed under 1.5.0, which was never tagged on its own.
   which backtracked for seconds to minutes on a long run of dots.
 - `/run` refuses a script over 200,000 characters (`413`) before the paid
   moderation call.
-- `/wrangle` runs the static check on the full script it executes, not only on
+- `/wrangle` runs the static pre-check on the full script it executes, not only on
   the model's transform.
 - Run output no longer names host paths: tracebacks read `File "script.py"`
   and install, temp and home dirs become labels such as `<site-packages>`.
@@ -223,7 +222,7 @@ ships everything listed under 1.5.0, which was never tagged on its own.
 - Vendored front-end libraries updated: DOMPurify 3.1.7 to 3.4.17 (22 published
   advisories against 3.1.7, among them the mutation-XSS CVE-2025-26791),
   marked 12.0.2 to 18.1.1, CodeMirror 5.65.16 to 5.65.21.
-- The static check refuses a host module bound to a name any way other than a
+- The static pre-check refuses a host module bound to a name any way other than a
   plain import or `name = module` (walrus, tuple unpacking, default or lambda
   arguments, loop variables, containers, `with ... as`), and refuses
   `os.kill`, `killpg`, `mkfifo`, `mknod`, `symlink`, `link`, `chmod`, `chown`,
@@ -236,9 +235,9 @@ ships everything listed under 1.5.0, which was never tagged on its own.
 - `/chat` moderates the chat history and an unapproved editor script along
   with the prompt; `pro` must be a JSON boolean (the string `"false"` used to
   select the Pro model and bill a priority call); `/run` runs the free static
-  check before the paid moderation call.
+  pre-check before the paid moderation call.
 - With `BILLING_ENABLED`, a metered request needs an account (`402`): an
-  anonymous caller used to run Pro mode and the report builder unbilled.
+  anonymous caller used to run Pro mode and the Report builder unbilled.
 - `/report_issue` is limited to 5 an hour, keeps the newest 1,000 reports and
   emails at most 10 an hour.
 - `.dockerignore` patterns for keys and local databases now match in every
@@ -263,12 +262,12 @@ ships everything listed under 1.5.0, which was never tagged on its own.
 - New settings: `MAX_RUNS_PER_IDENTITY` and `EXEC_FILE_LIMIT_MB` (in
   `.env.example`). One migration adds nullable `run_id`, `dataset_version` and
   `model` columns to `analysis_runs`.
-- `/export` and the report builder moved into their own blueprints
+- `/export` and the Report builder moved into their own blueprints
   (`routes/export.py`, `routes/report.py`); URLs, limits and responses are
   unchanged.
 - Test suite grew from 884 to over 1,500 passing, including Playwright end-to-end
-  tests for the run rail, codebook editor, methods card and export dialog, now
-  run in CI on Linux and Windows.
+  tests for the run rail, codebook editor, Methods and assumptions card and
+  export dialog, now run in CI on Linux and Windows.
 - CI adds a Windows test job and runs the README Quickstart and Development
   steps as written; the pre-commit ruff hook is pinned to the CI version.
 
@@ -356,7 +355,7 @@ that used to return 500s, hang, or lose work are handled.
   on wide datasets.
 - SPSS/Stata value labels feed the codebook, and Excel uploads warn when only
   the first sheet is read.
-- Prompts: the draft prompt lists the packages that are actually installed and
+- Prompts: the draft prompt lists the installed packages and
   asks for assumption checks, effect sizes with confidence intervals, and the N
   used; the review pass sees the request and columns, never adds a global
   `dropna()`, and runs on the Pro tier in Pro mode; the interpreter gets the
