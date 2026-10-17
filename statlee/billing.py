@@ -8,7 +8,8 @@ things:
   the operator's own API key can't be run up without bound during a billing-off
   free trial (D5-3). The ceiling protects the operator, not the ledger.
 - only when ``billing_enabled`` is on, debits ``User.credits`` for a logged-in
-  free-plan user's priority requests (and tops up monthly free credits).
+  free-plan user's priority requests (and tops up monthly free credits), and
+  refuses priority requests from anonymous callers, who have no credits.
 
 With billing off and no ceiling it is a no-op that always authorizes.
 
@@ -22,7 +23,12 @@ from datetime import UTC, datetime
 logger = logging.getLogger('statlee.billing')
 
 # Credits a single priority (high-tier) request will cost once billing is real.
+# Only priority requests (Pro-mode /chat and the report builder) are metered;
+# every other model call is free to the caller even with billing on.
 PRIORITY_COST = 1
+
+ANONYMOUS_METERED_MESSAGE = ('Sign in to use Pro mode and the report builder: '
+                             'they are paid for with account credits.')
 
 # Global, per-process monthly counter for the spend ceiling. Across multiple
 # workers each enforces its own copy (a shared store would be needed for an
@@ -166,6 +172,15 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     if config is None:
         return True, None
 
+    need = cost if cost is not None else (PRIORITY_COST if priority else 0)
+
+    # B-05: with billing on, a metered request needs an account to debit.
+    # Anonymous callers used to skip the credit path entirely, so Pro mode and
+    # the report builder were free to anyone who signed out. Refused before
+    # the ceiling, so a refused request never consumes a ceiling unit.
+    if getattr(config, 'billing_enabled', False) and user is None and need:
+        return False, ANONYMOUS_METERED_MESSAGE
+
     # Operator-protecting global ceiling (applies to everyone, incl. anonymous,
     # and regardless of BILLING_ENABLED: D5-3). Checked before the credit top-up
     # so a capped request never writes to the DB.
@@ -182,8 +197,6 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     # P2-10: refresh this user's monthly free credits before deciding, so the
     # first billed request of a new month sees the topped-up balance.
     _apply_monthly_free_credits(user, config)
-
-    need = cost if cost is not None else (PRIORITY_COST if priority else 0)
 
     # Per-account credit debit for logged-in free-plan users. This is a single
     # atomic conditional UPDATE (check-and-debit in one statement) rather than

@@ -29,11 +29,13 @@ from .. import storage
 from ..extensions import db, limiter
 from ..identity import current_user_or_none
 from ..models import AnalysisRun, User
-from . import json_error
+from . import json_error, register_field_errors, request_json, str_field
 
 logger = logging.getLogger('statlee.auth')
 
 bp = Blueprint('auth', __name__)
+# A wrong JSON type ({"email": 123}) is a 400 the UI can show, not a 500.
+register_field_errors(bp)
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
@@ -139,15 +141,15 @@ def check_auth():
 @limiter.limit(lambda: _cfg().rate_limit_auth)
 def login():
     cfg = _cfg()
-    data = request.get_json(silent=True) or {}
+    data = request_json()
 
-    email = (data.get('email') or '').strip().lower()
+    email = str_field(data, 'email').strip().lower()
+    password = str_field(data, 'password')
     if email:
         if not cfg.accounts_enabled:
             return json_error('Accounts are disabled on this server.', 403)
         user = db.session.execute(
             db.select(User).filter_by(email=email)).scalar_one_or_none()
-        password = data.get('password') or ''
         if user is None:
             # Equalize work with the wrong-password path (D2-5); result unused.
             check_password_hash(_DUMMY_PASSWORD_HASH, password)
@@ -164,7 +166,9 @@ def login():
     # Legacy master-password mode
     if not cfg.app_password:
         return jsonify({'status': 'success'}), 200
-    if secrets.compare_digest(str(data.get('password') or ''), str(cfg.app_password)):
+    # Bytes, not str: compare_digest raises TypeError on non-ASCII str.
+    if secrets.compare_digest(password.encode(),
+                              str(cfg.app_password).encode()):
         session['authenticated'] = True
         return jsonify({'status': 'success'}), 200
     return json_error('Invalid password', 401)
@@ -176,9 +180,9 @@ def register():
     cfg = _cfg()
     if not cfg.accounts_enabled:
         return json_error('Accounts are disabled on this server.', 403)
-    data = request.get_json(silent=True) or {}
-    email = (data.get('email') or '').strip().lower()
-    password = data.get('password') or ''
+    data = request_json()
+    email = str_field(data, 'email').strip().lower()
+    password = str_field(data, 'password')
 
     if not EMAIL_RE.match(email):
         return json_error('Please provide a valid email address.', 400)
@@ -359,8 +363,8 @@ def request_password_reset():
     cfg = _cfg()
     if not cfg.accounts_enabled:
         return json_error('Accounts are disabled on this server.', 403)
-    data = request.get_json(silent=True) or {}
-    email = (data.get('email') or '').strip().lower()
+    data = request_json()
+    email = str_field(data, 'email').strip().lower()
 
     generic = jsonify({'status': 'ok', 'message': _RESET_REQUESTED_MSG})
     if not EMAIL_RE.match(email):
@@ -412,9 +416,11 @@ def reset_password():
             csrf_token=session.get('csrf_token', '')), (200 if user else 400)
 
     # POST: token may arrive as JSON (API) or a posted form field (the page).
-    data = request.get_json(silent=True) or {}
-    token = (data.get('token') or request.form.get('token') or '').strip()
-    password = data.get('password') or request.form.get('password') or ''
+    # Form values are always strings; a JSON value must be one too.
+    data = request_json()
+    token = (str_field(data, 'token') or request.form.get('token') or '').strip()
+    password = (str_field(data, 'password')
+                or request.form.get('password') or '')
 
     user = _reset_user_for_token(token)
     if user is None:
@@ -497,7 +503,7 @@ def history_save():
     if not u:
         # Anonymous sessions keep history client-side only ("data not stored").
         return jsonify({'saved': False})
-    data = request.get_json(silent=True) or {}
+    data = request_json()
     # SP1: link the entry to a workbook run. Only the id comes from the
     # client, and only one of the caller's own runs is accepted; the dataset
     # version and model are read from the server's run record.
@@ -514,12 +520,12 @@ def history_save():
                          and not isinstance(version, bool) else None),
         model=model[:64] if isinstance(model, str) else None,
         user_id=u.id,
-        dataset_name=(data.get('dataset_name') or '')[:255],
-        language=(data.get('language') or 'Python')[:16],
-        prompt=(data.get('prompt') or '')[:10000],
-        code=(data.get('code') or '')[:20000],
-        output=(data.get('output') or '')[:20000],
-        interpretation=(data.get('interpretation') or '')[:20000],
+        dataset_name=str_field(data, 'dataset_name', 255),
+        language=str_field(data, 'language', 16) or 'Python',
+        prompt=str_field(data, 'prompt', 10000),
+        code=str_field(data, 'code', 20000),
+        output=str_field(data, 'output', 20000),
+        interpretation=str_field(data, 'interpretation', 20000),
     )
     db.session.add(run)
     db.session.flush()

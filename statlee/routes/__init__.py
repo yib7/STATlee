@@ -129,14 +129,23 @@ def moderation_blocked(result_text):
 # ---------------------------------------------------------------------------
 
 def _output_error(exc):
+    """The typed model failure ``exc`` is (an unusable answer, or no answer:
+    no key configured / provider unreachable), else None."""
     from .. import llm
-    return exc if isinstance(exc, llm.LLMOutputError) else None
+    return (exc if isinstance(exc, (llm.LLMOutputError,
+                                    llm.LLMUnavailableError)) else None)
+
+
+def _unavailable(exc):
+    from .. import llm
+    return isinstance(exc, llm.LLMUnavailableError)
 
 
 def llm_error_payload(exc, default_message):
-    """SSE ``error`` event for a failed model call. A typed output error
-    (blocked / empty / truncated) carries its own user-facing message and a
-    ``reason`` code; anything else gets ``default_message``."""
+    """SSE ``error`` event for a failed model call. A typed failure (blocked /
+    empty / truncated answer, or no key / provider unreachable) carries its
+    own user-facing message and a ``reason`` code; anything else gets
+    ``default_message``."""
     err = _output_error(exc)
     if err is None:
         return {'type': 'error', 'message': default_message}
@@ -148,13 +157,19 @@ def llm_json_error(exc, default_message, default_status=500):
     """JSON error response for a failed model call: a provider safety block is
     a 422 (the request itself was declined, retrying will not help), an empty
     or truncated reply a 502 (the upstream answer was unusable); anything else
-    is ``default_message``/``default_status``. A typed failure carries the
+    is ``default_message``/``default_status``. A provider that could not be
+    used at all (no key, network error) is a 503. A typed failure carries the
     same ``reason`` code as the SSE error event (S5)."""
     err = _output_error(exc)
     if err is None:
         return json_error(default_message, default_status)
     from .. import llm
-    status = 422 if isinstance(err, llm.BlockedGenerationError) else 502
+    if _unavailable(err):
+        status = 503
+    elif isinstance(err, llm.BlockedGenerationError):
+        status = 422
+    else:
+        status = 502
     return jsonify({'error': err.user_message, 'reason': err.reason}), status
 
 
@@ -167,12 +182,19 @@ def moderation_gate(service, prompt, *, denied='Request denied.',
     verdict is an explicit pass. A provider safety block on the moderation
     call itself is a denial (403) with the provider's reason; an empty or
     truncated verdict is a denial too (fail closed, as an unparsable verdict
-    always was); any other failure is ``unavailable`` (503)."""
+    always was); a provider that cannot be used (no key, network error) is a
+    503 that says which; any other failure is ``unavailable`` (503)."""
     try:
         result = service.generate('lite', prompt, temperature=0.0,
                                   json_mode=True)
     except Exception as exc:
         err = _output_error(exc)
+        if err is not None and _unavailable(err):
+            # Still fail closed (503), but say why: no key, or no network.
+            logging.getLogger('statlee.routes').warning(
+                "%s: %s", log_message, err)
+            return (jsonify({'error': err.user_message, 'reason': err.reason}),
+                    503), None
         if err is not None:
             from .. import llm
             reason = (err.user_message
@@ -345,6 +367,18 @@ def dataset_filename_field(data, key='filename'):
     if name and storage.is_reserved_name(name):
         raise FieldError(RESERVED_NAME_MESSAGE)
     return name
+
+
+def bool_field(data, key, default=False):
+    """A JSON boolean. Missing/null -> ``default``; anything else that is not
+    ``true``/``false`` is a ``FieldError`` (``bool("false")`` is True, so a
+    string must never be coerced)."""
+    value = data.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise FieldError(f"'{key}' must be true or false.")
+    return value
 
 
 def dict_field(data, key):

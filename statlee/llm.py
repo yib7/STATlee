@@ -106,6 +106,81 @@ class MalformedReplyError(LLMOutputError, ValueError):
                        'Please try again.')
 
 
+class LLMUnavailableError(RuntimeError):
+    """The provider could not be used at all: no answer came back. Like
+    ``LLMOutputError`` it carries a ``user_message`` and a ``reason`` code,
+    but it is a service failure (routes answer 503 and moderation still fails
+    closed), not an unusable answer (checklist 3.12)."""
+
+    reason = 'unavailable'
+    default_message = ('The AI provider could not be reached. Please try '
+                       'again in a moment.')
+
+    def __init__(self, provider='', detail=None, user_message=None):
+        self.provider = provider
+        self.detail = detail
+        self.user_message = user_message or self.default_message
+        super().__init__(f"{provider}: {self.reason}"
+                         + (f" ({detail})" if detail else ''))
+
+
+class LLMNotConfiguredError(LLMUnavailableError):
+    """The selected provider has no API key on this server."""
+
+    reason = 'not_configured'
+
+    def __init__(self, provider, key_name):
+        super().__init__(
+            provider, detail=f"{key_name} not set",
+            user_message=(f'The AI model is not set up on this server: '
+                          f'{key_name} is missing. Add it to .env and restart '
+                          'the app.'))
+
+
+class LLMConnectionError(LLMUnavailableError):
+    """A network error or timeout between this server and the provider."""
+
+    reason = 'unreachable'
+    default_message = ('Could not reach the AI provider (a network error or '
+                       "timeout). Check the server's internet connection and "
+                       'try again.')
+
+
+# Exception class names the provider SDKs and httpx use for transport
+# failures and timeouts; matched by name so no SDK has to be imported.
+_NETWORK_ERROR_NAMES = frozenset({
+    'APIConnectionError', 'APITimeoutError', 'TransportError', 'NetworkError',
+    'TimeoutException', 'ConnectError', 'ConnectTimeout', 'ReadTimeout',
+    'WriteTimeout', 'PoolTimeout', 'ReadError', 'WriteError',
+    'RemoteProtocolError',
+})
+
+
+def _is_network_error(exc):
+    """True for a connection failure or timeout, or an error caused by one
+    (an SDK may wrap the transport error), up to a few links down."""
+    seen = 0
+    while exc is not None and seen < 6:
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            return True
+        if any(cls.__name__ in _NETWORK_ERROR_NAMES
+               for cls in type(exc).__mro__):
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
+def _translate_unavailable(exc, provider):
+    """The typed error a failed provider call should surface as, or None to
+    re-raise ``exc`` unchanged."""
+    if isinstance(exc, (LLMOutputError, LLMUnavailableError)):
+        return None
+    if _is_network_error(exc):
+        return LLMConnectionError(provider, detail=type(exc).__name__)
+    return None
+
+
 def _reason_name(reason):
     if reason is None:
         return ''
@@ -228,8 +303,7 @@ class GeminiBackend:
             from google import genai
             from google.genai import types
             if not self.config.gemini_api_key:
-                raise RuntimeError(
-                    "GEMINI_API_KEY is not configured on the server.")
+                raise LLMNotConfiguredError('Gemini', 'GEMINI_API_KEY')
             retries = int(getattr(self.config, 'llm_max_retries', 2))
             self._client = genai.Client(
                 api_key=self.config.gemini_api_key,
@@ -457,10 +531,26 @@ class AnthropicBackend:
             (getattr(u, 'input_tokens', 0) or 0) + cache_read + cache_write,
             getattr(u, 'output_tokens', 0) or 0, cached=cache_read)
 
+    # B-14 (defensive, not live-verified: confirming it needs a paid call).
+    # The Pro-mode model on Anthropic (claude-fable-5-1 by default) thinks on
+    # every call, and thinking tokens count against max_tokens, so a long Pro
+    # draft or report draft could stop at the configured budget and fail as
+    # truncated. The 'pro_max' model gets at least this budget when it is a
+    # current (4.7+) Claude id, all of which accept far larger outputs; the
+    # cap is a ceiling, so it costs nothing unless the model uses it. OpenAI
+    # streams already get 32000 for the same reason (D3-16).
+    PRO_MAX_MIN_TOKENS = 32000
+
+    def _max_tokens(self, model, base):
+        if (model == getattr(self.config, 'model_pro_max', None)
+                and self._sampling_deprecated(model)):
+            return max(int(base), self.PRO_MAX_MIN_TOKENS)
+        return base
+
     def _kwargs(self, model, contents, temperature, max_tokens):
         kwargs = {
             'model': model,
-            'max_tokens': max_tokens,
+            'max_tokens': self._max_tokens(model, max_tokens),
             'messages': [{'role': 'user', 'content': self._content(contents)}],
             'timeout': self._timeouts.for_model(model),
         }
@@ -504,13 +594,36 @@ class AnthropicBackend:
                 raise EmptyGenerationError('Anthropic', model)
         return LLMResult(text=text, usage=usage)
 
+    def _open_stream(self, kwargs):
+        """Enter ``messages.stream`` and return ``(exit_stack, stream)``.
+
+        ``messages.stream()`` only builds a manager; the HTTP request (and a
+        'temperature not supported' 400) happens on ENTER, so the D3-13
+        retry-without-temperature must wrap the enter, not the call (B-07).
+        No delta has been yielded at that point, so a retry is invisible."""
+        stack = contextlib.ExitStack()
+        try:
+            stream = stack.enter_context(
+                self._client_().messages.stream(**kwargs))
+        except Exception as exc:
+            stack.close()
+            if not (self._has_temperature(kwargs) and _rejects_temperature(exc)):
+                raise
+            with self._lock:
+                self._no_temperature.add(kwargs['model'])
+            kwargs = {k: v for k, v in kwargs.items() if k != 'extra_body'}
+            stack = contextlib.ExitStack()
+            stream = stack.enter_context(
+                self._client_().messages.stream(**kwargs))
+        return stack, stream
+
     def stream(self, model, contents, *, temperature, usage_out):
         kwargs = self._kwargs(model, contents, temperature,
                               self.config.anthropic_stream_max_tokens)
-        manager = self._call(self._client_().messages.stream, kwargs)
+        stack, stream = self._open_stream(kwargs)
         produced = False
         final = None
-        with manager as stream:
+        with stack:
             try:
                 for delta in stream.text_stream:
                     if delta:
@@ -551,8 +664,7 @@ class OpenAIBackend:
         if self._client is None:
             import openai
             if not self.config.openai_api_key:
-                raise RuntimeError(
-                    "OPENAI_API_KEY is not configured on the server.")
+                raise LLMNotConfiguredError('OpenAI', 'OPENAI_API_KEY')
             self._client = openai.OpenAI(
                 api_key=self.config.openai_api_key,
                 timeout=self._timeouts.default(),
@@ -789,6 +901,11 @@ class LLMService:
                 self._record(model, exc.usage.get('input', 0),
                              exc.usage.get('output', 0))
             raise
+        except Exception as exc:
+            typed = _translate_unavailable(exc, self.config.llm_provider)
+            if typed is None:
+                raise
+            raise typed from exc
         self._record(model, result.usage.get('input', 0),
                      result.usage.get('output', 0))
         if cache_key is not None:
@@ -813,6 +930,12 @@ class LLMService:
                     model, contents, temperature=temperature, usage_out=local):
                 started = True
                 yield delta
+        except Exception as exc:
+            # A network error or timeout mid-stream says so (3.12).
+            typed = _translate_unavailable(exc, self.config.llm_provider)
+            if typed is None:
+                raise
+            raise typed from exc
         finally:
             if started or local.get('input') or local.get('output'):
                 self._record(model, local.get('input', 0),
@@ -835,7 +958,7 @@ def init_service(config):
 
 def get_service():
     if _service is None:
-        raise RuntimeError("LLM service not initialised — call init_service().")
+        raise RuntimeError("LLM service not initialised: call init_service().")
     return _service
 
 

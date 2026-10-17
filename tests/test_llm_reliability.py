@@ -441,6 +441,73 @@ def test_anthropic_temperature_rejection_retries_once_and_memoizes():
     assert 'extra_body' not in calls[-1]
 
 
+def test_anthropic_stream_temperature_rejection_retries_once_and_memoizes():
+    """B-07: messages.stream() only builds a manager; the request and its 400
+    happen on ENTER, so the retry must wrap the enter."""
+    svc = llm.LLMService(Config(env='testing', llm_provider='anthropic',
+                                anthropic_api_key='k',
+                                model_pro='claude-future-1'))
+    calls = []
+
+    class BadRequest(Exception):
+        status_code = 400
+
+    class Manager:
+        def __init__(self, kwargs):
+            self.kwargs = kwargs
+            calls.append(kwargs)
+
+        def __enter__(self):
+            if 'temperature' in (self.kwargs.get('extra_body') or {}):
+                raise BadRequest('temperature is not supported for this model')
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        text_stream = ['print(1)']
+        current_message_snapshot = None
+
+        def get_final_message(self):
+            return NS(stop_reason='end_turn',
+                      usage=NS(input_tokens=3, output_tokens=2))
+
+    svc._backend._client = NS(messages=NS(stream=lambda **k: Manager(k)))
+    assert ''.join(svc.stream('draft', 'p', temperature=0.1)) == 'print(1)'
+    assert len(calls) == 2
+    assert calls[0]['extra_body'] == {'temperature': 0.1}
+    assert 'extra_body' not in calls[1]
+    # Memoized: the next stream on that model skips the failing round-trip.
+    assert ''.join(svc.stream('draft', 'q', temperature=0.1)) == 'print(1)'
+    assert len(calls) == 3
+    assert 'extra_body' not in calls[2]
+
+
+def test_anthropic_stream_unrelated_error_is_not_retried():
+    svc = llm.LLMService(Config(env='testing', llm_provider='anthropic',
+                                anthropic_api_key='k',
+                                model_pro='claude-future-1'))
+    calls = []
+
+    class Overloaded(Exception):
+        status_code = 529
+
+    class Manager:
+        def __init__(self, kwargs):
+            calls.append(kwargs)
+
+        def __enter__(self):
+            raise Overloaded('overloaded')
+
+        def __exit__(self, *a):
+            return False
+
+    svc._backend._client = NS(messages=NS(stream=lambda **k: Manager(k)))
+    with pytest.raises(Overloaded):
+        list(svc.stream('draft', 'p', temperature=0.1))
+    assert len(calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # D3-16: reasoning tokens must not truncate OpenAI scripts
 # ---------------------------------------------------------------------------

@@ -14,11 +14,22 @@ logger = logging.getLogger('statlee.config')
 VALID_ENVS = ('development', 'production', 'testing')
 
 
+class ConfigError(ValueError):
+    """The environment cannot run the app. The message names the variable to
+    fix; wsgi.py prints it as one line instead of a traceback."""
+
+
 def _env_bool(name, default=False):
     raw = os.environ.get(name)
     if raw is None:
         return default
     return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+# Problems found while reading the environment in the current from_env() call.
+# from_env() copies them into Config.warnings, so create_app() reports them
+# with the rest of the startup warnings.
+_env_problems = []
 
 
 def _env_int(name, default):
@@ -28,8 +39,24 @@ def _env_int(name, default):
     try:
         return int(raw)
     except ValueError:
-        logger.warning("Ignoring non-integer value for %s: %r", name, raw)
+        message = (f"{name}={raw!r} is not a whole number; using the "
+                   f"default {default}.")
+        logger.warning(message)
+        _env_problems.append(message)
         return default
+
+
+# Integer settings that must be at least 1, with the default each falls back
+# to (B-15). 0 or less would break every request in an opaque way: a 0 MB
+# upload limit 413s every JSON POST, a 0 s timeout kills every run, a 0 MB
+# memory limit stops the interpreter from starting.
+_POSITIVE_INTS = (
+    ('max_upload_mb', 'MAX_UPLOAD_MB', 16),
+    ('exec_timeout', 'EXEC_TIMEOUT', 60),
+    ('exec_memory_mb', 'EXEC_MEMORY_MB', 2048),
+    ('exec_output_limit', 'EXEC_OUTPUT_LIMIT', 256 * 1024),
+    ('exec_file_limit_mb', 'EXEC_FILE_LIMIT_MB', 256),
+)
 
 
 @dataclass
@@ -118,6 +145,10 @@ class Config:
     exec_timeout: int = 60
     exec_memory_mb: int = 2048
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
+    # Largest single file a run may write, in both sandbox modes (B-10). It sits
+    # above the biggest CSV MAX_UPLOAD_CELLS allows, so a /wrangle rewrite of
+    # the dataset fits; all files a run writes together are capped at twice it.
+    exec_file_limit_mb: int = 256
 
     # --- Model routing (3.4) --------------------------------------------------
     # Default code generation runs on gemini-3.8-flash (cheap, fast, the
@@ -184,7 +215,10 @@ class Config:
     require_email_verification: bool = False  # gate accounts until email confirmed
 
     # --- Billing / cost guardrails (workstream E) -------------------------------
-    billing_enabled: bool = False       # turn on credit debit in check_and_debit
+    # Turn on credit debit in check_and_debit. Only priority requests (Pro-mode
+    # /chat, the report builder) are metered; anonymous callers are refused
+    # them. Every other model call is unmetered unless REQUIRE_LOGIN is on.
+    billing_enabled: bool = False
     # Hard ceiling on priority (high-tier) requests per calendar month, enforced
     # on the server's own key so nobody can run up an unbounded bill. Applies
     # whether or not billing is enabled (D5-3). 0 disables.
@@ -275,6 +309,7 @@ class Config:
     def from_env(cls):
         provider = os.environ.get('LLM_PROVIDER', 'gemini').strip().lower()
         md = cls._provider_model_defaults(provider)
+        _env_problems.clear()
         cfg = cls(
             env=os.environ.get('APP_ENV', 'development').strip().lower(),
             gemini_api_key=os.environ.get('GEMINI_API_KEY', '').strip(),
@@ -311,6 +346,7 @@ class Config:
             exec_timeout=_env_int('EXEC_TIMEOUT', 60),
             exec_memory_mb=_env_int('EXEC_MEMORY_MB', 2048),
             exec_output_limit=_env_int('EXEC_OUTPUT_LIMIT', 256 * 1024),
+            exec_file_limit_mb=_env_int('EXEC_FILE_LIMIT_MB', 256),
             model_pro=os.environ.get('MODEL_PRO', md['pro']).strip(),
             model_pro_max=os.environ.get('MODEL_PRO_MAX', md['pro_max']).strip(),
             model_flash=os.environ.get('MODEL_FLASH', md['flash']).strip(),
@@ -346,6 +382,9 @@ class Config:
             issue_report_to=os.environ.get('ISSUE_REPORT_TO', '').strip(),
             metrics_token=os.environ.get('METRICS_TOKEN', '').strip(),
         )
+        # Already logged by _env_int; kept so create_app reports them too.
+        cfg.warnings.extend(_env_problems)
+        _env_problems.clear()
         cfg.validate()
         return cfg
 
@@ -363,11 +402,11 @@ class Config:
     def validate(self):
         """Fail fast on hard requirements; warn loudly on soft ones."""
         if self.env not in VALID_ENVS:
-            raise ValueError(
+            raise ConfigError(
                 f"APP_ENV must be one of {VALID_ENVS}, got {self.env!r}")
 
         if self.llm_provider not in ('gemini', 'anthropic', 'openai'):
-            raise ValueError(
+            raise ConfigError(
                 "LLM_PROVIDER must be 'gemini', 'anthropic', or 'openai'")
 
         # The API key the selected provider needs. (Anthropic also supports a
@@ -386,21 +425,31 @@ class Config:
             if not self.flask_secret_key:
                 missing.append('FLASK_SECRET_KEY')
             if missing:
-                raise ValueError(
+                raise ConfigError(
                     "Refusing to start in production without: "
                     + ", ".join(missing))
         else:
             if not key_val and self.env != 'testing':
                 self._warn(
-                    f"{key_name} is not set — LLM endpoints will return "
-                    "errors until it is configured.")
+                    f"{key_name} is not set. The app starts, but model "
+                    "calls fail until you add it to .env.")
             if not self.flask_secret_key and self.env != 'testing':
                 self._warn(
-                    "FLASK_SECRET_KEY not set — using a random key. Logins "
+                    "FLASK_SECRET_KEY not set; using a random key. Logins "
                     "reset on restart and fail across multiple workers.")
 
         if self.sandbox_mode not in ('subprocess', 'docker'):
-            raise ValueError("SANDBOX_MODE must be 'subprocess' or 'docker'")
+            raise ConfigError("SANDBOX_MODE must be 'subprocess' or 'docker'")
+
+        for attr, name, default in _POSITIVE_INTS:
+            if getattr(self, attr) < 1:
+                self._warn(f"{name} must be at least 1; using the default "
+                           f"{default}.")
+                setattr(self, attr, default)
+        if self.trust_proxy_hops < 0:
+            # A negative count is truthy, so ProxyFix(x_for=-1) would install.
+            self._warn("TRUST_PROXY_HOPS cannot be negative; using 0.")
+            self.trust_proxy_hops = 0
         if self.sandbox_mode == 'subprocess' and not self.is_testing:
             # Warn in DEVELOPMENT too, not only production (P1-1b). Subprocess
             # mode has no network or filesystem isolation: generated code runs
@@ -409,7 +458,7 @@ class Config:
             # barriers, and both are best-effort. A self-hoster whose machine
             # holds real secrets or network access should run SANDBOX_MODE=docker.
             self._warn(
-                "SANDBOX_MODE=subprocess — generated code runs as the app user "
+                "SANDBOX_MODE=subprocess: generated code runs as the app user "
                 "with no network or filesystem isolation; the AST static "
                 "pre-check and LLM moderation are the only barriers. Use "
                 "SANDBOX_MODE=docker for kernel-enforced isolation where the "
@@ -417,17 +466,17 @@ class Config:
         if self.storage_backend == 's3':
             # D5-10: there is no S3 backend; accepting the setting meant every
             # read and write silently stayed on local disk.
-            raise ValueError(
+            raise ConfigError(
                 "STORAGE_BACKEND=s3 is not implemented yet: uploads would still "
                 "be written to local disk. Use STORAGE_BACKEND=local with "
                 "UPLOAD_ROOT on a persistent volume.")
         if self.storage_backend != 'local':
-            raise ValueError("STORAGE_BACKEND must be 'local'")
+            raise ConfigError("STORAGE_BACKEND must be 'local'")
 
         if (self.is_production and self.rate_limit_enabled
                 and self.rate_limit_storage_uri.startswith('memory://')):
             self._warn(
-                "RATELIMIT_STORAGE_URI is in-memory (memory://) in production — "
+                "RATELIMIT_STORAGE_URI is in-memory (memory://) in production: "
                 "rate-limit buckets are per-worker and reset on restart, so the "
                 "configured limits do not hold across multiple gunicorn workers "
                 "and a redeploy clears them, weakening bill-abuse protection. Set "
@@ -436,7 +485,7 @@ class Config:
 
         if self.public_base_url and not self.public_base_url.startswith(
                 ('http://', 'https://')):
-            raise ValueError(
+            raise ConfigError(
                 "PUBLIC_BASE_URL must start with http:// or https:// "
                 f"(got {self.public_base_url!r})")
         self.public_base_url = self.public_base_url.rstrip('/')
@@ -472,6 +521,19 @@ class Config:
                 "operator's API key, with BILLING_ENABLED on or off, so one "
                 "abusive session could run up an unbounded bill. Set "
                 "MONTHLY_PRIORITY_CALL_CEILING to a low number.")
+
+        if (self.billing_enabled and not self.require_login
+                and not self.is_testing):
+            # B-05: credits only meter priority (Pro-mode / report) requests.
+            # Anonymous callers are refused those, but every other model call
+            # stays open to them, unmetered, unless an account is required.
+            self._warn(
+                "BILLING_ENABLED is on without REQUIRE_LOGIN: anonymous visitors "
+                "cannot use Pro mode or the report builder (those need credits), "
+                "but every other model call (default code generation, "
+                "interpretation, chat, data cleaning) stays open to them and is "
+                "not metered. Set REQUIRE_LOGIN=true to require an account for "
+                "everything.")
 
         if self.is_production and self.trust_proxy_hops <= 0:
             self._warn(

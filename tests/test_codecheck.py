@@ -103,6 +103,35 @@ BLOCKED_PY = [
     'import numpy as np\nnp.load("x.npy", allow_pickle=flag)',
     "getattr(print, '__self__')",
     'from . import x',
+    # --- release audit 2026-10-16 (B-04): a host module used as a VALUE is
+    # refused, so no binding form can launder it past the member rules.
+    "import os\n(o := os).system('id')",
+    "import os\na, b = os, 1\na.system('id')",
+    "import os\ndef f(o=os):\n    o.system('id')\nf()",
+    "import os\nfor o in [os]:\n    o.system('id')",
+    "import os\n{'k': os}['k'].system('id')",
+    "import os\no: object = os\no.system('id')",
+    "import os, contextlib\nwith contextlib.nullcontext(os) as o:\n    o.system('id')",
+    "import os\n(lambda o: o.system('id'))(os)",
+    "import os\nprint(os)",
+    "import os\no = os\nprint(o)",
+    'import pandas as pd\nm = pd.io.common.os\nm.system("id")',
+    "from os import sys as s\nf(s)",
+    'import sys\nmods = [sys][0]',
+    # dangerous os calls named by the audit (B-03/B-04)
+    'import os\nos.kill(os.getppid(), 9)',
+    'import os\nos.killpg(0, 9)',
+    "import os\nos.mkfifo('plot.png')",
+    "import os\nos.mknod('x')",
+    "import os\nos.symlink(p, 'plot.png')",
+    "import os\nos.link(p, 'x')",
+    "import os\nos.chmod('x', 0o777)",
+    "import os\nos.chown('x', 0, 0)",
+    "import os\nos.rename('a', 'b')",
+    "import os\nos.replace('a', 'b')",
+    "import os\nos.truncate('a', 0)",
+    "from os import kill\nkill(1, 9)",
+    "import os\ngetattr(os, 'kill')(1, 9)",
 ]
 
 
@@ -209,6 +238,20 @@ SAFE_CORPUS = [
     "import re\npat = re.compile(r'\\d+')",
     "import matplotlib\nmatplotlib.use('Agg')",
     "from typing import List, Optional",
+    # B-04 over-block guards: module VALUE refusal must not touch these.
+    "import glob\nfiles = sorted(glob.glob('*.csv'))",
+    "import sys\nprint('warning', file=sys.stderr)",
+    "import sys\nif sys.version_info >= (3, 8):\n    print('ok')",
+    "import os\nexists = os.path.exists('data.csv')",
+    "import os\nprint(hasattr(os, 'getcwd'))",
+    "df = df.rename(columns={'a': 'b'})",
+    "df['c'] = df['c'].str.replace('a', 'b')",
+    "nt = df.copy()\nnt = nt.rename(columns={'a': 'b'})",   # variable named nt
+    "print(df.os.value_counts())",                           # column named os
+    "x = df.os",
+    "import pandas as pd\nimport os\nos.makedirs('out', exist_ok=True)\n"
+    "pd.DataFrame({'a': [1]}).to_csv(os.path.join('out', 'a.csv'))",
+    "from pathlib import Path\nfiles = list(Path('.').glob('*.csv'))",
 ]
 
 

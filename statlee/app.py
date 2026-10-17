@@ -482,7 +482,7 @@ def create_app(config=None):
 
     @app.errorhandler(429)
     def rate_limited(e):
-        return jsonify({'error': 'Too many requests — please slow down. '
+        return jsonify({'error': 'Too many requests. Please slow down. '
                                  f'({e.description})'}), 429
 
     @app.errorhandler(404)

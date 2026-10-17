@@ -4,6 +4,7 @@ import os
 import shutil
 import signal
 import subprocess
+import time
 
 import pytest
 
@@ -76,22 +77,34 @@ def test_timeout_is_reported():
     assert 'timed out' in res.output.lower()
 
 
-class _FakeTimeoutProc:
-    """A Popen stand-in whose first communicate() times out, then reaps."""
+class _FakeProc:
+    """A Popen stand-in. ``hangs``: wait() times out until kill() is called
+    (a run that hits the timeout); otherwise it has already exited."""
 
-    def __init__(self, pid=999999):
+    def __init__(self, pid=999999, hangs=False, returncode=0, stdout=b''):
+        import io
         self.pid = pid
-        self.returncode = -9
-        self._first = True
+        self.hangs = hangs
+        self.killed = False
+        self.returncode = None if hangs else returncode
+        self.stdout = io.BytesIO(stdout)
+        self.stderr = io.BytesIO(b'')
 
-    def communicate(self, timeout=None):
-        if self._first:
-            self._first = False
+    def wait(self, timeout=None):
+        if self.hangs and not self.killed:
+            time.sleep(min(timeout or 0, 0.05))
             raise subprocess.TimeoutExpired(cmd='x', timeout=timeout)
-        return ('', '')
+        if self.returncode is None:
+            self.returncode = -9
+        return self.returncode
 
     def kill(self):
-        pass
+        self.killed = True
+
+
+class _FakeTimeoutProc(_FakeProc):
+    def __init__(self, pid=999999):
+        super().__init__(pid=pid, hangs=True)
 
 
 def test_subprocess_mode_timeout_has_no_docker_kill(monkeypatch):
@@ -104,11 +117,19 @@ def test_subprocess_mode_timeout_has_no_docker_kill(monkeypatch):
         run_calls.append(cmd)
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess, 'Popen', lambda cmd, **kw: _FakeTimeoutProc())
+    procs = []
+
+    def fake_popen(cmd, **kw):
+        procs.append(_FakeTimeoutProc())
+        return procs[-1]
+
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
     monkeypatch.setattr(subprocess, 'run', spy_run)
-    # Neutralize the real POSIX signal so we never touch an unrelated pgid.
+    # Neutralize the real POSIX signal so we never touch an unrelated pgid;
+    # the fake "group kill" marks the fake process as killed.
     if hasattr(os, 'killpg'):
-        monkeypatch.setattr(os, 'killpg', lambda *a: None)
+        monkeypatch.setattr(os, 'killpg',
+                            lambda *a: setattr(procs[-1], 'killed', True))
         monkeypatch.setattr(os, 'getpgid', lambda pid: pid)
 
     res = sandbox.run_in_sandbox("print('x')", 'Python', timeout=1, mode='subprocess')
@@ -119,18 +140,32 @@ def test_subprocess_mode_timeout_has_no_docker_kill(monkeypatch):
     assert not any(c[:2] == ['docker', 'kill'] for c in run_calls)
 
 
+def _fake_docker(monkeypatch, calls, *, hangs=False):
+    """Route ``docker run`` (Popen) and ``docker kill`` (run) to fakes that
+    record their argv in ``calls``."""
+    procs = []
+
+    def fake_popen(cmd, **kwargs):
+        calls.append(cmd)
+        procs.append(_FakeProc(hangs=hangs))
+        return procs[-1]
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    return procs
+
+
 def test_docker_bind_mount_uses_configured_work_root(monkeypatch, tmp_path):
     """With SANDBOX_WORK_ROOT set, the docker `-v` source must be created under
     that root so the operator can bind-mount the same absolute path host-side
     into the app container (P1-5)."""
     work_root = tmp_path / 'statlee-runs'
     calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
-
-    monkeypatch.setattr(subprocess, 'run', fake_run)
+    _fake_docker(monkeypatch, calls)
     sandbox.run_in_sandbox("print('x')", 'Python', mode='docker',
                            work_root=str(work_root))
 
@@ -153,9 +188,7 @@ def test_docker_mode_chmods_run_dir_world_accessible(monkeypatch):
         return real_chmod(path, mode)
 
     monkeypatch.setattr(os, 'chmod', spy_chmod)
-    monkeypatch.setattr(
-        subprocess, 'run',
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout='', stderr=''))
+    _fake_docker(monkeypatch, [])
 
     sandbox.run_in_sandbox("print('x')", 'Python', mode='docker')
     assert 0o777 in modes.values()
@@ -195,14 +228,7 @@ def test_docker_mode_kills_container_on_timeout(monkeypatch):
     BEFORE the run_dir is removed, so `docker kill` isn't racing an already
     -deleted bind mount (P1-2)."""
     calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        if cmd[:2] == ['docker', 'run']:
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get('timeout'))
-        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
-
-    monkeypatch.setattr(subprocess, 'run', fake_run)
+    procs = _fake_docker(monkeypatch, calls, hangs=True)
     res = sandbox.run_in_sandbox(
         "print('x')", 'Python', timeout=1, mode='docker')
 
@@ -220,6 +246,9 @@ def test_docker_mode_kills_container_on_timeout(monkeypatch):
     name_idx = run_cmd.index('--name') + 1
     container_name = run_cmd[name_idx]
     assert kill_calls[0] == ['docker', 'kill', container_name]
+    # The docker client shares the app's process group: it is killed
+    # directly, never through a group kill.
+    assert procs[0].killed is True
 
 
 def test_nonzero_exit_is_failure():
