@@ -359,6 +359,16 @@ def _with_evicted(evicted):
     return handler
 
 
+EVICTION_TOAST = ".cc-toast.info:has-text('removed to make room')"
+
+
+def _eviction_toast(page):
+    """The eviction toast's text: waits for that toast by its words, so an
+    unrelated info toast cannot be read in its place."""
+    page.wait_for_selector(EVICTION_TOAST)
+    return page.locator(EVICTION_TOAST).last.inner_text()
+
+
 def test_a_run_that_evicts_a_starred_run_says_so(page, fake):
     """3A A3: /run reports the runs the cap pushed out; a starred one is
     named, so the user learns starring did not keep it."""
@@ -367,8 +377,7 @@ def test_a_run_that_evicts_a_starred_run_says_so(page, fake):
         [{'run_id': first, 'name': 'Baseline model', 'starred': True}]))
     page.click('#tabGenerate')
     run_script(page)
-    page.wait_for_selector('.cc-toast.info')
-    text = page.locator('.cc-toast.info').last.inner_text()
+    text = _eviction_toast(page)
     assert 'starred run "Baseline model"' in text, text
     assert 'workbook is full' in text, text
 
@@ -380,15 +389,14 @@ def test_a_run_that_evicts_unstarred_runs_counts_them(page, fake):
          {'run_id': second, 'name': None, 'starred': False}]))
     page.click('#tabGenerate')
     run_script(page)
-    page.wait_for_selector('.cc-toast.info')
-    text = page.locator('.cc-toast.info').last.inner_text()
+    text = _eviction_toast(page)
     assert '2 older runs were removed' in text, text
     assert 'starred' not in text, text
 
 
 def test_a_run_with_nothing_evicted_shows_no_toast(page, fake):
     two_runs(page, fake, 'wb-evict3.csv')
-    assert page.locator('.cc-toast').count() == 0
+    assert page.locator(EVICTION_TOAST).count() == 0
 
 
 def test_star_tooltip_does_not_promise_the_run_is_kept(page, fake):
