@@ -514,18 +514,15 @@ def _st():
     return storage
 
 
-def dataset_columns(filename, version=None, identity=None):
-    """Column names of the dataset's active version (or ``version``); None
-    when the dataset is unknown or its file is gone."""
+def dataset_columns(filename, identity=None):
+    """Column names of the dataset's active version; None when the dataset is
+    unknown or its file is gone. Like every other reader
+    (``storage.active_dataset_snapshot``), a dataset whose version manifest
+    is missing or unreadable falls back to its plain stored file (3A A2)."""
     import pandas as pd
-    st = _st()
-    if st.active_version_number(filename, identity) is None:
-        return None
-    if version is None:
-        path = st.active_dataset_path(filename, identity)
-    else:
-        path = st.dataset_version_path(filename, version, identity)
-    if not path or not os.path.isfile(path):
+    path = _st().active_dataset_path(filename, identity)
+    if not path or not path.lower().endswith('.csv') \
+            or not os.path.isfile(path):
         return None
     try:
         return [str(c) for c in pd.read_csv(path, nrows=0).columns]

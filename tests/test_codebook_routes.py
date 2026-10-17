@@ -578,3 +578,30 @@ def test_a_dropped_pdf_seed_is_logged(client, fake_llm, monkeypatch, caplog):
     assert resp.get_json()['codebook_updated'] == 0
     assert any('pdf' in r.getMessage().lower() for r in caplog.records), \
         caplog.text
+
+
+def test_codebook_works_for_a_dataset_whose_manifest_is_gone(app, client):
+    """3A A2: every other path falls back to the plain dataset file when the
+    version manifest is missing; the codebook routes and export do too."""
+    import os
+    import zipfile
+    upload_csv(client, SAMPLE_CSV)
+    ident = _identity(client)
+    with app.app_context():
+        os.remove(storage._manifest_path('test.csv', ident))
+    resp = _get(client)
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()['columns'] == ['age', 'income', 'group']
+    assert _put(client, {'filename': 'test.csv', 'codebook': {
+        'age': {'label': 'Age in years'}}}).status_code == 200
+    export = post_json(client, '/export', {'filename': 'test.csv'})
+    assert export.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(export.data))
+    book = json.loads(zf.read('codebook.json'))
+    assert book['codebook']['age']['label'] == 'Age in years'
+    assert book['dataset_version'] is None
+
+
+def test_codebook_is_404_for_a_file_that_is_not_a_dataset(client):
+    doc = _upload_doc(client)
+    assert _get(client, doc).status_code == 404
