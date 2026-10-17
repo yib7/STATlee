@@ -23,14 +23,19 @@
                 password: form.password.value
             })
         }).then(function (r) {
-            return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+            // A proxy's 502/504 page is HTML: that is a server error with a
+            // status to show, not a network failure (the .catch below).
+            return r.json().catch(function () { return null; }).then(function (body) {
+                return { ok: r.ok, status: r.status, body: body };
+            });
         }).then(function (res) {
             if (res.ok) {
                 msg.textContent = 'Password reset. Redirecting to sign in...';
                 msg.className = 'msg ok';
                 setTimeout(function () { window.location.href = '/'; }, 1500);
             } else {
-                msg.textContent = (res.body && res.body.error) || 'Something went wrong.';
+                msg.textContent = (res.body && res.body.error)
+                    || 'Something went wrong (HTTP ' + res.status + '). Please try again.';
                 msg.className = 'msg err';
                 btn.disabled = false;
             }

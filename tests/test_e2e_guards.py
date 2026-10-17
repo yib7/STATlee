@@ -111,3 +111,33 @@ def test_copy_button_label_comes_back_after_two_quick_clicks(page):
     page.click('#copyBtn')
     page.clock.run_for(5000)
     assert page.text_content('#copyBtn').strip() == label
+
+
+# ---------------------------------------------------------------------------
+# C-20: a proxy's HTML error page on reset is a server error, not "network"
+# ---------------------------------------------------------------------------
+
+def test_reset_password_non_json_error_names_the_status(page, e2e_server, monkeypatch):
+    from statlee.routes import auth as auth_mod
+
+    # The live server runs in this process: let the GET render the form for
+    # a made-up token instead of creating a user and a real reset token.
+    monkeypatch.setattr(auth_mod, '_reset_user_for_token',
+                        lambda token: object() if token == 'e2e-reset-tok' else None)
+
+    def _proxy_error(route):
+        if route.request.method == 'POST':
+            route.fulfill(status=502, content_type='text/html',
+                          body='<html><body>502 Bad Gateway</body></html>')
+        else:
+            route.continue_()
+
+    page.context.route('**/reset_password', _proxy_error)
+    page.goto(e2e_server['url'] + '/reset_password?token=e2e-reset-tok')
+    page.fill('#password', 'a-new-pass-123')
+    page.click('#reset-form button')
+    page.wait_for_selector('#msg.err')
+    text = page.text_content('#msg')
+    assert 'Network error' not in text, text
+    assert '502' in text, text
+    assert not page.is_disabled('#reset-form button')
