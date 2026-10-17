@@ -667,6 +667,14 @@ cap, so a symlink a script planted is never followed and a FIFO never blocks
 collection; both are skipped.
 On a timeout, the output the script printed before it was stopped is kept and
 the timeout notice is appended.
+Host paths in the output are rewritten before it leaves the sandbox
+(`redact_host_paths`): the run dir and docker's `/work` disappear, so a
+traceback reads `File "script.py"`, and the interpreter's site-packages,
+stdlib and prefix dirs, the temp dir and the home dir become
+`<site-packages>`, `<stdlib>`, `<python>`, `<tmp>` and `~`. The output is
+shown in the UI, stored with the run and shipped in `/export`, so it never
+names the host's layout or user account. A script can still print such paths
+on purpose; this covers the accidental case.
 
 ## Monetization seam (`billing.py` + `models.py`)
 

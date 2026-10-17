@@ -19,6 +19,7 @@ import base64
 import glob
 import logging
 import os
+import re
 import shutil
 import signal
 import stat
@@ -71,6 +72,78 @@ NPROC_HEADROOM = 64
 NPROC_FALLBACK = 128
 
 _root_warned = False
+
+# Run output (tracebacks above all) is shown in the UI, stored with the run and
+# shipped in /export, so host paths in it are rewritten to neutral labels
+# (Phase 4, 4.9): the run dir and the docker workdir disappear (``File
+# "script.py"``), the interpreter's install dirs become ``<site-packages>``,
+# ``<stdlib>`` or ``<python>``, the temp dir ``<tmp>`` and the home dir ``~``.
+DOCKER_WORKDIR = '/work'
+# A replaced path must end at a separator, quote, space or punctuation, so
+# "/app" never rewrites "/apple".
+_PATH_END = r"(?=[\\/\s\"':,;)\]>]|$)"
+_HOST_PREFIXES = None
+
+
+def _path_pattern(path):
+    """Regex for ``path`` that matches either separator, so ``C:\\x\\y`` and
+    ``C:/x/y`` are both found."""
+    parts = [re.escape(part) for part in re.split(r'[\\/]+', path) if part]
+    lead = r'[\\/]+' if path[:1] in ('/', '\\') else ''
+    return lead + r'[\\/]+'.join(parts)
+
+
+def _host_prefixes():
+    """(path, label) pairs for the host's install, temp and home dirs,
+    longest first."""
+    import site
+    import sysconfig
+    paths = sysconfig.get_paths()
+    site_dirs = [paths.get('purelib'), paths.get('platlib')]
+    try:
+        site_dirs += list(site.getsitepackages())
+        site_dirs.append(site.getusersitepackages())
+    except AttributeError:   # some embedded/venv layouts lack these helpers
+        pass
+    pairs = [(d, '<site-packages>') for d in site_dirs]
+    pairs += [(paths.get('stdlib'), '<stdlib>'),
+              (paths.get('platstdlib'), '<stdlib>')]
+    pairs += [(d, '<python>') for d in (sys.prefix, sys.base_prefix,
+                                        sys.exec_prefix,
+                                        os.path.dirname(sys.executable))]
+    pairs += [(tempfile.gettempdir(), '<tmp>'), (os.path.expanduser('~'), '~')]
+    seen, out = set(), []
+    for path, label in pairs:
+        if not path:
+            continue
+        for variant in {os.path.normpath(path), os.path.realpath(path)}:
+            # A drive root or "/" would rewrite every absolute path.
+            if len(variant.strip('\\/')) <= 2 or variant in seen:
+                continue
+            seen.add(variant)
+            out.append((variant, label))
+    return sorted(out, key=lambda pair: len(pair[0]), reverse=True)
+
+
+def redact_host_paths(text, run_dir=None):
+    """``text`` with host paths replaced by neutral labels (see above)."""
+    global _HOST_PREFIXES
+    if not text:
+        return text
+    if _HOST_PREFIXES is None:
+        _HOST_PREFIXES = _host_prefixes()
+    flags = re.IGNORECASE if os.name == 'nt' else 0
+    run_dirs = {DOCKER_WORKDIR}
+    if run_dir:
+        run_dirs.update({run_dir, os.path.realpath(run_dir)})
+    for path in sorted(run_dirs, key=len, reverse=True):
+        pattern = _path_pattern(path)
+        text = re.sub(pattern + r'[\\/]+', '', text, flags=flags)
+        text = re.sub(pattern + _PATH_END, '.', text, flags=flags)
+    for path, label in _HOST_PREFIXES:
+        text = re.sub(_path_pattern(path) + _PATH_END, label, text,
+                      flags=flags)
+    return text
 
 
 def plot_limit_note(skipped):
@@ -551,6 +624,7 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
                 continue
             if data is not None:
                 result.files[name] = data
+        result.output = redact_host_paths(result.output, run_dir)
         return result
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
