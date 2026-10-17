@@ -99,14 +99,19 @@ def test_billing_enabled_debits_a_credit(app):
 
 
 def test_monthly_priority_ceiling_blocks_when_exceeded():
+    from types import SimpleNamespace
+
     from statlee.config import Config
     cfg = Config(env='testing', billing_enabled=True,
                  monthly_priority_call_ceiling=1)
+    # A paid-plan account: not debited, so only the ceiling decides (an
+    # anonymous caller is refused priority outright with billing on, B-05).
+    paid = SimpleNamespace(id=1, plan='pro')
     billing.reset_spend()
     try:
-        allowed_first, _ = billing.check_and_debit(None, priority=True, config=cfg)
+        allowed_first, _ = billing.check_and_debit(paid, priority=True, config=cfg)
         allowed_second, message = billing.check_and_debit(
-            None, priority=True, config=cfg)
+            paid, priority=True, config=cfg)
     finally:
         billing.reset_spend()
     assert allowed_first is True
@@ -488,9 +493,11 @@ def test_denied_credit_debit_returns_the_ceiling_unit(app):
                 assert allowed is False
                 assert 'credit' in message.lower()
             assert billing._spend['priority_calls'] == 0
-        # The lone ceiling unit is still available to a paying request
-        # (anonymous priority requests skip the credit path entirely).
-        allowed, message = billing.check_and_debit(None, priority=True, config=cfg)
+        # The lone ceiling unit is still available to a paying request (a
+        # paid-plan account is not debited, so only the ceiling applies).
+        from types import SimpleNamespace
+        paid = SimpleNamespace(id=999, plan='pro')
+        allowed, message = billing.check_and_debit(paid, priority=True, config=cfg)
         assert allowed is True and message is None
     finally:
         billing.reset_spend()

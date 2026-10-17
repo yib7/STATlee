@@ -188,7 +188,10 @@ class Config:
     require_email_verification: bool = False  # gate accounts until email confirmed
 
     # --- Billing / cost guardrails (workstream E) -------------------------------
-    billing_enabled: bool = False       # turn on credit debit in check_and_debit
+    # Turn on credit debit in check_and_debit. Only priority requests (Pro-mode
+    # /chat, the report builder) are metered; anonymous callers are refused
+    # them. Every other model call is unmetered unless REQUIRE_LOGIN is on.
+    billing_enabled: bool = False
     # Hard ceiling on priority (high-tier) requests per calendar month, enforced
     # on the server's own key so nobody can run up an unbounded bill. Applies
     # whether or not billing is enabled (D5-3). 0 disables.
@@ -477,6 +480,19 @@ class Config:
                 "operator's API key, with BILLING_ENABLED on or off, so one "
                 "abusive session could run up an unbounded bill. Set "
                 "MONTHLY_PRIORITY_CALL_CEILING to a low number.")
+
+        if (self.billing_enabled and not self.require_login
+                and not self.is_testing):
+            # B-05: credits only meter priority (Pro-mode / report) requests.
+            # Anonymous callers are refused those, but every other model call
+            # stays open to them, unmetered, unless an account is required.
+            self._warn(
+                "BILLING_ENABLED is on without REQUIRE_LOGIN: anonymous visitors "
+                "cannot use Pro mode or the report builder (those need credits), "
+                "but every other model call (default code generation, "
+                "interpretation, chat, data cleaning) stays open to them and is "
+                "not metered. Set REQUIRE_LOGIN=true to require an account for "
+                "everything.")
 
         if self.is_production and self.trust_proxy_hops <= 0:
             self._warn(
