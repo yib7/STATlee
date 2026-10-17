@@ -321,6 +321,8 @@ def _run_steps(run_id, record, include_prompts):
     for key in ('model', 'role'):
         if _str(meta.get(key), 64):
             step[key] = _str(meta.get(key), 64)
+    if storage.valid_run_id(meta.get('fix_of')):
+        step['fix_of'] = meta['fix_of']
     if isinstance(meta.get('dataset_sha256'), str) and \
             _SHA_RE.fullmatch(meta['dataset_sha256']):
         step['dataset_sha256_before'] = meta['dataset_sha256']

@@ -239,6 +239,67 @@ def test_inherited_question_is_flagged(page, fake):
 
 
 # ---------------------------------------------------------------------------
+# Fix with AI keeps the user's question (2026-10-17)
+# ---------------------------------------------------------------------------
+
+FIX_QUESTION = 'Does income predict turnout? Use logistic regression and plot it.'
+
+
+def test_fix_with_ai_run_keeps_the_original_question(page, fake):
+    upload(page, 'wb-fix.csv', CSV_A + '81,1,A\n')
+    skip_codebook(page)
+    _script(fake, "raise ValueError('boom from the first take')")
+    generate(page, FIX_QUESTION)
+    run_script(page)
+    page.wait_for_function("() => document.querySelectorAll('#runList > li').length === 1")
+    first = page.evaluate("() => document.querySelector('#runList > li').dataset.runId")
+
+    chats = _capture_bodies(page, '/chat')
+    history = _capture_bodies(page, '/history')
+    _script(fake, "print('fixed output')")
+    page.evaluate("() => { CC.state.latestInterpretation = ''; }")
+    page.click('#debugFixBtn')
+    page.wait_for_function(
+        "() => CC.getCode().includes('fixed output')"
+        " && !document.getElementById('generateBtn').disabled")
+    # The model still gets the traceback, and the request names the run.
+    assert 'boom from the first take' in chats[-1]['prompt']
+    assert chats[-1]['fix_of'] == first
+    assert page.input_value('#promptInput') == FIX_QUESTION
+
+    run_script(page)
+    page.wait_for_function("() => document.querySelectorAll('#runList > li').length === 2")
+    second = page.evaluate("() => document.querySelector('#runList > li:last-child').dataset.runId")
+    label = page.inner_text(row(second) + ' .wb-run-name')
+    assert label == FIX_QUESTION
+    assert 'sandbox with this error' not in page.inner_text('#runList')
+    assert 'fixes run 1' in page.inner_text(row(second) + ' .wb-run-meta')
+    assert 'fixes run' not in page.inner_text(row(first) + ' .wb-run-meta')
+    runs = {r['run_id']: r for r in server_runs(page)['runs']}
+    assert runs[second]['prompt_excerpt'] == FIX_QUESTION
+    assert runs[second]['fix_of'] == first
+
+    # The /history entry of the fixed run carries the question too.
+    page.wait_for_function("() => CC.state.latestInterpretation.length > 0")
+    page.wait_for_timeout(200)
+    assert history and history[-1]['prompt'] == FIX_QUESTION
+
+    # Once it is an older run, opening it from the rail shows the question
+    # and the fix (the live run itself opens without the view bar).
+    _script(fake, "print('third run output')")
+    generate(page, 'Third question')
+    run_script(page)
+    page.wait_for_function("() => document.querySelectorAll('#runList > li').length === 3")
+    page.click(row(second) + ' .wb-run-open')
+    page.wait_for_selector('#runViewBar:not(.hidden)')
+    page.wait_for_function(
+        "() => document.getElementById('runViewTitle').textContent.startsWith('Run 2')")
+    assert page.inner_text('#runViewQuestion') == 'Question: ' + FIX_QUESTION
+    assert 'fixes run 1' in page.inner_text('#runViewMeta')
+    assert not page.is_visible('#runInheritNote')
+
+
+# ---------------------------------------------------------------------------
 # Rename inline
 # ---------------------------------------------------------------------------
 

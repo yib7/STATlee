@@ -124,6 +124,10 @@ reproducibility bundle that records what produced what.
   panel's buttons no longer run past its edge, and the pipeline header gets
   the spacing its markup asked for (the rebuilt Tailwind file now holds every
   class the app shell uses and none taken from comments).
+- A run repaired with "Fix with AI" keeps the question you asked (run rail,
+  saved-run view, `/history`, the interpretation's grounding and
+  `provenance.json`) instead of being titled with the traceback sent to the
+  model, and is marked "fixes run N".
 
 ### Security
 - Outgoing email verifies the SMTP server's certificate before logging in;

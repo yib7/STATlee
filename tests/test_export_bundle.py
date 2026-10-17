@@ -202,7 +202,7 @@ def test_provenance_shape_and_hashes(app, client, full_session):
 
     kinds = [s['kind'] for s in prov['steps']]
     assert kinds == ['upload', 'wrangle', 'run', 'interpret']
-    allowed = {'kind', 'ts', 'prompt', 'prompt_inherited', 'model', 'role',
+    allowed = {'kind', 'ts', 'prompt', 'prompt_inherited', 'fix_of', 'model', 'role',
                'dataset_sha256_before', 'dataset_sha256_after',
                'script_sha256', 'run_id'}
     for step in prov['steps']:

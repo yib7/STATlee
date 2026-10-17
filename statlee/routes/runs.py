@@ -58,6 +58,8 @@ def get_run(run_id):
         'created_at': _meta_str(meta, 'created_at'),
         'prompt': _meta_str(meta, 'prompt'),
         'prompt_inherited': bool(meta.get('prompt_inherited')),
+        'fix_of': (meta.get('fix_of')
+                   if storage.valid_run_id(meta.get('fix_of')) else None),
         'filename': _meta_str(meta, 'filename'),
         'dataset_version': version if isinstance(version, int) else None,
         'dataset_sha256': _meta_str(meta, 'dataset_sha256'),

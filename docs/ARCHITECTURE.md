@@ -255,7 +255,7 @@ caller's own root:
   r0001/
     meta.json           run_id, created_at, prompt, filename, dataset_version,
                         dataset_sha256, model, role, name, starred, methods,
-                        prompt_inherited
+                        prompt_inherited, fix_of
     script.json         {code, language}
     status.json         {returncode, timed_out}
     output.txt
@@ -282,7 +282,10 @@ server's record, never client text. A run records the question, dataset name,
 active dataset version and its sha256, and the drafting role and model. A re-run
 of an unchanged script keeps the provenance of the most recent run of that
 script; an edited or pasted script gets the latest generation's question marked
-`prompt_inherited`, with no role or model. `/interpret` on an older run reads
+`prompt_inherited`, with no role or model. A "Fix with AI" generation sends the
+failed run's traceback to `/chat` as the prompt plus `fix_of` (that run's id);
+the fixed script is recorded under the failed run's question with `fix_of` set,
+never under the traceback. `/interpret` on an older run reads
 that run's own dataset version, and omits the row count and column context when
 the file is gone or its hash no longer matches.
 
@@ -450,8 +453,8 @@ outputs/run_0001/            one folder per included run:
   are ordered by time and are of four kinds: `upload` (`dataset_sha256_after`),
   `wrangle` (instruction, model, role, before and after hashes, the transform's
   `script_sha256`), `run` (question, model, role, `dataset_sha256_before`,
-  `script_sha256`, `run_id`, and `prompt_inherited`, an extension to the
-  provenance format) and `interpret` (`run_id`). Only recorded fields are
+  `script_sha256`, `run_id`, and `prompt_inherited` and `fix_of`, extensions to
+  the provenance format) and `interpret` (`run_id`). Only recorded fields are
   written, never nulls, and it holds no data values and no system prompts.
 - With `include_prompts=false` every `prompt` and `prompt_inherited` is dropped
   from the provenance, along with the request list in `report.md` and the

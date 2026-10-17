@@ -112,6 +112,7 @@
         const time = shortTime(run.created_at);
         if (time) metaParts.push({ text: time });
         if (failed(run)) metaParts.push({ text: run.timed_out ? 'timed out' : 'failed', cls: 'wb-run-failed' });
+        if (run.fix_of) metaParts.push({ text: 'fixes run ' + runNumber(run.fix_of) });
         if (run.has_plots) metaParts.push({ text: 'plots' });
         if (run.run_id === wb.latest) metaParts.push({ text: 'latest' });
         open.setAttribute('aria-label', 'Run ' + n + ': ' + label
@@ -291,6 +292,7 @@
         }
         if (run.language) meta.push(run.language);
         if (run.model) meta.push(run.model);
+        if (run.fix_of) meta.push('fixes run ' + runNumber(run.fix_of));
         byId('runViewMeta').textContent = meta.join(' · ');
         byId('runViewQuestion').textContent = run.prompt
             ? 'Question: ' + run.prompt : 'No question was recorded for this run.';

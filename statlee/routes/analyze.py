@@ -84,6 +84,20 @@ def _chat_material(history, current_code, language):
     return '\n\n'.join(material) or None
 
 
+def _fix_question(user_prompt, fix_of):
+    """``(question, fix_of)`` a generation is recorded under. An ordinary
+    request is its own question. A fix (``fix_of`` given) takes the repaired
+    run's recorded question; when that run is unknown or recorded none, the
+    question is None, so the debug text never becomes a run's title."""
+    if fix_of is None:
+        return user_prompt, None
+    meta = storage.run_meta(fix_of) if storage.valid_run_id(fix_of) else None
+    if meta is None:
+        return None, None
+    prompt = _ctx_str(meta, 'prompt')
+    return (prompt.strip() or None) if prompt else None, fix_of
+
+
 @bp.route('/chat', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def chat():
@@ -107,9 +121,15 @@ def chat():
     pro_mode = bool_field(data, 'pro')
     draft_role = 'pro_max' if pro_mode else 'draft'
     draft_model = model_for_role(_cfg(), draft_role)
+    # "Fix with AI": the prompt is the failing run's traceback, which the
+    # model needs but which is not the user's question. ``fix_of`` names the
+    # run being repaired, and the fixed script is recorded under THAT run's
+    # question (server-side record, never the debug text).
+    fix_of = run_id_field(data, 'fix_of')
 
     if not user_prompt or not filename:
         return json_error('Missing prompt or filename')
+    question, fix_of = _fix_question(user_prompt, fix_of)
 
     service = llm.get_service()
 
@@ -321,7 +341,8 @@ def chat():
             # on the user's question and the analysed columns server-side.
             storage.save_approved_script(
                 final_code, target_language, source='chat',
-                context={'prompt': user_prompt[:CONTEXT_PROMPT_MAX],
+                context={'prompt': (question or '')[:CONTEXT_PROMPT_MAX],
+                         'fix_of': fix_of,
                          'filename': filename,
                          'columns': [str(c) for c in filtered_headers]
                          [:CONTEXT_COLUMNS_MAX],
@@ -335,7 +356,8 @@ def chat():
             debit.delivered()
             yield sse_event(debit.with_balance({
                 'type': 'done', 'code': final_code,
-                'language': target_language, 'usage': usage}))
+                'language': target_language, 'question': question,
+                'usage': usage}))
         except Exception as exc:
             logger.exception("Code generation stream failed")
             # The credit (if any) was debited before streaming began; the stream
@@ -491,13 +513,16 @@ def _run_provenance(code, language, filename, dataset_path, version):
     run of the identical script (its approval may have left the small
     approved-script store, or been re-saved as an edit without context);
     else, for an edited or pasted script, the latest generation's question
-    with ``prompt_inherited`` set and no role/model (no model wrote it)."""
+    with ``prompt_inherited`` set and no role/model (no model wrote it).
+    ``fix_of`` is the run a "Fix with AI" generation repaired, if any."""
     entry = storage.approved_entry(code, language) or {}
     ctx = entry.get('context')
     inherited = False
+    fix_of = None
     if isinstance(ctx, dict):
-        prompt, role, model = (_ctx_str(ctx, 'prompt'), _ctx_str(ctx, 'role'),
-                               _ctx_str(ctx, 'model'))
+        prompt, role, model = (_ctx_str(ctx, 'prompt') or None,
+                               _ctx_str(ctx, 'role'), _ctx_str(ctx, 'model'))
+        fix_of = _ctx_str(ctx, 'fix_of')
     else:
         previous = storage.latest_meta_for_script(code, language)
         if previous:
@@ -505,10 +530,11 @@ def _run_provenance(code, language, filename, dataset_path, version):
                                    _ctx_str(previous, 'role'),
                                    _ctx_str(previous, 'model'))
             inherited = bool(previous.get('prompt_inherited'))
+            fix_of = _ctx_str(previous, 'fix_of')
         else:
             latest = storage.load_approved_script(
                 exclude_sources=('wrangle', 'run'))
-            prompt = _ctx_str((latest or {}).get('context'), 'prompt')
+            prompt = _ctx_str((latest or {}).get('context'), 'prompt') or None
             role = model = None
             inherited = prompt is not None
     stored_name = sha = None
@@ -523,7 +549,8 @@ def _run_provenance(code, language, filename, dataset_path, version):
         version = None
     return {'prompt': prompt, 'filename': stored_name,
             'dataset_version': version, 'dataset_sha256': sha,
-            'model': model, 'role': role, 'prompt_inherited': inherited}
+            'model': model, 'role': role, 'prompt_inherited': inherited,
+            'fix_of': fix_of}
 
 
 # ---------------------------------------------------------------------------

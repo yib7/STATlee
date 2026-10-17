@@ -328,6 +328,9 @@
         // 256KB cap would be unmetered prompt spend.
         const trace = output.length > 2000 ? output.slice(-2000) : output;
         const userPrompt = promptInput.value;
+        // The traceback is for the model, not the user's question: name the
+        // failed run so the server records the fix under that run's question.
+        pendingFixOf = run.run_id || null;
         promptInput.value =
             'The script failed in the sandbox with this error:\n\n' + trace +
             '\n\nFix the cause and return the corrected script.';
@@ -417,9 +420,14 @@
 
     // --- generate ----------------------------------------------------------
     let generating = false;
+    // Set by fixWithAI for the one generation it starts: the run being fixed.
+    let pendingFixOf = null;
     CC.isGenerating = function () { return generating; };
 
     async function generate() {
+        // Read and cleared first, so a refused click never carries it over.
+        const fixOf = pendingFixOf;
+        pendingFixOf = null;
         if (generating) return;            // D4-6: one generation at a time
         const promptText = document.getElementById('promptInput').value;
         const language = languageSelect().value;
@@ -481,6 +489,7 @@
                 codebook: mergedCodebook,
                 current_code: sendCurrent ? existing : null,
                 pro: CC.proOn(),
+                fix_of: fixOf,
             });
 
             const contentType = response.headers.get('Content-Type') || '';
@@ -492,6 +501,7 @@
 
             let accumulated = '';
             let finalCode = null;
+            let finalQuestion = null;
             let streamError = null;
 
             await CC.streamSSE(response, {
@@ -520,6 +530,7 @@
                 },
                 onDone: (data) => {
                     finalCode = data.code;
+                    if (typeof data.question === 'string') finalQuestion = data.question;
                     if (data.usage) CC.addUsage(data.usage);
                 },
                 onError: (msg) => { streamError = msg; },
@@ -540,7 +551,9 @@
             if (frame) frame.classList.add('hidden');   // a fresh script, an old diagnosis
             CC.state.chatHistory.push({ role: 'user', text: promptText });
             CC.state.chatHistory.push({ role: 'model', text: finalCode });
-            CC.state.lastPrompt = promptText;
+            // A fix keeps the question it repaired (the server's record), so
+            // /history never files the run under the traceback.
+            CC.state.lastPrompt = fixOf ? (finalQuestion || CC.state.lastPrompt) : promptText;
             // D4-29: remember what language the server generated (and approved)
             // this script in, so Run uses it even if the selector moves.
             CC.state.generated = { code: finalCode, language };

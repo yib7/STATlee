@@ -290,7 +290,7 @@ def _read_status(run_dir):
 
 def _new_meta(run_id, created_ts=None, prompt=None, filename=None,
               dataset_version=None, dataset_sha256=None, model=None,
-              role=None, methods=None, prompt_inherited=False):
+              role=None, methods=None, prompt_inherited=False, fix_of=None):
     if isinstance(dataset_version, bool) or not isinstance(dataset_version, int):
         dataset_version = None
     return {
@@ -300,6 +300,9 @@ def _new_meta(run_id, created_ts=None, prompt=None, filename=None,
         # True when ``prompt`` is the latest generation's question borrowed
         # for an edited or pasted script, not the question that produced it.
         'prompt_inherited': bool(prompt_inherited),
+        # The run a "Fix with AI" generation repaired: this run keeps that
+        # run's question instead of the traceback sent to the model.
+        'fix_of': fix_of if valid_run_id(fix_of) else None,
         'filename': _clamp_str(filename, 255),
         'dataset_version': dataset_version,
         'dataset_sha256': _clamp_str(dataset_sha256, 64),
@@ -382,20 +385,22 @@ def _ensure_adopted(identity=None):
 def save_run(output, plots_b64, script=None, language=None, identity=None,
              returncode=None, timed_out=False, prompt=None, filename=None,
              dataset_version=None, dataset_sha256=None, model=None, role=None,
-             methods=None, prompt_inherited=False):
+             methods=None, prompt_inherited=False, fix_of=None):
     """``record_run`` without the eviction report: returns the ``run_id``."""
     return record_run(
         output, plots_b64, script=script, language=language,
         identity=identity, returncode=returncode, timed_out=timed_out,
         prompt=prompt, filename=filename, dataset_version=dataset_version,
         dataset_sha256=dataset_sha256, model=model, role=role,
-        methods=methods, prompt_inherited=prompt_inherited)[0]
+        methods=methods, prompt_inherited=prompt_inherited,
+        fix_of=fix_of)[0]
 
 
 def record_run(output, plots_b64, script=None, language=None, identity=None,
                returncode=None, timed_out=False, prompt=None, filename=None,
                dataset_version=None, dataset_sha256=None, model=None,
-               role=None, methods=None, prompt_inherited=False):
+               role=None, methods=None, prompt_inherited=False,
+               fix_of=None):
     """Persist one run's artifacts as a new run. Returns ``(run_id,
     evicted)``: ``evicted`` lists the runs this save pushed out, as
     ``{run_id, name, starred}``, so a caller can tell the user (3A A3).
@@ -405,7 +410,8 @@ def record_run(output, plots_b64, script=None, language=None, identity=None,
     ``returncode``/``timed_out`` are the real sandbox outcome (D1-2).
     ``prompt``, ``filename``, ``dataset_version``, ``dataset_sha256``,
     ``model`` and ``role`` record what produced it, for provenance;
-    ``prompt_inherited`` marks a prompt borrowed from another generation.
+    ``prompt_inherited`` marks a prompt borrowed from another generation;
+    ``fix_of`` names the failed run a "Fix with AI" generation repaired.
 
     Allocation, write, index update and eviction all happen under the index
     lock. Over ``MAX_RUNS_PER_IDENTITY`` runs or ``byte_budget()`` bytes the
@@ -440,7 +446,8 @@ def record_run(output, plots_b64, script=None, language=None, identity=None,
                 run_id, prompt=prompt, filename=filename,
                 dataset_version=dataset_version,
                 dataset_sha256=dataset_sha256, model=model, role=role,
-                methods=methods, prompt_inherited=prompt_inherited))
+                methods=methods, prompt_inherited=prompt_inherited,
+                fix_of=fix_of))
             os.rename(tmp, os.path.join(root, run_id))
         except BaseException:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -543,6 +550,7 @@ def _summary(run_dir, run_id):
         'name': meta.get('name') if isinstance(meta.get('name'), str) else None,
         'created_at': meta.get('created_at'),
         'prompt_excerpt': prompt[:PROMPT_EXCERPT_MAX],
+        'fix_of': meta.get('fix_of') if valid_run_id(meta.get('fix_of')) else None,
         'starred': bool(meta.get('starred')),
         'has_plots': bool(_plot_paths(run_dir)),
         'returncode': status.get('returncode'),
