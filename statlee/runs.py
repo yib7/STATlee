@@ -21,8 +21,8 @@ goes through the index never sees a half-written run. ``run_id`` inputs are
 validated (``^r[0-9]{4,6}$``), must be listed in the caller's own index, and
 are resolved under the caller's identity root only.
 
-The ``storage.last_run_*`` functions are thin wrappers over the latest run.
-A legacy ``.last_run/`` dir (one-run layout) is adopted as the first run on
+``latest_run_id`` names the newest run; callers read it through the
+``run_*`` functions. A legacy ``.last_run/`` dir (one-run layout) is adopted as the first run on
 first access and then removed.
 
 This module is re-exported from ``statlee.storage``; it imports storage

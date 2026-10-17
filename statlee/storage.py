@@ -805,54 +805,30 @@ def load_approved_script(identity=None, exclude_sources=(), match=None):
 
 
 # Session workbook (SP1): the run store lives in ``runs.py`` and is
-# re-exported at the bottom of this module. The single-run API below is kept
-# as thin wrappers over the LATEST run so existing callers keep working.
+# re-exported at the bottom of this module.
+#
+# The three pre-workbook wrappers below have no caller in ``statlee/``. They
+# remain only until the tests outside the workbook area that still use them
+# are ported to ``save_run`` / ``save_interpretation`` / ``run_interpretation``
+# (3A A6, cross-area); then delete them.
 
 def save_last_run(output, plots_b64, script=None, language=None, identity=None,
                   returncode=None, timed_out=False):
-    """Record a run (see ``runs.save_run``) and return its ``run_id``."""
+    """Deprecated, tests only: ``runs.save_run``."""
     return save_run(output, plots_b64, script=script, language=language,
                     identity=identity, returncode=returncode,
                     timed_out=timed_out)
 
 
 def save_last_interpretation(text, identity=None):
-    """Store the interpretation of the latest run (D3-2). No-op without a run;
-    a newer run starts without one, so a stale interpretation never outlives
-    the run it describes."""
+    """Deprecated, tests only: ``runs.save_interpretation`` (latest run)."""
     save_interpretation(text, identity=identity)
 
 
 def last_interpretation(identity=None):
-    """The stored interpretation of the latest run, or ''."""
+    """Deprecated, tests only: the latest run's interpretation, or ''."""
     run_id = latest_run_id(identity)
     return run_interpretation(run_id, identity) if run_id else ''
-
-
-def last_run_script(identity=None):
-    """The script that produced the latest run as ``{code, language}``, or
-    None when it recorded none (or the sidecar is missing/corrupt)."""
-    run_id = latest_run_id(identity)
-    return run_script(run_id, identity) if run_id else None
-
-
-def last_run_status(identity=None):
-    """``{'returncode': int, 'timed_out': bool}`` for the latest run, or None
-    for a run recorded before the outcome was (D1-2)."""
-    run_id = latest_run_id(identity)
-    return run_status(run_id, identity) if run_id else None
-
-
-def last_run_time(identity=None):
-    """Epoch seconds of the latest run, or None."""
-    run_id = latest_run_id(identity)
-    return run_time(run_id, identity) if run_id else None
-
-
-def last_run_artifacts(identity=None):
-    """``(output, plot_paths)`` of the latest run; ``('', [])`` without one."""
-    run_id = latest_run_id(identity)
-    return run_artifacts(run_id, identity) if run_id else ('', [])
 
 
 # ---------------------------------------------------------------------------

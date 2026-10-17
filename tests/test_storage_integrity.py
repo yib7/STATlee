@@ -139,7 +139,7 @@ def test_run_as_other_language_never_runs_unreviewed(client, fake_llm):
     with client.session_transaction() as sess:
         ident = f"anon_{sess['sid']}"
     with client.application.app_context():
-        record = storage.last_run_script(identity=ident)
+        record = storage.run_script(storage.latest_run_id(ident), ident)
     assert record['language'] == 'Python'
 
 
@@ -147,15 +147,15 @@ def test_run_as_other_language_never_runs_unreviewed(client, fake_llm):
 # D1-2: the run outcome is persisted with the artifacts
 # ---------------------------------------------------------------------------
 
-def test_last_run_status_roundtrip(app):
+def test_run_status_roundtrip(app):
     ctx = _req(app)
     try:
-        assert storage.last_run_status() is None
-        storage.save_last_run('out', [], script='x', language='R',
-                              returncode=1, timed_out=False)
-        assert storage.last_run_status() == {'returncode': 1, 'timed_out': False}
-        storage.save_last_run('Execution timed out', [], returncode=-1,
-                              timed_out=True)
-        assert storage.last_run_status() == {'returncode': -1, 'timed_out': True}
+        assert storage.latest_run_id() is None
+        rid = storage.save_run('out', [], script='x', language='R',
+                               returncode=1, timed_out=False)
+        assert storage.run_status(rid) == {'returncode': 1, 'timed_out': False}
+        rid = storage.save_run('Execution timed out', [], returncode=-1,
+                               timed_out=True)
+        assert storage.run_status(rid) == {'returncode': -1, 'timed_out': True}
     finally:
         ctx.pop()

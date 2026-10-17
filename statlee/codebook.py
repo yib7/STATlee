@@ -535,11 +535,6 @@ def load_layers(filename, identity=None):
     return layers_from_meta(_st().load_dataset_meta(filename, identity))
 
 
-def has_codebook(filename, identity=None):
-    """True when the dataset has any server codebook content."""
-    return has_entries(load_layers(filename, identity))
-
-
 def merged(filename, columns=None, identity=None):
     """The merged codebook of a dataset for ``columns`` (default: the active
     version's). None for an unknown dataset."""

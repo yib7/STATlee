@@ -1,6 +1,5 @@
 """SP1 session workbook: every run is kept under ``<identity>/runs/<run_id>/``
-with an atomic ``runs/index.json``; the ``last_run_*`` API is a thin wrapper
-over the latest run."""
+with an atomic ``runs/index.json``; ``latest_run_id`` names the newest run."""
 import base64
 import json
 import os
@@ -208,26 +207,28 @@ def test_legacy_last_run_dir_is_adopted_then_removed(ctx):
     assert len(run['plots']) == 1
     assert run['meta']['methods'] is None
     assert not os.path.exists(legacy)
-    # The wrappers see it as the latest run too.
-    assert storage.last_run_script(identity=ident) == {'code': 'old()',
-                                                       'language': 'R'}
+    # It is the latest run too.
+    assert storage.latest_run_id(identity=ident) == 'r0001'
 
 
-def test_last_run_wrappers_follow_latest_run(ctx):
+def test_latest_run_follows_the_newest_save(ctx):
     ident = 'anon_wbwrap'
-    assert storage.last_run_artifacts(identity=ident) == ('', [])
-    assert storage.last_run_time(identity=ident) is None
-    storage.save_last_run('first', [], script='a', language='Python',
-                          identity=ident, returncode=0)
-    storage.save_last_interpretation('I1', identity=ident)
-    storage.save_last_run('second', [PNG], identity=ident, returncode=1)
-    out, plots = storage.last_run_artifacts(identity=ident)
+    assert storage.latest_run_id(identity=ident) is None
+    assert storage.run_artifacts(None, identity=ident) == ('', [])
+    assert storage.run_time(None, identity=ident) is None
+    storage.save_run('first', [], script='a', language='Python',
+                     identity=ident, returncode=0)
+    storage.save_interpretation('I1', identity=ident)
+    storage.save_run('second', [PNG], identity=ident, returncode=1)
+    latest = storage.latest_run_id(identity=ident)
+    assert latest == 'r0002'
+    out, plots = storage.run_artifacts(latest, identity=ident)
     assert out == 'second' and len(plots) == 1
-    assert storage.last_run_script(identity=ident) is None
-    assert storage.last_run_status(identity=ident) == {'returncode': 1,
-                                                       'timed_out': False}
-    assert storage.last_interpretation(identity=ident) == ''
-    assert isinstance(storage.last_run_time(identity=ident), float)
+    assert storage.run_script(latest, identity=ident) is None
+    assert storage.run_status(latest, identity=ident) == {'returncode': 1,
+                                                          'timed_out': False}
+    assert storage.run_interpretation(latest, identity=ident) == ''
+    assert isinstance(storage.run_time(latest, identity=ident), float)
     # The older run keeps its interpretation.
     assert storage.load_run('r0001', identity=ident)['interpretation'] == 'I1'
 

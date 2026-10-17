@@ -176,24 +176,24 @@ def test_approved_script_reads_legacy_single_slot(app):
         ctx.pop()
 
 
-def test_last_run_script_roundtrips_producing_script(app):
-    """P2-1: save_last_run persists the script that produced the run in a
+def test_run_script_roundtrips_producing_script(app):
+    """P2-1: save_run persists the script that produced the run in a
     sidecar so /export and /interpret can read exactly what ran, independent of
     the shared approved-script store (which a later /wrangle poisons)."""
     ctx = _req(app)
     try:
         # No run recorded yet -> None.
-        assert storage.last_run_script() is None
+        assert storage.latest_run_id() is None
         # A run WITHOUT a script (back-compat callers) leaves no sidecar.
-        storage.save_last_run('some output', [])
-        assert storage.last_run_script() is None
+        rid = storage.save_run('some output', [])
+        assert storage.run_script(rid) is None
         # A run WITH a script round-trips code + language.
-        storage.save_last_run('out', [], script='ANALYSIS', language='Python')
-        assert storage.last_run_script() == {'code': 'ANALYSIS',
+        rid = storage.save_run('out', [], script='ANALYSIS', language='Python')
+        assert storage.run_script(rid) == {'code': 'ANALYSIS',
                                              'language': 'Python'}
         # A later run without a script wipes the sidecar (rundir is recreated).
-        storage.save_last_run('newer output', [])
-        assert storage.last_run_script() is None
+        rid = storage.save_run('newer output', [])
+        assert storage.run_script(rid) is None
     finally:
         ctx.pop()
 

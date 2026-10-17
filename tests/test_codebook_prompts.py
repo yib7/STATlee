@@ -205,7 +205,8 @@ def test_interpret_falls_back_to_the_context_codebook(app, client, fake_llm):
                                        'label': 'CONTEXT_LABEL'}})
         storage.save_approved_script(code, 'Python', identity=ident,
                                      source='chat', context=ctx)
-        assert not cb.has_codebook('test.csv', identity=ident)
+        assert not cb.has_entries(cb.load_layers('test.csv',
+                                                 identity=ident))
     sse_events(post_json(client, '/interpret', {}))
     prompt = _prompts(fake_llm, 'interpret')[0]
     assert 'CONTEXT_LABEL' in prompt
