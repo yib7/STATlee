@@ -549,7 +549,9 @@
         const panel = document.getElementById('changelogPanel');
         const list = document.getElementById('changelogList');
         if (!changelog) { panel.classList.add('hidden'); return; }
-        panel.classList.remove('hidden');
+        // While the cleaning tool floats, its body is in the float: the
+        // sidebar panel stays hidden until it is docked (dockWrangle).
+        if (!document.getElementById('wrangleFloat')) panel.classList.remove('hidden');
         list.innerHTML = '';
         changelog.versions.forEach(v => {
             const active = v.v === changelog.active;
