@@ -28,13 +28,13 @@ WORKDIR /app
 # requirements/app.lock is base.txt + postgres.txt compiled with every
 # transitive dependency pinned and hashed, so each build installs the same
 # packages. postgres.txt adds the psycopg driver for the documented production
-# DATABASE_URL=postgresql+psycopg://... (D5-11).
+# DATABASE_URL=postgresql+psycopg://...
 COPY requirements/app.lock ./requirements/
 RUN pip install --no-cache-dir -r requirements/app.lock
 
 COPY . .
 
-# Run as an unprivileged user (D5-17). In the default subprocess sandbox mode
+# Run as an unprivileged user. In the default subprocess sandbox mode
 # generated code runs as this user, so it cannot modify the app code (owned by
 # root) and can only write its run dir, /tmp and the instance volume.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
@@ -43,24 +43,24 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
 
 # UPLOAD_ROOT sits under /app/instance; mount a persistent volume there (the
 # compose file does) so logged-in users' files and the SQLite DB survive a
-# container replacement (D5-9).
+# container replacement.
 ENV APP_ENV=production \
     UPLOAD_ROOT=/app/instance/uploads
 EXPOSE 5000
 
 USER app
 
-# Hit /health on whatever port the host injected (1.2)
+# Hit /health on whatever port the host injected
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD ["python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','5000')+'/health')"]
 
-# Production WSGI server honoring $PORT, threaded workers for SSE (1.2).
+# Production WSGI server honoring $PORT, threaded workers for SSE.
 # WEB_CONCURRENCY controls the worker count and defaults to 1 so the in-memory
 # rate-limit buckets and the in-process monthly priority ceiling hold at their
 # configured numbers out of the box (a single process owns both counters). An
 # operator raising WEB_CONCURRENCY above 1 MUST set a shared RATELIMIT_STORAGE_URI
 # (e.g. redis://); otherwise each worker keeps its own copy of the rate-limit
-# buckets and the configured limits no longer hold across the fleet. The monthly
+# buckets and the configured limits do not hold across the fleet. The monthly
 # priority ceiling is ALSO per-process (and resets on restart), so it multiplies
 # by the worker count without a shared backing store.
 # --preload imports wsgi:app (and runs the boot schema upgrade in _init_schema)

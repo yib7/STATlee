@@ -1,4 +1,4 @@
-/* STATlee boot script - runs in <head> before the body renders.
+/* STATlee boot script: runs in <head> before the body renders.
  *
  * It exists so a strict Content-Security-Policy (script-src 'self', no
  * 'unsafe-inline') can be enforced: the page carries no executable inline
@@ -37,10 +37,10 @@
     // are globals defined by the app JS loaded at the end of <body>; resolving
     // them lazily at click time lets this listener attach from <head>.
     //
-    // Dispatch is an explicit allowlist (D4-4). The old `window[name]` lookup
-    // let any element carrying data-action reach ANY global (window.open,
+    // Dispatch is an explicit allowlist. A `window[name]` lookup would let
+    // any element carrying data-action reach ANY global (window.open,
     // fixWithAI's billable regeneration, ...), and model-written markdown is
-    // rendered into this same document. The sanitizer now strips data-*
+    // rendered into this same document. The sanitizer strips data-*
     // attributes; this is the second, independent fence: only these names are
     // ever called, and never from inside rendered model output.
     var ACTIONS = ['switchTab', 'toggleSidebar', 'toggleTheme', 'toggleCodebook',

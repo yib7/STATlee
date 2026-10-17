@@ -1,7 +1,7 @@
-"""Converse tab routes (roadmap 0.6 + 4.2 + 5.15).
+"""Converse tab routes.
 
 Single-pass: one moderated, streamed model call with persona guardrails and
-formatting rules inlined — the old second "formatting" LLM call is gone.
+formatting rules inlined, so there is no separate formatting call.
 ``mode='guide'`` switches to the hypothesis-coach persona.
 """
 import logging
@@ -49,7 +49,7 @@ def _known_script(code, run_id=None):
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def converse():
     data = request_json()
-    # P1-7: clamp every client field that flows into the prompt (including
+    # Clamp every client field that flows into the prompt (including
     # the moderated message) so a single request cannot smuggle megabytes of
     # input tokens onto the operator's key.
     message = clamp(data.get('message'), FREE_TEXT_MAX).strip()
@@ -57,7 +57,7 @@ def converse():
     context = clamp(data.get('context'), FREE_TEXT_MAX)
     code = clamp(data.get('code'), FREE_TEXT_MAX)
     guide_mode = data.get('mode') == 'guide'
-    # SP1: the run being discussed (default: the latest); a named run the
+    # The run being discussed (default: the latest); a named run the
     # caller does not have is a 404.
     run_id = selected_run_id(run_id_field(data))
 
@@ -67,8 +67,8 @@ def converse():
     service = llm.get_service()
     cfg = current_app.config['STATLEE']
 
-    # 0.6: the same baseline moderation gate /chat uses (structured + default-deny).
-    # D3-2: ground on the server's records where they exist -- the stored
+    # The same baseline moderation gate /chat uses (structured + default-deny).
+    # Ground on the server's records where they exist: the stored
     # interpretation of the last run replaces the client's `context`, and a
     # script the run-guard already approved (or that produced the last run)
     # needs no second review. Whatever client text remains (an unverified

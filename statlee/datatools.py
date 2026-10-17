@@ -1,11 +1,11 @@
 """Dataset reading and profiling utilities.
 
-- 5.1  Multi-format ingestion: CSV/TSV/Excel/Stata/SPSS, normalized to CSV
-       internally so generated analysis code can always ``read_csv``.
-       Native variable labels from .sav/.dta seed the codebook for free.
-- 5.10 Metadata-driven prompt context: compact per-column structural
-       summaries (dtype, uniques, missingness, numeric range) instead of
-       raw row dumps.
+- Multi-format ingestion: CSV/TSV/Excel/Stata/SPSS, normalized to CSV
+  internally so generated analysis code can always ``read_csv``.
+  Native variable labels from .sav/.dta seed the codebook for free.
+- Metadata-driven prompt context: compact per-column structural
+  summaries (dtype, uniques, missingness, numeric range) instead of
+  raw row dumps.
 """
 import hashlib
 import json
@@ -29,14 +29,14 @@ class MissingDependencyError(RuntimeError):
 class ParseLimitError(ValueError):
     """An upload that parses within request-body limits but would still expand
     to too many cells / too much decompressed data to materialize safely in the
-    web worker (P2-2). The route maps this to a 413."""
+    web worker. The route maps this to a 413."""
     pass
 
 
 class DatasetParseError(ValueError):
     """The upload is a supported format but its content cannot be parsed (empty
     file, ragged rows, ...). The message is user-facing; the route maps it to
-    a 422 (D1-8)."""
+    a 422."""
     pass
 
 
@@ -72,7 +72,7 @@ def _transcode_to_utf8(path):
 
 
 def _read_delimited(path, sep=','):
-    """Full parse of a CSV/TSV with clear, user-facing failures (D1-8). The
+    """Full parse of a CSV/TSV with clear, user-facing failures. The
     whole file is parsed, not a 100-row preview, so a ragged row deep in the
     file is caught at upload instead of breaking /data_page later."""
     _refuse_binary(path)
@@ -103,8 +103,8 @@ def _refuse_binary(path):
     """A file named .csv/.tsv that holds binary data (an Excel workbook
     renamed, a corrupt download) has NUL bytes or a run of control bytes in
     its first block; text has neither, except UTF-16, which starts with a
-    byte-order mark. Refusing it here gives an actionable message instead of
-    a ragged-rows error or a one-column dataset of garbage."""
+    byte-order mark. Refusing it here gives a message that says what is
+    wrong instead of a ragged-rows error or a one-column dataset of garbage."""
     with open(path, 'rb') as f:
         head = f.read(_BINARY_SNIFF_BYTES)
     if not head or head.startswith((b'\xff\xfe', b'\xfe\xff')):
@@ -152,7 +152,7 @@ def _fmt_code(value):
 
 def _merge_value_labels(names, col_labels, value_labels):
     """Native .sav/.dta labels for the codebook: the variable label plus its
-    value labels, e.g. ``"Respondent gender (1=Male, 2=Female)"`` (D1-13).
+    value labels, e.g. ``"Respondent gender (1=Male, 2=Female)"``.
     Without the value labels the model saw a coded column as continuous."""
     labels = {}
     for name, label in zip(names, col_labels, strict=False):
@@ -189,7 +189,7 @@ def _missing_codes(ranges):
 
 
 def native_codebook(names, col_labels, value_labels, missing_ranges=None):
-    """Structured native .sav/.dta metadata for the server codebook (SP2):
+    """Structured native .sav/.dta metadata for the server codebook:
     ``{column: {label, value_labels: {code: text}, missing_codes: [...]}}``,
     only the fields the file actually carries."""
     out = {}
@@ -208,9 +208,9 @@ def native_codebook(names, col_labels, value_labels, missing_ranges=None):
 
 
 def _read_excel_all_sheets(src_path, info):
-    """Read every sheet and keep the one with the most cells (D1-13). A
-    workbook whose first sheet is a README/notes tab used to be ingested as
-    "the dataset"; now the choice is made on content and announced."""
+    """Read every sheet and keep the one with the most cells, and announce
+    the choice, so a workbook whose first sheet is a README/notes tab is not
+    ingested as "the dataset"."""
     sheets = pd.read_excel(src_path, sheet_name=None)
     if not sheets:
         raise DatasetParseError('The workbook has no sheets.')
@@ -253,14 +253,14 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
     (.sav/.dta); empty dict otherwise. The source file is removed once the
     CSV exists (one canonical artifact per dataset). For .sav/.dta, ``info``
     also gets ``native_codebook`` (``native_codebook()``), which seeds the
-    server codebook's native layer (SP2).
+    server codebook's native layer.
 
     ``max_cells`` and ``max_uncompressed_bytes`` bound the parse against a
-    decompression bomb (P2-2): a small compressed request body can still expand
+    decompression bomb: a small compressed request body can still expand
     to a DataFrame of gigabytes in the web worker. When a limit is ``None`` or
     otherwise falsy that check is skipped, so direct callers that pass nothing
     are unaffected. A dataset that would exceed a limit raises
-    ``ParseLimitError`` — ideally BEFORE full materialization (zip central
+    ``ParseLimitError``, ideally BEFORE full materialization (zip central
     directory for .xlsx, reader metadata for .sav/.dta), with a post-read cell
     count as the final backstop for anything that slipped the pre-checks.
     """
@@ -281,7 +281,7 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
         # Kept in place (an uncompressed CSV is already bounded by the request
         # body cap, so no cell guard), but transcoded to UTF-8 if needed and
         # fully parsed so an unreadable file fails HERE with a clear 422
-        # instead of a 500 later (D1-8).
+        # instead of a 500 later.
         df = _read_delimited(src_path)
         if df.empty and len(df.columns):
             raise _no_rows_error()
@@ -292,9 +292,9 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
         df = _read_delimited(src_path, sep='\t')
     elif ext in ('.xlsx', '.xls'):
         engine_pkg = 'openpyxl' if ext == '.xlsx' else 'xlrd'
-        # .xlsx is a zip container: a 16 MB upload can hold cells that unpack to
+        # .xlsx is a zip container: a 16 MB upload can hold cells that decompress to
         # gigabytes. Sum the central-directory uncompressed sizes (this reads
-        # metadata only — it does NOT extract) and reject before pd.read_excel.
+        # metadata only; it does NOT extract) and reject before pd.read_excel.
         # .xls is a legacy compound binary (inherently capped near 65k rows),
         # not a zip, so the post-read cell guard below covers it.
         if max_uncompressed_bytes and zipfile.is_zipfile(src_path):
@@ -349,7 +349,7 @@ def normalize_to_csv(src_path, *, max_cells=None, max_uncompressed_bytes=None,
         col_labels = list(getattr(meta, 'column_labels', []) or [])
         value_labels = getattr(meta, 'variable_value_labels', None) or {}
         labels = _merge_value_labels(names, col_labels, value_labels)
-        # SP2: user-missing values are read as NaN; their codes are only in
+        # User-missing values are read as NaN; their codes are only in
         # the metadata of a user_missing read (metadata only, no data rows).
         missing = {}
         try:
@@ -419,15 +419,15 @@ def _column_summary(series):
 
 
 def summarize_dataframe(df, max_columns=80):
-    """Per-column structural metadata for LLM prompts (5.10).
+    """Per-column structural metadata for LLM prompts.
 
     Compact on purpose: dtype, measurement hints, missingness, cardinality,
     numeric range, and at most 3 sample values. No raw rows.
 
-    D3-7: pass the FULL frame. Every statistic describes all rows (callers used
-    to pass the first 100 rows, so a column missing only after row 100 was
-    reported as complete), the true size is in ``__dataset__``, and only the
-    sample values come from the first rows.
+    Pass the FULL frame. Every statistic describes all rows (a 100-row head
+    would report a column missing only after row 100 as complete), the true
+    size is in ``__dataset__``, and only the sample values come from the
+    first rows.
     """
     summary = {'__dataset__': {'rows': int(len(df)),
                                'columns': int(len(df.columns))}}

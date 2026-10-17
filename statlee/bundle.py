@@ -1,4 +1,4 @@
-"""Reproducibility bundle v2 (SP4): the pieces of the project export that
+"""Reproducibility bundle v2: the pieces of the project export that
 document what produced it.
 
 ``/export`` (routes/export.py) assembles the zip; this module owns the parts

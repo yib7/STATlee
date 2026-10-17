@@ -1,7 +1,7 @@
-/* Analysis pipeline UI: editable CodeMirror editor (5.4), phase-labelled
- * streaming generation (5.5), refinement mode (5.12), guarded execution,
- * multi-plot gallery (5.2), streamed interpretation incl. auto-debug (5.11),
- * and history capture (5.7). */
+/* Analysis pipeline UI: editable CodeMirror editor, phase-labelled
+ * streaming generation, refinement mode, guarded execution,
+ * multi-plot gallery, streamed interpretation incl. auto-debug,
+ * and history capture. */
 (function () {
     'use strict';
 
@@ -222,7 +222,7 @@
         if (icon) icon.classList.remove('failed');
         setTermState('running', 'running', false);
         execTimer.start();
-        // D4-16: no isolation claim here. The default subprocess sandbox has
+        // No isolation claim here. The default subprocess sandbox has
         // time and memory limits but shares the host network; only docker
         // mode removes it (README "Security").
         const docker = window.CC_BOOT && window.CC_BOOT.sandbox_mode === 'docker';
@@ -232,7 +232,7 @@
 
     /** `returncode` may be null when the request never reached the sandbox
      *  (run-guard refusal, timeout, network): then we claim no exit code, and
-     *  `opts.noFix` drops "Fix with AI" since there is no traceback (D4-8). */
+     *  `opts.noFix` drops "Fix with AI" since there is no traceback. */
     function execFinished(failed, returncode, note, opts) {
         execTimer.stop();
         const prog = byId('execProgress');
@@ -268,7 +268,7 @@
     }
 
     /** The AI debug frame: name the error and offer the two ways forward. The
-     *  actual diagnosis streams into Interpretation underneath (5.11). */
+     *  actual diagnosis streams into Interpretation underneath. */
     function showDebugFrame(output) {
         const frame = byId('debugFrame');
         const summary = byId('debugSummary');
@@ -303,7 +303,7 @@
     CC.fixWithAI = function () {
         const run = CC.state.lastRun;
         const output = (run && run.output) || '';
-        // D4-8: only a real traceback from THIS script is worth a billable
+        // Only a real traceback from THIS script is worth a billable
         // regeneration. A refusal/timeout never ran; an older run's error
         // belongs to a script that is no longer in the editor.
         if (!run || run.success || !output.trim()) {
@@ -345,7 +345,7 @@
     function initEditor() {
         const host = document.getElementById('codeEditorHost');
         CC.editor = CodeMirror(host, {
-            // Empty, not a sentinel comment: the Code tab's empty state is now a
+            // Empty, not a sentinel comment: the Code tab's empty state is a
             // real overlay (#codeEmptyState) and a placeholder line underneath it
             // would show through and read as generated code.
             value: '',
@@ -375,7 +375,7 @@
         });
     }
 
-    // --- reset (D4-3) -----------------------------------------------------------
+    // --- reset -----------------------------------------------------------
     /** Forget every analysis artefact built on the previous dataset: script,
      *  run, interpretation, plots, conversation and report draft. Called by the
      *  upload flow once a NEW dataset has been accepted, so a generated script,
@@ -428,7 +428,7 @@
         // Read and cleared first, so a refused click never carries it over.
         const fixOf = pendingFixOf;
         pendingFixOf = null;
-        if (generating) return;            // D4-6: one generation at a time
+        if (generating) return;            // One generation at a time
         const promptText = document.getElementById('promptInput').value;
         const language = languageSelect().value;
         if (!CC.state.filename || !promptText.trim()) {
@@ -438,7 +438,7 @@
         const generateBtn = document.getElementById('generateBtn');
         const loading = document.getElementById('loading');
         const runSection = document.getElementById('runSection');
-        // D4-5: the editor is the user's work. Everything below that fails
+        // The editor is the user's work. Everything below that fails
         // (refusal, stream error, a cut connection) puts this back verbatim.
         const before = CC.getCode();
         const runWasVisible = !runSection.classList.contains('hidden');
@@ -471,13 +471,12 @@
             };
         });
 
-        // 5.12: refinement, i.e. include the current editor contents so the
+        // Refinement, i.e. include the current editor contents so the
         // model modifies instead of regenerating.
         const refineOn = document.getElementById('refineToggle').checked;
         const existing = CC.getCode();
-        // The old '# System ready...' sentinel guard is gone with the sentinel:
-        // the editor now starts genuinely empty, so `existing` being truthy is
-        // already the "there is a script to refine" test.
+        // The editor starts empty (no sentinel comment), so `existing` being
+        // truthy is the "there is a script to refine" test.
         const sendCurrent = refineOn && CC.state.chatHistory.length > 0 && !!existing;
 
         try {
@@ -507,8 +506,8 @@
             await CC.streamSSE(response, {
                 onPhase: (phase, message) => {
                     loading.classList.add('hidden');
-                    // Not every phase is a generation step. P2-8's fallback
-                    // notice carries a message and must not reset the editor
+                    // Not every phase is a generation step. The feature-selection
+                    // fallback notice carries a message and must not reset the editor
                     // or mislabel the header as a drafting phase.
                     if (phase === 'feature_selection_skipped') {
                         CC.toast(message || 'Column pre-selection was unavailable; '
@@ -537,7 +536,7 @@
             });
 
             if (streamError || finalCode === null) {
-                // D4-7: a stream that ended without `done` is a failure too;
+                // A stream that ended without `done` is a failure too;
                 // its partial deltas are not a script.
                 restore(streamError || 'Generation did not finish.');
                 return;
@@ -554,7 +553,7 @@
             // A fix keeps the question it repaired (the server's record), so
             // /history never files the run under the traceback.
             CC.state.lastPrompt = fixOf ? (finalQuestion || CC.state.lastPrompt) : promptText;
-            // D4-29: remember what language the server generated (and approved)
+            // Remember what language the server generated (and approved)
             // this script in, so Run uses it even if the selector moves.
             CC.state.generated = { code: finalCode, language };
             // A new script makes any previous run's verdict stale.
@@ -598,7 +597,7 @@
      *  workbook must not swap another run into those panels meanwhile. */
     CC.resultsBusy = function () { return running || interpreting; };
 
-    /** Language to run with. D4-29: if the editor still holds the script the
+    /** Language to run with. If the editor still holds the script the
      *  server generated, run it in the language it was generated (and
      *  approved) in, even if the selector was moved since. */
     function runLanguage(code) {
@@ -606,18 +605,18 @@
         if (gen && gen.code === code && gen.language) return gen.language;
         return languageSelect().value;
     }
-    // Approval is keyed on (language, code) (D1-7): /export must name the
+    // Approval is keyed on (language, code): /export must name the
     // same language, or it will not recognise the reviewed editor script.
     CC.runLanguage = runLanguage;
 
-    /** A timed-out run DID run (L9): its outcome was recorded, so it is a
+    /** A timed-out run DID run: its outcome was recorded, so it is a
      *  failed run, not a refusal. /run answers 200 with `timed_out: true`
      *  and the output printed before the stop. */
     function timeoutReply(ok, data) {
         return ok && !!(data && data.timed_out);
     }
 
-    /** Wording for a run that never reached the sandbox. Since S1-B, any
+    /** Wording for a run that never reached the sandbox. Any
      *  script /chat did not approve in this session (a restored history
      *  entry, a paste, an edit) gets a safety re-check first: 403 when the
      *  check rejects it, 503 when the check itself is unavailable. */
@@ -635,7 +634,7 @@
     }
 
     async function runScript() {
-        if (running) return;               // D4-6: one run at a time
+        if (running) return;               // One run at a time
         if (interpreting) {                // a saved run's interpretation is streaming
             CC.toast('Wait for the interpretation to finish, then run the script.', 'info');
             return;
@@ -670,7 +669,7 @@
                 code, language, filename: CC.state.filename,
             });
             if (timeoutReply(ok, data)) {
-                // L9: it ran and was stopped. The server recorded the outcome
+                // It ran and was stopped. The server recorded the outcome
                 // (returncode / timed_out), so /interpret diagnoses it.
                 const out = String(data.output || '');
                 const plots = Array.isArray(data.plots) ? data.plots : [];
@@ -689,7 +688,7 @@
             if (!ok) {
                 // Never reached the sandbox (run-guard refusal, re-check
                 // outage, 5xx): there is no exit code and no traceback, so
-                // "Fix with AI" would pay for a regeneration against nothing (D4-8).
+                // "Fix with AI" would pay for a regeneration against nothing.
                 const msg = notRunMessage(status, data);
                 runOutput.innerText = msg;
                 CC.state.lastRun = { output: msg, plots: [], success: false, notExecuted: true, code };
@@ -706,12 +705,12 @@
             if (CC.workbook && runId) CC.workbook.noteLiveRun(runId, data.evicted);
             const failed = !data.success;
             renderTerminal(data.output, failed);
-            // SP3: the server's parsed methods block, above the terminal.
+            // The server's parsed methods block, above the terminal.
             if (CC.renderMethods) CC.renderMethods(data.methods, { failed });
             execFinished(failed, data.returncode,
                 failed ? failureNote(data.output) : null);
             if (failed) showDebugFrame(data.output || '');
-            // D4-27: plots render once into their own container, not again on
+            // Plots render once into their own container, not again on
             // every streamed interpretation chunk.
             if (plotOutput) plotOutput.innerHTML = renderPlots(data.plots);
             interpretationOutput.innerHTML =
@@ -731,7 +730,7 @@
     }
 
     /** "Interpretation" for a successful run, "Diagnosis" for a failed one.
-     *  The server decides from the run's real exit code / timeout (D1-2) and
+     *  The server decides from the run's real exit code / timeout and
      *  says so in `done.debug`; until then the client's own verdict is used. */
     function setInterpretationTitle(diagnosis) {
         const el = byId('interpretationTitle');
@@ -741,7 +740,7 @@
 
     /** Stream an interpretation into Results.
      *
-     *  `opts.runId` names the workbook run it grounds on (SP1): the server
+     *  `opts.runId` names the workbook run it grounds on: the server
      *  reads that run's own output and stores the interpretation on it. With
      *  `opts.saved` the run is an older one open from the rail: the live
      *  session state (latestInterpretation, lastRun, history) is left alone.
@@ -763,7 +762,7 @@
                 output: runData.output || '',
                 plots: runData.plots || [],
                 success: !!runData.success,
-                code,  // 5.11: lets the backend switch to debugging-assistant mode
+                code,  // Lets the backend switch to debugging-assistant mode
             };
         try {
             const response = await CC.postStream('/interpret', body);
@@ -771,7 +770,7 @@
             if (!contentType.includes('text/event-stream')) {
                 const data = await CC.readJSON(response);
                 if (!response.ok || !data.interpretation) {
-                    // An error body is not an interpretation (D4-22).
+                    // An error body is not an interpretation.
                     interpretationOutput.textContent = 'Interpretation failed: ' +
                         CC.errorMessage(response.status, data, 'no interpretation returned');
                     return '';
@@ -796,8 +795,8 @@
                     if (typeof data.debug === 'boolean') {
                         debug = data.debug;
                         setInterpretationTitle(debug);
-                        // An R error or a timeout used to read as success;
-                        // the server's verdict is the recorded exit code.
+                        // The server's verdict comes from the recorded exit code,
+                        // so an R error or a timeout does not read as success.
                         if (!o.saved && CC.state.lastRun && debug) CC.state.lastRun.success = false;
                     }
                 },
@@ -815,11 +814,11 @@
                     code,
                     language,
                     dataset_name: CC.state.filename,      // stored name: what a re-run needs
-                    dataset_label: CC.datasetLabel(),     // the user's name for it (D1-1)
+                    dataset_label: CC.datasetLabel(),     // the user's name for it
                     output: runData.output || '',
                     interpretation: CC.state.latestInterpretation,
                     success: !debug,      // restore it as a failed run, not a success
-                    run_id: o.runId || undefined,         // SP1: restore brings back plots
+                    run_id: o.runId || undefined,         // Restore brings back plots
                 });
             }
             return accumulated;
@@ -832,7 +831,7 @@
         }
     }
 
-    // --- saved workbook runs (SP1) -------------------------------------------
+    // --- saved workbook runs -------------------------------------------
     /** A saved run failed when it timed out or exited non-zero. A run with no
      *  recorded exit code (an adopted legacy run) is not claimed either way. */
     function savedRunFailed(run) {
@@ -924,8 +923,8 @@
         const proToggle = byId('proToggle');
         if (proToggle) proToggle.addEventListener('change', showModelChip);
 
-        // The label is read once: a second click within the 2 s window used
-        // to capture "Copied!" as the label to restore, for good.
+        // The label is read once, so a second click within the 2 s window
+        // cannot capture "Copied!" as the label to restore.
         const copyBtn = document.getElementById('copyBtn');
         const copyLabel = copyBtn.innerHTML;
         let copyTimer = null;
@@ -934,7 +933,7 @@
                 await navigator.clipboard.writeText(CC.getCode());
             } catch (e) {
                 // Clipboard permission denied / insecure context: say so
-                // instead of claiming "Copied!" (D4-25).
+                // instead of claiming "Copied!".
                 CC.toast('Could not copy to the clipboard. Select the code and copy it manually.', 'error');
                 return;
             }

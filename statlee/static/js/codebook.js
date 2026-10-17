@@ -1,4 +1,4 @@
-/* Survey-native codebook (SP2): the Codebook tab's variable editor.
+/* Survey-native codebook: the Codebook tab's variable editor.
  *
  * The server codebook is the authority (GET /codebook): one editable row per
  * column of the active dataset version, in dataset order (the response's

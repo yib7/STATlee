@@ -1,8 +1,8 @@
-"""The single "logged-in User, or None" primitive (P2-5).
+"""The single "logged-in User, or None" primitive.
 
 Deliberately dependency-free (no imports from other ``statlee`` modules) so
-it can be imported from anywhere — routes, ``storage.py``, ``extensions.py``
-— without any risk of a circular import.
+it can be imported from anywhere (routes, ``storage.py``, ``extensions.py``)
+without any risk of a circular import.
 """
 
 

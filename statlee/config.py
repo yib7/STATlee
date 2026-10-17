@@ -1,4 +1,4 @@
-"""Centralized, validated configuration (roadmap 1.3).
+"""Centralized, validated configuration.
 
 Reads and validates the environment exactly once. ``app.py`` builds the Flask
 app from a ``Config`` instance; every tunable lives here instead of being a
@@ -47,7 +47,7 @@ def _env_int(name, default):
 
 
 # Integer settings that must be at least 1, with the default each falls back
-# to (B-15). 0 or less would break every request in an opaque way: a 0 MB
+# to. 0 or less would break every request in an opaque way: a 0 MB
 # upload limit 413s every JSON POST, a 0 s timeout kills every run, a 0 MB
 # memory limit stops the interpreter from starting.
 _POSITIVE_INTS = (
@@ -80,11 +80,11 @@ class Config:
     anthropic_stream_max_tokens: int = 16000
     openai_api_key: str = ''
     # OpenAI's max_completion_tokens also covers hidden reasoning tokens on the
-    # gpt-6.x reasoning defaults (D3-16), so the budgets sit well above the visible
+    # gpt-6.x reasoning defaults, so the budgets sit well above the visible
     # output a script needs. Streams (code drafts) get the larger one.
     openai_max_tokens: int = 16000
     openai_stream_max_tokens: int = 32000
-    # Per-call client timeouts and retries for every provider (D3-5). The SDK
+    # Per-call client timeouts and retries for every provider. The SDK
     # defaults were 600 s x 3 attempts for Anthropic/OpenAI (up to ~30 min on
     # one worker thread) and a single attempt for Gemini. The Pro budget covers
     # the 'pro_max' model (long Pro drafts and report drafts).
@@ -94,7 +94,7 @@ class Config:
 
     # --- Server -------------------------------------------------------------
     port: int = 5000
-    # Interface the `python wsgi.py` dev server binds (D5-8). Loopback by
+    # Interface the `python wsgi.py` dev server binds. Loopback by
     # default: the local run is open-auth and executes generated code, so LAN
     # exposure is an explicit BIND_HOST=0.0.0.0 opt-in. gunicorn (the container)
     # binds via its own --bind flag and ignores this.
@@ -104,11 +104,11 @@ class Config:
     # --- Storage / database --------------------------------------------------
     upload_root: str = ''           # empty -> <instance>/uploads (temp dir in testing)
     database_url: str = ''          # empty -> sqlite file under instance dir
-    # Only 'local' is implemented. 's3' (roadmap 7.3) is rejected by validate()
+    # Only 'local' is implemented. 's3' is rejected by validate()
     # until a real backend exists, rather than silently writing to local disk.
     storage_backend: str = 'local'
     file_ttl_seconds: int = 7200    # anonymous-file cleanup window (2h)
-    # Per-identity storage quota (P2-4). The 2h TTL is the only other reclaim,
+    # Per-identity storage quota. The 2h TTL is the only other reclaim,
     # so without these one IP could park many uploads (20/min x 16MB) on disk
     # for hours before cleanup runs. Enforced at /upload and /upload_pdf with a
     # cheap directory scan BEFORE the incoming file is saved; 0 disables either
@@ -117,40 +117,40 @@ class Config:
     # cap, so the byte cap reflects real disk pressure.
     max_datasets_per_identity: int = 10
     max_bytes_per_identity: int = 200 * 1024 * 1024   # 200 MB
-    # Session workbook (SP1): runs kept per identity. Over the cap the oldest
+    # Session workbook: runs kept per identity. Over the cap the oldest
     # unstarred run is evicted (the oldest run when every one is starred).
     max_runs_per_identity: int = 50
-    # Parse-time bounds against a decompression bomb (P2-2). max_upload_mb caps
+    # Parse-time bounds against a decompression bomb. max_upload_mb caps
     # the request body, but normalize_to_csv fully materializes Excel/Stata/SPSS
     # into a pandas DataFrame in the web request handler before writing CSV, so
     # a crafted 16 MB .xlsx (a zip) can decompress to gigabytes of cells and
     # OOM/pin a worker. These bound the parse and reject early; 0 disables
     # either check (matching the quota knobs' convention above).
     # Reject a zip-based upload (.xlsx) whose total UNCOMPRESSED size exceeds
-    # this — guards the zip-bomb ratio (16 MB compressed -> GBs).
+    # this. Guards the zip-bomb ratio (16 MB compressed -> GBs).
     max_upload_uncompressed_mb: int = 512
-    # Reject a dataset whose rows*cols exceeds this — bounds DataFrame memory.
+    # Reject a dataset whose rows*cols exceeds this. Bounds DataFrame memory.
     # Very generous for social-science surveys (typically <1M cells).
     max_upload_cells: int = 10_000_000
 
-    # --- Execution sandbox (Tier 0) ------------------------------------------
-    sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker' (0.3)
+    # --- Execution sandbox ------------------------------------------
+    sandbox_mode: str = 'subprocess'   # 'subprocess' | 'docker'
     runner_image: str = 'statlee-runner'
     # Parent dir for per-run throwaway sandbox work dirs. Empty -> system temp.
     # With SANDBOX_MODE=docker and the app itself containerized (host docker
     # socket mounted), set this to a path the operator bind-mounts at the SAME
     # absolute path into the app container, so the host daemon can resolve the
-    # run dir passed to `docker run -v` (P1-5).
+    # run dir passed to `docker run -v`.
     sandbox_work_root: str = ''
     exec_timeout: int = 60
     exec_memory_mb: int = 2048
     exec_output_limit: int = 256 * 1024   # truncate captured stdout/stderr
-    # Largest single file a run may write, in both sandbox modes (B-10). It sits
+    # Largest single file a run may write, in both sandbox modes. It sits
     # above the biggest CSV MAX_UPLOAD_CELLS allows, so a /wrangle rewrite of
     # the dataset fits; all files a run writes together are capped at twice it.
     exec_file_limit_mb: int = 256
 
-    # --- Model routing (3.4) --------------------------------------------------
+    # --- Model routing --------------------------------------------------
     # Default code generation runs on gemini-3.8-flash (cheap, fast, the
     # strongest Flash), with gemini-3.5-flash-lite for the lighter flash/lite
     # roles. The in-app "Pro mode" toggle re-routes code generation to
@@ -158,32 +158,32 @@ class Config:
     # hardest analyses: a bigger, stronger, costlier model. Cost ordering:
     # pro_max (4.00/20.00) > pro (1.50/7.50) > flash = lite (0.30/2.50).
     # Override any role independently via MODEL_* env.
-    # FOOTGUN (P2-4): model_pro is the DEFAULT code-gen tier (roles 'pro' AND
-    # 'draft' both resolve to it in llm._resolve) — it is NOT the "Pro mode"
+    # FOOTGUN: model_pro is the DEFAULT code-gen tier (roles 'pro' AND
+    # 'draft' both resolve to it in llm._resolve). It is NOT the "Pro mode"
     # model. Setting MODEL_PRO changes every normal generation; to change what
     # the in-app Pro-mode toggle runs, set MODEL_PRO_MAX (model_pro_max) below.
     model_pro: str = 'gemini-3.8-flash'        # default code-gen / 'draft' role
-    # "Pro mode" code-gen upgrade. gemini-4-argon is a stable (GA) id, which
-    # replaces the old gemini-3.1-pro-preview pin (3.1 Pro never left preview).
+    # "Pro mode" code-gen upgrade. gemini-4-argon is a stable (GA) id; 3.1
+    # Pro never left preview, so it is not used here.
     model_pro_max: str = 'gemini-4-argon'
     model_flash: str = 'gemini-3.5-flash-lite'
     model_flash_lite: str = 'gemini-3.5-flash-lite'
     converse_role: str = 'flash'        # downshift candidate: pro -> flash
     # Conversational data-cleaning ("wrangle") tier. Defaults to the cheapest
     # model since these are short, structured transforms ("delete column 2",
-    # "filter for X") — keeps per-edit cost (and the operator's bill) low.
+    # "filter for X"), which keeps per-edit cost (and the operator's bill) low.
     wrangle_role: str = 'lite'
 
     # Per-model price estimates (USD per 1M tokens) for the in-app session cost
-    # display (3.4). Web-verified Gemini paid-tier rates (ai.google.dev, Oct
-    # 2026). DISPLAY ONLY — these never gate, trigger, or change any spend; they
+    # display. Web-verified Gemini paid-tier rates (ai.google.dev, Oct
+    # 2026). DISPLAY ONLY: these never gate, trigger, or change any spend; they
     # only let the client show an approximate session cost. Override by editing
     # this map or constructing Config with your own.
     # Introductory discounts (gemini-3.8-flash and gemini-4-argon run at half
     # these rates until Dec 2026 / Jan 2027) are ignored: the rows are the
     # standard rates, so the estimate errs high, never low.
     # Non-Gemini rows are published per-1M rates (verified Oct 2026) for the
-    # per-provider default models below — DISPLAY ONLY, never gate spend.
+    # per-provider default models below. DISPLAY ONLY, never gate spend.
     # Override MODEL_* and this map together if you pin different models.
     model_prices: dict = field(default_factory=lambda: {
         'gemini-4-argon': {'input': 4.00, 'output': 20.00},
@@ -202,11 +202,11 @@ class Config:
 
     # --- Analysis tunables -----------------------------------------------------
     feature_selection_threshold: int = 15
-    data_page_row_cap: int = 500_000    # refuse to page datasets beyond this (5.8)
+    data_page_row_cap: int = 500_000    # refuse to page datasets beyond this
     pdf_max_pages: int = 50
 
-    # --- Auth (7.1) -------------------------------------------------------------
-    # Public origin (scheme://host[:port]) that emailed links point at (D5-7).
+    # --- Auth -------------------------------------------------------------
+    # Public origin (scheme://host[:port]) that emailed links point at.
     # Password-reset links are built from it, never from the request's Host
     # header (which a caller controls). Required in production for resets.
     public_base_url: str = ''
@@ -214,25 +214,25 @@ class Config:
     require_login: bool = False         # False keeps the anonymous sandbox mode
     require_email_verification: bool = False  # gate accounts until email confirmed
 
-    # --- Billing / cost guardrails (workstream E) -------------------------------
+    # --- Billing / cost guardrails -------------------------------
     # Turn on credit debit in check_and_debit. Only priority requests (Pro-mode
     # /chat, the report builder) are metered; anonymous callers are refused
     # them. Every other model call is unmetered unless REQUIRE_LOGIN is on.
     billing_enabled: bool = False
     # Hard ceiling on priority (high-tier) requests per calendar month, enforced
     # on the server's own key so nobody can run up an unbounded bill. Applies
-    # whether or not billing is enabled (D5-3). 0 disables.
-    # NOTE: per-process and in-memory — across multiple workers each enforces
+    # whether or not billing is enabled. 0 disables.
+    # NOTE: per-process and in-memory. Across multiple workers each enforces
     # its own count, and the count resets on every restart or redeploy.
     monthly_priority_call_ceiling: int = 0
     # Free credits granted to a logged-in free-plan user at the start of each
-    # calendar month, applied lazily on their first billed request that month
-    # (P2-10). 0 (default) disables the top-up, and the out-of-credits message
+    # calendar month, applied lazily on their first billed request that month.
+    # 0 (default) disables the top-up, and the out-of-credits message
     # then makes no promise of a monthly reset. When >0 the reset is real, so
     # the deny message truthfully points at it.
     monthly_free_credits: int = 0
 
-    # --- Rate limits (1.4) --------------------------------------------------------
+    # --- Rate limits --------------------------------------------------------
     rate_limit_enabled: bool = True
     rate_limit_default: str = '120 per minute'
     rate_limit_run: str = '10 per minute'
@@ -257,16 +257,16 @@ class Config:
     rate_limit_storage_uri: str = 'memory://'
     # Number of trusted reverse-proxy hops in front of the app. >0 enables
     # ProxyFix so rate limiting and logging see the real client IP from
-    # X-Forwarded-For. Defaults to 0 everywhere (D5-13): trusting the header on
+    # X-Forwarded-For. Defaults to 0 everywhere: trusting the header on
     # a directly exposed app lets a client spoof X-Forwarded-For and get a fresh
     # rate-limit bucket per request. Behind exactly one proxy (Render), set
     # TRUST_PROXY_HOPS=1; validate() warns in production while it is 0.
     trust_proxy_hops: int = 0
 
-    # --- CSRF (1.5) -----------------------------------------------------------------
+    # --- CSRF -----------------------------------------------------------------
     csrf_enabled: bool = True
 
-    # --- /metrics (3.3) ----------------------------------------------------------------
+    # --- /metrics ----------------------------------------------------------------
     # Bearer token for the operator-only /metrics snapshot (uptime and every
     # model's call/token totals). Set: a request must carry it (Authorization:
     # Bearer <token> or X-Metrics-Token), in every environment, and needs no
@@ -274,7 +274,7 @@ class Config:
     # the normal app gate in development/testing.
     metrics_token: str = ''
 
-    # --- Issue reporting (6.3) ---------------------------------------------------------
+    # --- Issue reporting ---------------------------------------------------------
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_user: str = ''
@@ -391,7 +391,7 @@ class Config:
     # ------------------------------------------------------------------
     def active_model_prices(self):
         """Price map (USD per 1M tokens) for the models actually in use, keyed
-        by model id — exactly what the client needs to estimate session cost.
+        by model id: exactly what the client needs to estimate session cost.
         Models with no known price are simply omitted (they contribute 0)."""
         active = {self.model_pro, self.model_pro_max,
                   self.model_flash, self.model_flash_lite}
@@ -451,7 +451,7 @@ class Config:
             self._warn("TRUST_PROXY_HOPS cannot be negative; using 0.")
             self.trust_proxy_hops = 0
         if self.sandbox_mode == 'subprocess' and not self.is_testing:
-            # Warn in DEVELOPMENT too, not only production (P1-1b). Subprocess
+            # Warn in DEVELOPMENT too, not only production. Subprocess
             # mode has no network or filesystem isolation: generated code runs
             # as the app user with full read access, so the AST static pre-check
             # (statlee/codecheck.py) and the LLM moderation gates are the only
@@ -464,8 +464,8 @@ class Config:
                 "SANDBOX_MODE=docker for kernel-enforced isolation where the "
                 "host holds secrets or network access that matters.")
         if self.storage_backend == 's3':
-            # D5-10: there is no S3 backend; accepting the setting meant every
-            # read and write silently stayed on local disk.
+            # There is no S3 backend. Accepting the setting would leave every
+            # read and write silently on local disk, so refuse it.
             raise ConfigError(
                 "STORAGE_BACKEND=s3 is not implemented yet: uploads would still "
                 "be written to local disk. Use STORAGE_BACKEND=local with "
@@ -513,7 +513,7 @@ class Config:
                 "the container or host is replaced.")
 
         if self.is_production and self.monthly_priority_call_ceiling <= 0:
-            # The ceiling applies with billing on AND off (D5-3); during a
+            # The ceiling applies with billing on AND off; during a
             # billing-off free trial it is the only cap on priority spend.
             self._warn(
                 "MONTHLY_PRIORITY_CALL_CEILING is unset (<=0): there is NO monthly "
@@ -524,7 +524,7 @@ class Config:
 
         if (self.billing_enabled and not self.require_login
                 and not self.is_testing):
-            # B-05: credits only meter priority (Pro-mode / report) requests.
+            # Credits only meter priority (Pro-mode / report) requests.
             # Anonymous callers are refused those, but every other model call
             # stays open to them, unmetered, unless an account is required.
             self._warn(
@@ -546,7 +546,7 @@ class Config:
                 "the app (e.g. 1). Keep it 0 only if the app is exposed directly, "
                 "since a client could otherwise spoof X-Forwarded-For.")
 
-        # D3-5: a zero/negative timeout would mean "no timeout" in the SDKs,
+        # A zero/negative timeout would mean "no timeout" in the SDKs,
         # and unbounded retries would pin a worker thread.
         if self.llm_timeout_seconds < 1:
             self._warn("LLM_TIMEOUT_SECONDS must be >= 1; using 120.")
@@ -592,9 +592,10 @@ class Config:
     def resolved_upload_root(self, instance_dir=None):
         """Return the storage root, creating it if needed.
 
-        Unset, it is a stable ``<instance_dir>/uploads`` (D5-9): a fresh temp
-        dir per process used to move storage on every restart, so logged-in
-        users' durable files vanished and the old root was never reclaimed.
+        Unset, it is a stable ``<instance_dir>/uploads``. A fresh temp dir
+        per process would move storage on every restart, so logged-in users'
+        durable files would vanish and the previous root would never be
+        reclaimed.
         Testing (or a caller with no instance dir) keeps a throwaway temp dir.
         """
         if not self.upload_root:

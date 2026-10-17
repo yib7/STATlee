@@ -1,4 +1,4 @@
-"""Analysis environment probe for the reproducibility bundle (SP4).
+"""Analysis environment probe for the reproducibility bundle.
 
 ``environment.txt`` in the export says which interpreter and package versions
 the analyses ran under. It is captured by fixed, server-authored probe scripts

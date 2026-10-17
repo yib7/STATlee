@@ -1,4 +1,4 @@
-/* STATlee application styles - UI elevation handoff (direction 1A).
+/* STATlee application styles.
    Token layer first: :root = light theme, .dark = dark theme.
    Everything hand-written below consumes the tokens. */
 
@@ -18,15 +18,12 @@
     /* light theme */
     --s0: #ffffff; --s1: #f6f6fb; --s2: #eeedf6; --s3: #e4e3f0;
     --border: #e6e5f0; --border-strong: #d3d1e4;
-    /* D4-15: the light-theme text tokens are darkened to WCAG AA (4.5:1) on
-       s0/s1/s2. Old values, for the record: text-3 #8b8798 (3.5:1), c-nom
-       #e08600 (2.8:1, the amber "Original" button), pipe-done #0a9d63
-       (3.5:1), pipe-failed #e0463b (4.1:1). The .dark block is unchanged. */
+    /* The light-theme text tokens (text-3, c-nom, pipe-done, pipe-failed)
+       meet WCAG AA (4.5:1) on s0/s1/s2. The .dark block has its own. */
     --text-1: #171426; --text-2: #4c4860; --text-3: #6b677a;
     --indigo: #5b53e6; --indigo-2: #6d5cf5; --violet: #7543e8; --indigo-soft: #eeecfe;
     /* Primary button fill (white text on it, 4.5:1 or better in both themes)
-       and the solid violet PRO chip fill. 2026-10-16 contrast pass: violet
-       was #8b5cf6 (3.9:1 as text on s1). */
+       and the solid violet PRO chip fill. */
     --btn-bg: #5b53e6; --btn-bg-hover: #6d5cf5; --violet-solid: #7543e8;
     --c-cont: #2f6df0; --c-nom: #8f5300; --c-ord: #0a9d63;
     --pipe-pending: #a7a3b8; --pipe-active: #5b53e6; --pipe-done: #056b42;
@@ -38,10 +35,10 @@
     --e2: 0 8px 24px -8px rgba(20, 16, 40, .14);
     --e3: 0 28px 60px -18px rgba(20, 16, 40, .22);
 
-    /* editor / terminal - always dark, both themes (so these two do NOT flip
+    /* editor / terminal: always dark, both themes (so these two do NOT flip
        with the theme: they are read against the dark terminal in both) */
     --code-bg: #0c0a17; --code-chrome: #0f0c1e; --code-border: #241f3f;
-    --code-text: #d8d4f0; --code-muted: #8a84ab;   /* was #655f86, 3.3:1 on code-bg (D4-15) */
+    --code-text: #d8d4f0; --code-muted: #8a84ab;   /* readable muted text on code-bg */
     --code-dim: #a7a1c4;   /* secondary terminal line (traceback File "..." rows) */
     --code-err: #f8776b;   /* terminal error text; the dark-theme red, always */
     --code-ok: #2fd398;    /* terminal success text ("exit 0"); the dark-theme green, always */
@@ -51,7 +48,7 @@
 .dark {
     --s0: #08060f; --s1: #0e0b1c; --s2: #161129; --s3: #1e1839;
     --border: #241f3f; --border-strong: #342d57;
-    /* text-3 was #7d7799: 4.3:1 on s2 and 4.0:1 on the indigo-soft selected run row */
+    /* text-3 is light enough for AA on s2 and on the indigo-soft selected run row */
     --text-1: #f2f0fb; --text-2: #b6b0d2; --text-3: #8c86a8;
     --indigo: #7c78f0; --indigo-2: #8b7cf8; --violet: #a78bfa; --indigo-soft: #1c1740;
     --btn-bg: #615aea; --btn-bg-hover: #6d5cf5;
@@ -90,7 +87,7 @@ body { font-family: var(--font-ui); }
     -webkit-backdrop-filter: blur(12px);
 }
 
-/* ============ Pipeline rail (4.4) - the sidebar's spine ============
+/* ============ Pipeline rail: the sidebar's spine ============
    Markup contract (ui.js): .pipeline-step[data-state] > .step-dot + label + .step-note */
 #pipelineChecklist { position: relative; }
 .pipeline-step {
@@ -132,7 +129,7 @@ body { font-family: var(--font-ui); }
 .pipeline-step[data-state="failed"] { color: var(--pipe-failed); }
 .pipeline-step[data-state="failed"] .step-dot { border-color: var(--pipe-failed); color: var(--pipe-failed); }
 
-/* Skipped reads as "skipped by choice" - muted, no strikethrough. */
+/* Skipped reads as "skipped by choice": muted, no strikethrough. */
 .pipeline-step[data-state="skipped"] { color: var(--text-3); }
 .pipeline-step[data-state="skipped"] .step-dot { border-color: var(--pipe-skipped); color: var(--pipe-skipped); }
 .pipeline-step[data-state="skipped"] .step-dot::after { content: '–'; font-size: 0.7rem; line-height: 1; }
@@ -166,16 +163,16 @@ body { font-family: var(--font-ui); }
 .step-fix { color: var(--indigo); background: transparent; border: 0; padding: 0.19rem 0.3rem; }
 .step-fix:hover { background: var(--indigo-soft); }
 
-/* ============ CodeMirror editor (5.4) - always dark ============ */
+/* ============ CodeMirror editor (always dark) ============ */
 .cm-wrap .CodeMirror { height: 100%; min-height: 260px; background: transparent; color: var(--code-text); font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.75; }
 .cm-wrap .CodeMirror-gutters { background: transparent; border-right: 1px solid var(--code-border); }
 /* material-darker's #545454 line numbers are 2.6:1 on code-bg */
 .cm-wrap .CodeMirror .CodeMirror-linenumber { color: var(--code-muted); }
 
 /* ============ Run lifecycle: generating / executing / failed ============
-   Direction 1A: flat surfaces, hairline rules, precise mono. No gradients, no
+   Flat surfaces, hairline rules, precise mono. No gradients, no
    glow. Hand-written rather than Tailwind utilities because tailwind.css is a
-   purged build with no local toolchain - a new utility class here would need a
+   purged build with no local toolchain: a new utility class here would need a
    rebuild and would silently no-op until then.
    Markup contract (index.html + analyze.js):
      #genHeader  .lc-header > #genPhase + (#genModelChip, #genElapsed)
@@ -198,7 +195,7 @@ body { font-family: var(--font-ui); }
 .lc-dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; flex-shrink: 0; }
 .lc-dot.blink { animation: cc-blink 1s step-end infinite; }
 
-/* -- phase header strip (sits above the editor / terminal) -- */
+/* Phase header strip (sits above the editor / terminal) */
 .lc-header {
     display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
     background: var(--s1); border: 1px solid var(--border);
@@ -227,7 +224,7 @@ body { font-family: var(--font-ui); }
 .lc-glyph.hidden { display: none; }
 .lc-badge.hidden { display: none; }
 
-/* -- model chip + PRO badge + elapsed timer -- */
+/* Model chip + PRO badge + elapsed timer */
 .lc-model {
     display: inline-flex; align-items: center; gap: 0.3rem;
     font-family: var(--font-mono); font-size: 0.656rem; font-weight: 600;
@@ -250,7 +247,7 @@ body { font-family: var(--font-ui); }
 }
 .lc-elapsed.live { font-size: 0.75rem; font-weight: 600; color: var(--indigo); }
 
-/* -- SANDBOX badge -- */
+/* SANDBOX badge */
 .lc-badge {
     display: inline-flex; align-items: center; gap: 0.35rem;
     font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
@@ -259,7 +256,7 @@ body { font-family: var(--font-ui); }
     padding: 0.25rem 0.5rem; flex-shrink: 0;
 }
 
-/* -- editor / terminal chrome state ("streaming", "running", "failed - exit 1") -- */
+/* Editor / terminal chrome state ("streaming", "running", "failed - exit 1") */
 .lc-term-state {
     display: inline-flex; align-items: center; gap: 0.3rem;
     font-family: var(--font-mono); font-size: 0.594rem; font-weight: 600;
@@ -274,7 +271,7 @@ body { font-family: var(--font-ui); }
    so it would silently no-op. */
 .lc-term-icon.failed { color: var(--code-err); }
 
-/* -- "Auto-scrolling with output" footer on the streaming editor -- */
+/* "Auto-scrolling with output" footer on the streaming editor */
 .lc-autoscroll {
     display: flex; align-items: center; gap: 0.35rem;
     padding: 0.4rem 0.75rem; background: var(--code-chrome);
@@ -283,7 +280,7 @@ body { font-family: var(--font-ui); }
 }
 .lc-autoscroll.hidden { display: none; }
 
-/* -- running progress bar under the terminal -- */
+/* Running progress bar under the terminal */
 .lc-progress { height: 5px; background: var(--code-chrome); overflow: hidden; }
 .lc-progress.hidden { display: none; }
 .lc-progress-bar {
@@ -291,12 +288,12 @@ body { font-family: var(--font-ui); }
     animation: cc-indeterminate 1.4s var(--ease) infinite;
 }
 
-/* -- traceback rendering inside the terminal (analyze.js escapes, then wraps) -- */
+/* Traceback rendering inside the terminal (analyze.js escapes, then wraps) */
 .lc-trace-err { color: var(--code-err); }
 .lc-trace-dim { color: var(--code-dim); }
 .lc-culprit { color: var(--code-err); text-decoration: underline wavy; text-underline-offset: 3px; }
 
-/* -- AI debug frame: "STATlee spotted the problem" -- */
+/* AI debug frame: "STATlee spotted the problem" */
 .lc-debug {
     display: flex; gap: 0.7rem; background: var(--indigo-soft);
     border: 1px solid var(--indigo); border-radius: var(--r-lg); padding: 0.8rem;
@@ -325,9 +322,9 @@ body { font-family: var(--font-ui); }
 .lc-btn-edit:hover { background: var(--s2); }
 
 /* ============ Empty states: the workspace before any data / code / run ============
-   Direction 1A: flat surfaces, hairline rules, precise mono. The design's
-   shimmer skeletons and fade-to-solid scrims are both gradients, so they are
-   rendered flat here (same call SP2 made on the lifecycle shimmer).
+   Flat surfaces, hairline rules, precise mono. The design's shimmer
+   skeletons and fade-to-solid scrims are both gradients, so they are
+   rendered flat here, like the lifecycle shimmer.
 
    Visibility is driven by body classes rather than per-element JS, so a state
    can never half-apply. index.html ships all four set; the JS clears each at the
@@ -348,7 +345,7 @@ body.cc-no-code .es-code,
 body.cc-no-run .es-run,
 body.cc-no-chat .es-chat { display: flex; }
 
-/* Flat skeleton bar (the design shimmers a gradient across it; 1A stays flat). */
+/* Flat skeleton bar (the design shimmers a gradient across it; this stays flat). */
 .es-skel { background: var(--skel); border-radius: 5px; flex-shrink: 0; }
 /* Skeleton layer: a sibling UNDER the veil, never a child of it. A child would
    paint against the veil's own scrim and defeat it. */
@@ -497,13 +494,13 @@ body.cc-no-data .cc-sample-link { display: block; }
    reports scrollHeight == clientHeight, so the lost rows are unreachable. */
 #codebookEmptyState > * { flex-shrink: 0; }
 
-/* Split panes (6.1) */
+/* Split panes */
 #paneDivider { width: 5px; cursor: col-resize; flex-shrink: 0; background: transparent; transition: background var(--dur-1); }
 #paneDivider:hover, #paneDivider.dragging { background: var(--indigo); }
 .pane { min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .pane.hidden { display: none; }
 
-/* Floating codebook (6.2) + data-cleaning float */
+/* Floating codebook + data-cleaning float */
 #codebookFloat { position: fixed; top: 90px; right: 30px; width: 330px; max-height: 70vh; z-index: 80; display: flex; flex-direction: column; box-shadow: var(--e3); border-radius: var(--r-lg); }
 #codebookFloat .float-body { overflow-y: auto; padding: 0.9rem; }
 #wrangleFloat { position: fixed; top: 90px; right: 30px; width: 400px; max-height: 75vh; z-index: 80; display: flex; flex-direction: column; box-shadow: var(--e3); border-radius: var(--r-lg); }
@@ -520,32 +517,32 @@ body.cc-no-data .cc-sample-link { display: block; }
 .cc-toast.error { background: color-mix(in srgb, var(--pipe-failed) 14%, var(--s1)); color: var(--pipe-failed); border-color: var(--pipe-failed); }
 .cc-toast.success { background: color-mix(in srgb, var(--pipe-done) 14%, var(--s1)); color: var(--pipe-done); border-color: var(--pipe-done); }
 
-/* Modal base - softer backdrop (modal pass, ask #10) */
+/* Modal base: softer backdrop */
 .cc-modal { position: fixed; inset: 0; z-index: 95; background: rgba(8, 6, 15, 0.55); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .cc-modal.hidden { display: none; }
 /* A forced dialog (accounts mode, signed out) cannot be dismissed, so it does
-   not show a close button that would do nothing (D4-14). */
+   not show a close button that would do nothing. */
 .cc-modal[data-forced] [data-close-modal] { display: none; }
 
 /* Screen-reader-only text (not in the purged Tailwind build). */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* Account dialog: info messages (202 "check your email", reset sent) are not
-   errors, so they are not red (D4-12). */
+   errors, so they are not red. */
 #accError.acc-info { color: var(--indigo); }
 .acc-link { background: transparent; border: 0; padding: 0.15rem 0.1rem; font-size: 0.75rem; font-weight: 600; color: var(--indigo); cursor: pointer; border-radius: var(--r-sm); }
 .acc-link:hover { text-decoration: underline; }
 .acc-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Data-handling disclosure under the dropzone (D6 / D4-16). */
+/* Data-handling disclosure under the dropzone. */
 .cc-disclosure { font-size: 0.75rem; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--s0); padding: 0.5rem 0.75rem; }
 .cc-disclosure > summary { cursor: pointer; font-weight: 600; color: var(--text-1); list-style-position: inside; border-radius: var(--r-sm); }
 .cc-disclosure ul { margin: 0.5rem 0 0.15rem; padding-left: 1.1rem; list-style: disc; display: flex; flex-direction: column; gap: 0.3rem; line-height: 1.45; }
 
-/* Anonymous-upload expiry line (D4-20). */
+/* Anonymous-upload expiry line. */
 .cc-session-expiry { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-2); text-align: center; }
 
-/* S4: the loaded dataset under the dropzone. The user's own file name, the
+/* The loaded dataset under the dropzone. The user's own file name, the
    stored name when it differs (scripts read that one), and upload warnings. */
 .cc-dataset-info { margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-2); line-height: 1.45; overflow-wrap: anywhere; }
 .cc-dataset-name strong { color: var(--text-1); font-weight: 600; }
@@ -562,7 +559,7 @@ body.cc-no-data .cc-sample-link { display: block; }
 /* A .txt codebook preview: plain text, never HTML, never the PDF frame. */
 .cc-codebook-text { flex: 1; margin: 0; padding: 1.25rem 1.5rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; color: var(--text-1); background: var(--s0); }
 
-/* Conversational data-cleaning transcript (5.16) */
+/* Conversational data-cleaning transcript */
 .wrangle-chat { max-height: 14rem; }
 .revert-btn { border-color: color-mix(in srgb, var(--c-nom) 55%, transparent); color: var(--c-nom); }
 .revert-btn:not(:disabled):hover { background: color-mix(in srgb, var(--c-nom) 12%, transparent); }
@@ -583,7 +580,7 @@ body.cc-no-data .cc-sample-link { display: block; }
 .codebook-grid.expanded { grid-template-columns: 1fr; }
 .codebook-grid.expanded .codebook-desc { display: block; }
 
-/* ============ Session workbook (SP1) ============
+/* ============ Session workbook ============
    Run rail (Results), the saved-run view bar, and the report run checklist.
    Hand-written like the lifecycle chrome: the purged Tailwind build has no
    utilities to spare. Every block that sets `display` carries a .hidden
@@ -709,7 +706,7 @@ body.cc-no-data .cc-sample-link { display: block; }
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ============ Survey-native codebook editor (SP2) ============
+/* ============ Survey-native codebook editor ============
    The Codebook tab's Variables view: one row per column (codebook.js) and the
    Variables / Document switch. Hand-written like the workbook chrome; every
    block that sets `display` carries a .hidden override. Rows sit on a grid that
@@ -863,7 +860,7 @@ body.cc-no-data .cc-sample-link { display: block; }
 select option { background-color: var(--s0); color: var(--text-1); }
 .dark select { color-scheme: dark; }
 
-/* ============ Switch-styled toggles (ask #4, CSS-only - same inputs, same IDs) ============ */
+/* ============ Switch-styled toggles (CSS-only: same inputs, same IDs) ============ */
 input[type="checkbox"].cc-switch {
     appearance: none; -webkit-appearance: none;
     width: 34px; height: 20px; border-radius: var(--r-pill); flex-shrink: 0;
@@ -880,14 +877,14 @@ input[type="checkbox"].cc-switch::after {
 input[type="checkbox"].cc-switch:checked { background: var(--indigo); border-color: var(--indigo); }
 input[type="checkbox"].cc-switch:checked::after { left: 16px; }
 
-/* The terminal keeps its size in the Results column (it used to be the flex
-   item that shrank, clipping long output behind overflow:hidden with no way
-   to scroll; the methods card above it made that worse). Long output now
-   scrolls inside the terminal and the Results tab scrolls as a whole. */
+/* The terminal keeps its size in the Results column instead of being the
+   flex item that shrinks (which would clip long output behind
+   overflow:hidden with no way to scroll). Long output scrolls inside the
+   terminal and the Results tab scrolls as a whole. */
 .lc-term-box { flex-shrink: 0; }
 .lc-term-body { max-height: 28rem; overflow: auto; }
 
-/* ============ Methods and assumptions card (SP3) ============
+/* ============ Methods and assumptions card ============
    The run's parsed methods block, above the terminal. Verdict chips carry a
    text label (PASS / WARN / FAIL / NOTE), color only reinforces it. */
 .mc-card {
@@ -940,9 +937,9 @@ input[type="checkbox"].cc-switch:checked::after { left: 16px; }
     .mc-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Focus visibility (5.9, D4-13). !important because Tailwind's
-   focus:outline-none (a 2px *transparent* outline) used to win on most
-   buttons, leaving keyboard users with no visible focus at all. */
+/* Focus visibility. !important because Tailwind's
+   focus:outline-none (a 2px *transparent* outline) would otherwise win on
+   most buttons, leaving keyboard users with no visible focus at all. */
 :is(button, a, summary, [tabindex], [role="tab"], input.cc-switch):focus-visible {
     outline: 2px solid var(--indigo) !important; outline-offset: 2px;
 }
@@ -956,11 +953,11 @@ input[type="checkbox"].cc-switch:checked::after { left: 16px; }
         scroll-behavior: auto !important;
     }
     /* A one-shot indeterminate bar would freeze at 26% and read as stuck;
-       show a steady full-width "working" bar instead (D4-32). */
+       show a steady full-width "working" bar instead. */
     .lc-progress-bar { animation: none !important; width: 100%; opacity: 0.55; }
 }
 
-/* ============ Narrow screens (D4-17) ============
+/* ============ Narrow screens ============
    Below ~900px the side-by-side layout cannot fit: the sidebar alone has a
    320px floor. Stack sidebar over workspace and let the PAGE scroll (no
    horizontal scroll), hide the drag resizer and split view. */

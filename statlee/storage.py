@@ -1,15 +1,15 @@
 """Per-identity file storage with dataset version control.
 
 Implements:
-- 1.1  Per-session file isolation — every browser session (or logged-in user)
-       gets its own namespaced directory; ``resolve_path`` keeps its
-       realpath-containment check so no endpoint can reach another identity's
-       files.
-- 5.16 Dataset versioning — wrangle operations write ``stem__vN.csv`` files
-       tracked by a JSON manifest with an active-version pointer (undo/redo).
-- 7.3/7.4 The local backend namespaces by user id when logged in
-       (``user_<id>/``) and by session id otherwise (``anon_<sid>/``); an S3
-       backend can mirror the same key layout when STORAGE_BACKEND=s3.
+- Per-session file isolation: every browser session (or logged-in user)
+  gets its own namespaced directory; ``resolve_path`` keeps its
+  realpath-containment check so no endpoint can reach another identity's
+  files.
+- Dataset versioning: wrangle operations write ``stem__vN.csv`` files
+  tracked by a JSON manifest with an active-version pointer (undo/redo).
+- The local backend namespaces by user id when logged in
+  (``user_<id>/``) and by session id otherwise (``anon_<sid>/``); an S3
+  backend could mirror the same key layout.
 """
 import hashlib
 import json
@@ -34,12 +34,12 @@ META_PREFIX = '.meta__'
 APPROVED_SCRIPT = '.approved_script.json'
 LAST_RUN_DIR = '.last_run'
 
-# P2-2: the approved-script store keeps the last few validated scripts keyed by
+# The approved-script store keeps the last few validated scripts keyed by
 # content hash (not a single slot), so a /wrangle save cannot evict the /chat
 # script and force a spurious re-moderation of already-approved code.
 APPROVED_SCRIPT_MAX = 5
 
-# P2-9: the version manifest is read-modify-written; a cross-process file lock
+# The version manifest is read-modify-written; a cross-process file lock
 # on the manifest serializes concurrent wrangles/undos so no version entry is
 # lost. Held only for the brief RMW; the timeout guards against a stale lock.
 _MANIFEST_LOCK_TIMEOUT = 10
@@ -59,18 +59,18 @@ def _retry_on_windows_lock(fn, *args):
             if os.name != 'nt' or attempt == _WIN_RETRIES - 1:
                 raise
             time.sleep(0.005 * (attempt + 1))
-    return None  # pragma: no cover - loop always returns or raises
+    return None  # pragma: no cover (the loop always returns or raises)
 
 
 def _write_json_atomic(path, obj):
     """Write JSON via a temp file + ``os.replace`` (atomic on POSIX and
     Windows) so a crash mid-write can never leave a truncated/partial file
-    at ``path`` — the previous, complete version stays intact until the
+    at ``path``: the previous, complete version stays intact until the
     new one is fully written.
 
-    D1-4: the temp file is UNIQUE per write (``mkstemp`` in the same dir).
-    A shared ``path + '.tmp'`` let two overlapping writers replace each
-    other's half-written temp file, which put truncated JSON at ``path``."""
+    The temp file is UNIQUE per write (``mkstemp`` in the same dir).
+    A shared ``path + '.tmp'`` would let two overlapping writers replace each
+    other's half-written temp file and put truncated JSON at ``path``."""
     import tempfile
     directory = os.path.dirname(path) or '.'
     fd, tmp = tempfile.mkstemp(prefix='.' + os.path.basename(path) + '.',
@@ -134,7 +134,7 @@ _ACTIVITY_TOUCH_INTERVAL = 60   # seconds; bounds the touch to ~1 write/minute
 
 
 def _touch_activity(root):
-    """Record that this workspace was used (D1-3). Every storage access goes
+    """Record that this workspace was used. Every storage access goes
     through ``identity_root``, so reads count as activity too; throttled so a
     burst of requests costs one ``stat`` each, not one write each."""
     marker = os.path.join(root, LAST_SEEN)
@@ -166,8 +166,8 @@ _RESERVED_STEM_RE = re.compile(r'__v\d+$')
 def is_reserved_name(filename):
     """True when ``filename``'s stem ends in a version suffix such as
     ``__v2``. Those names belong to dataset history files (``stem__vN.csv``),
-    so neither an upload nor a request naming a dataset may use one (P2-3,
-    L8): a client passing ``data__v2.csv`` would otherwise address a version
+    so neither an upload nor a request naming a dataset may use one: a
+    client passing ``data__v2.csv`` would otherwise address a version
     file as if it were its own dataset and grow a second history on top of
     it."""
     stem = os.path.splitext(os.path.basename(str(filename or '')))[0]
@@ -175,7 +175,7 @@ def is_reserved_name(filename):
 
 
 def identity_usage(identity=None):
-    """Return ``(dataset_count, total_bytes)`` for the caller's storage dir (P2-4).
+    """Return ``(dataset_count, total_bytes)`` for the caller's storage dir.
 
     ``dataset_count`` counts distinct uploaded files at the top level (hidden
     sidecars and ``{stem}__vN.csv`` version artifacts excluded), so wrangling a
@@ -205,11 +205,11 @@ _UPLOAD_STEM_MAX = 100
 
 
 def upload_name(raw_filename):
-    """Map a client upload filename to ``(stored_name, ext)`` (D1-1).
+    """Map a client upload filename to ``(stored_name, ext)``.
 
-    ``secure_filename`` drops every non-ASCII character, so ``数据.csv`` used to
-    become ``csv`` (no extension, unparseable) and every Cyrillic PDF collapsed
-    to ``pdf``. Here the extension is split off the RAW name first and always
+    ``secure_filename`` drops every non-ASCII character, so on its own it turns
+    ``数据.csv`` into ``csv`` (no extension, unparseable) and every Cyrillic PDF
+    into ``pdf``. Here the extension is split off the RAW name first and always
     kept, so the caller validates the same extension it stores. Latin accents
     still transliterate (``café`` -> ``cafe``). When the stem loses any
     non-ASCII character, an 8-hex digest of the original stem is appended, so
@@ -240,7 +240,7 @@ def incoming_path(ext, identity=None):
     """A unique hidden staging path for an upload in progress. The route parses
     and validates the file here and only moves it to its real name on success,
     so a failed upload never leaves a stray file behind, and a failed re-upload
-    never clobbers the dataset it would have replaced (D1-8)."""
+    never clobbers the dataset it would have replaced."""
     import secrets
     return os.path.join(identity_root(identity),
                         f'{INCOMING_PREFIX}{secrets.token_hex(8)}{ext}')
@@ -262,7 +262,7 @@ def resolve_path(filename, identity=None):
 
 
 # ---------------------------------------------------------------------------
-# Dataset version manifest (5.16)
+# Dataset version manifest
 # ---------------------------------------------------------------------------
 
 def _manifest_path(filename, identity=None):
@@ -294,7 +294,7 @@ def _manifest_lock(filename, identity=None):
     The deployed worker model is multi-process (gunicorn ``--workers`` with
     ``--threads`` each), so an in-process ``threading.Lock`` would only serialize
     within a single worker. A ``filelock`` on ``<manifest>.lock`` serializes
-    across workers AND threads, closing the lost-update window in P2-9 where two
+    across workers AND threads, closing the lost-update window where two
     concurrent wrangles both compute the same ``next_v`` and the second save
     discards the first's entry. Each caller builds a fresh lock and never nests
     another manifest lock inside it, so there is no re-entrancy or deadlock.
@@ -308,8 +308,8 @@ def register_dataset(filename, identity=None):
 
     A re-upload under the same name starts a fresh history; the previous
     history's version files are deleted so they neither linger on disk nor
-    count toward the byte quota (D1-14). Each registration gets a new
-    ``upload_id``, so a wrangle that read the previous upload can tell (S5)."""
+    count toward the byte quota. Each registration gets a new
+    ``upload_id``, so a wrangle that read the previous upload can tell."""
     with _manifest_lock(filename, identity):
         return _register_unlocked(filename, identity)
 
@@ -340,7 +340,7 @@ def _register_unlocked(filename, identity=None):
             'ts': time.time(),
         }],
         'active': 1,
-        # S5: the version token. A fresh id per upload plus a counter bumped
+        # The version token. A fresh id per upload plus a counter bumped
         # by every change, so neither a same-name re-upload nor an undo
         # followed by a new edit (same v number, same file name, different
         # bytes) can look like the version a running wrangle read.
@@ -377,15 +377,15 @@ def active_dataset_path(filename, identity=None):
 
 
 def _truncate_redo_branch(manifest):
-    """Drop any versions after the active pointer — a new edit (or revert)
+    """Drop any versions after the active pointer: a new edit (or revert)
     after an Undo replaces the redo branch, like an editor's undo stack."""
     manifest['versions'] = [v for v in manifest['versions']
                             if v['v'] <= manifest['active']]
 
 
 class VersionConflict(Exception):
-    """The active version moved while a transform derived from it was running
-    (L1): committing it would silently discard the other edit."""
+    """The active version moved while a transform derived from it was
+    running: committing it would silently discard the other edit."""
 
 
 def _active_entry(manifest):
@@ -405,14 +405,14 @@ def dataset_version_token(filename, identity=None):
     """An opaque token naming the dataset's current state, or None for an
     unknown dataset. It changes on every upload, wrangle, undo, redo and
     revert; pass it back as ``base_token`` to ``add_dataset_version`` to
-    commit only on top of the state that was read (S5)."""
+    commit only on top of the state that was read."""
     manifest = _load_manifest(filename, identity)
     return _version_token(manifest) if manifest else None
 
 
 def active_version_number(filename, identity=None):
     """The active version number (1 = the original upload), or None for an
-    unknown dataset. Recorded with each run (SP1 provenance)."""
+    unknown dataset. Recorded with each run (provenance)."""
     manifest = _load_manifest(filename, identity)
     active = manifest.get('active') if isinstance(manifest, dict) else None
     if isinstance(active, bool) or not isinstance(active, int):
@@ -441,19 +441,19 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
     past-tense description (used to render the cleaning history as a chat-style
     transcript). A new edit after an Undo truncates the redo branch.
 
-    ``code`` is the transform that produced the frame (D6), kept on the version
+    ``code`` is the transform that produced the frame, kept on the version
     entry so an export can replay the cleaning from the original upload.
     ``base_file`` is the version file the transform read; when another
     wrangle/undo/revert has moved the active version since, the commit is
-    refused with ``VersionConflict`` (L1) instead of stacking a frame derived
+    refused with ``VersionConflict`` instead of stacking a frame derived
     from the old version on top of the new one.
     ``base_token`` (from ``dataset_version_token``, read BEFORE the data) is
-    the stronger check (S5): file names repeat after a same-name re-upload or
+    the stronger check: file names repeat after a same-name re-upload or
     an undo plus a new edit, the token does not.
     ``role``/``model`` name the LLM role and configured model that wrote the
-    transform (SP4 provenance); recorded only when given.
+    transform (provenance); recorded only when given.
     """
-    # P2-9: serialize the whole read-modify-write so a concurrent wrangle/undo
+    # Serialize the whole read-modify-write so a concurrent wrangle/undo
     # cannot compute the same next_v and silently drop this version.
     with _manifest_lock(filename, identity):
         manifest = (_load_manifest(filename, identity)
@@ -490,14 +490,14 @@ def add_dataset_version(filename, new_df, instruction, summary=None,
 
 
 def revert_to_original(filename, identity=None):
-    """Restore the dataset to its first-uploaded state as a NEW version (4.6).
+    """Restore the dataset to its first-uploaded state as a NEW version.
 
     Implemented as a forward edit (copy v1's bytes into a fresh version) rather
-    than a pointer jump, so reverting is itself undo-able — one Undo brings the
+    than a pointer jump, so reverting is itself undo-able: one Undo brings the
     pre-revert state back. Returns the manifest, or ``None`` for an unknown
     dataset or a missing original file.
     """
-    # P2-9: same manifest read-modify-write, same lock.
+    # Same manifest read-modify-write, same lock.
     with _manifest_lock(filename, identity):
         manifest = _load_manifest(filename, identity)
         if not manifest:
@@ -529,7 +529,7 @@ def revert_to_original(filename, identity=None):
 
 def shift_dataset_version(filename, direction, identity=None):
     """Move the active-version pointer (undo: -1, redo: +1)."""
-    # P2-9: the pointer move is a manifest read-modify-write too; lock it so a
+    # The pointer move is a manifest read-modify-write too; lock it so a
     # concurrent add/undo cannot overwrite the other's result.
     with _manifest_lock(filename, identity):
         manifest = _load_manifest(filename, identity)
@@ -539,7 +539,7 @@ def shift_dataset_version(filename, direction, identity=None):
         idx = versions.index(manifest['active'])
         new_idx = idx + (1 if direction == 'redo' else -1)
         if new_idx < 0 or new_idx >= len(versions):
-            return manifest  # already at the edge -- no-op
+            return manifest  # already at the edge: no-op
         manifest['active'] = versions[new_idx]
         _bump(manifest)
         _save_manifest(filename, manifest, identity)
@@ -547,15 +547,15 @@ def shift_dataset_version(filename, direction, identity=None):
 
 
 def dataset_lineage(filename, identity=None):
-    """What an export needs to reproduce the active version (D6).
+    """What an export needs to reproduce the active version.
 
     Returns None for an unknown dataset, else a dict with ``original`` (path
     of the v1 file), ``active_v``/``latest_v``, and ``steps``: the transform
     entries that turn the original into the active version, in order. A revert
     restarts the lineage from the original; versions past the active pointer
     (an undone redo branch) are not part of it. ``replayable`` is False when a
-    step predates code recording (D6) and so cannot be replayed.
-    ``versions`` is every manifest entry in version order (SP4 provenance
+    step predates code recording and so cannot be replayed.
+    ``versions`` is every manifest entry in version order (provenance
     reads each step's base version from it)."""
     manifest = _load_manifest(filename, identity)
     if not manifest or not manifest.get('versions'):
@@ -639,13 +639,13 @@ def load_dataset_meta_checked(filename, identity=None):
 
 def dataset_meta_lock(filename, identity=None):
     """Cross-process lock for a read-modify-write of one dataset's meta
-    sidecar (SP2: the codebook lives there and is edited concurrently by
+    sidecar (the codebook lives there and is edited concurrently by
     PUT /codebook, classification and PDF extraction)."""
     return FileLock(_meta_path(filename, identity) + '.lock',
                     timeout=_MANIFEST_LOCK_TIMEOUT)
 
 
-# SP2: codebooks keyed by a dataset's original sha256, so re-uploading
+# Codebooks keyed by a dataset's original sha256, so re-uploading
 # identical content restores the user's edits even after the meta sidecar of
 # that name was replaced by another upload. Hidden files, so they never count
 # as datasets; the oldest are pruned past CODEBOOK_ARCHIVE_MAX.
@@ -694,7 +694,7 @@ def load_codebook_archive(sha256, identity=None):
 
 
 # ---------------------------------------------------------------------------
-# Approved-script store (0.4 run-guard) and last-run artifacts (5.3 export)
+# Approved-script store (run-guard) and last-run artifacts (export)
 # ---------------------------------------------------------------------------
 
 def _lang_key(language):
@@ -702,7 +702,7 @@ def _lang_key(language):
 
 
 def _hash_code(code, language='Python'):
-    """Approval key: the script AND the interpreter it was reviewed for (D1-7).
+    """Approval key: the script AND the interpreter it was reviewed for.
     A Python-moderated script must not run under Rscript without review."""
     material = f"{_lang_key(language)}\0{code or ''}"
     return hashlib.sha256(material.encode('utf-8')).hexdigest()
@@ -735,8 +735,7 @@ def _load_approved_store(identity=None):
 
 def save_approved_script(code, language, identity=None, source='chat',
                          context=None):
-    """Record a validated script keyed by (language, content hash) (P2-2,
-    D1-7).
+    """Record a validated script keyed by (language, content hash).
 
     Keeps the most recent ``APPROVED_SCRIPT_MAX`` scripts; re-saving a known
     script refreshes its recency. This is what lets a /wrangle transform and the
@@ -744,10 +743,10 @@ def save_approved_script(code, language, identity=None, source='chat',
     matches by membership and skips re-moderation. ``source`` ('chat', 'run' or
     'wrangle') lets /export skip wrangle transforms.
 
-    The read-modify-write runs under a file lock (D1-4): two concurrent saves
-    used to drop each other's entry.
+    The read-modify-write runs under a file lock, so two concurrent saves
+    cannot drop each other's entry.
 
-    ``context`` (D6): what the script was generated for, as a small JSON-able
+    ``context``: what the script was generated for, as a small JSON-able
     dict (``prompt``, ``filename``, ``columns``, ``codebook``). /interpret
     reads it back from this server-side record, so its grounding cannot be
     spoofed by the client. Re-saving a known script without a context keeps
@@ -772,7 +771,7 @@ def save_approved_script(code, language, identity=None, source='chat',
 
 def is_approved_script(code, language='Python', identity=None):
     """True if ``code`` exactly matches a script previously approved for
-    ``language`` (P2-2, D1-7)."""
+    ``language``."""
     return _hash_code(code, language) in _load_approved_store(identity)
 
 
@@ -783,7 +782,7 @@ def approved_entry(code, language='Python', identity=None):
 
 
 def approved_language(code, language='Python', identity=None):
-    """The language to run ``code`` under (D4-29): ``language`` when the
+    """The language to run ``code`` under: ``language`` when the
     script is approved for it, otherwise the language it WAS approved for
     (the user switched the dropdown after generating), otherwise ``language``
     (unknown code, which the run-guard then reviews for that language)."""
@@ -814,7 +813,7 @@ def load_approved_script(identity=None, exclude_sources=(), match=None):
     return None
 
 
-# Session workbook (SP1): the run store lives in ``runs.py`` and is
+# Session workbook: the run store lives in ``runs.py`` and is
 # re-exported at the bottom of this module.
 
 
@@ -841,7 +840,7 @@ def _adoption_group(name):
 
 
 def adopt_workspace(from_identity, to_identity):
-    """Move an anonymous workspace into an account's at sign-in (L2).
+    """Move an anonymous workspace into an account's at sign-in.
 
     Datasets move as whole groups (file, version files, manifest, metadata
     sidecar); a group is skipped when ANY of its names already exists in the
@@ -852,7 +851,7 @@ def adopt_workspace(from_identity, to_identity):
 
     Returns ``{'moved': [...], 'skipped': [...]}``: the stored names of the
     datasets that moved and of those left behind because the account already
-    had that name (S5), so the client can say so instead of a generic
+    had that name, so the client can say so instead of a generic
     warning."""
     report = {'moved': [], 'skipped': []}
     src = os.path.join(storage_root(), from_identity)
@@ -895,7 +894,7 @@ def adopt_workspace(from_identity, to_identity):
 
 
 def reset_identity(identity=None):
-    """Delete everything the caller has stored (4.6 Reset)."""
+    """Delete everything the caller has stored (Reset)."""
     root = identity_root(identity)
     shutil.rmtree(root, ignore_errors=True)
 
@@ -918,15 +917,15 @@ def _last_activity(identity_dir):
 def cleanup_old_files(ttl_seconds=7200):
     """Expire every ANONYMOUS workspace that has been idle longer than the TTL,
     as a whole. Logged-in users' files are kept (their data is
-    account-scoped; bucket lifecycle rules own that in 7.3).
+    account-scoped).
 
-    D1-3/D5-16: this used to delete files one by one by their own age. Reads
-    never refresh a file's mtime, so an active session lost its original upload
-    and metadata two hours after upload while the manifest and later versions
-    survived (revert 404'd, undo pointed at a deleted file). Idleness is now
-    the session's last activity (``.last_seen``, touched by every storage
-    access, or any newer file), and an expired workspace is removed in one
-    ``rmtree`` so no half-deleted history can remain."""
+    Idleness is the session's last activity (``.last_seen``, touched by every
+    storage access, or any newer file), not each file's own age: reads never
+    refresh a file's mtime, so per-file expiry would delete an active
+    session's original upload two hours in while the manifest and later
+    versions survived (revert would 404, undo would point at a deleted file).
+    An expired workspace is removed in one ``rmtree`` so no half-deleted
+    history can remain."""
     now = time.time()
     root = storage_root()
     if not os.path.isdir(root):
@@ -936,7 +935,7 @@ def cleanup_old_files(ttl_seconds=7200):
         if not os.path.isdir(identity_dir) or not entry.startswith('anon_'):
             continue
         # A fresh marker settles it with one stat; only a workspace whose
-        # marker is missing or old is walked file by file (3A A10).
+        # marker is missing or old is walked file by file.
         try:
             seen = os.stat(os.path.join(identity_dir, LAST_SEEN)).st_mtime
         except OSError:
@@ -949,7 +948,7 @@ def cleanup_old_files(ttl_seconds=7200):
             logger.info("Expired idle anonymous workspace: %s", entry)
 
 
-# Session workbook re-exports (SP1). Imported last: runs.py imports this
+# Session workbook re-exports. Imported last: runs.py imports this
 # module lazily, so the import order is safe either way.
 from .runs import (  # noqa: E402, F401 (re-exported API)
     RUN_NAME_MAX,

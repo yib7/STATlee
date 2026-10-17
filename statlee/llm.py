@@ -1,7 +1,7 @@
-"""Role-based LLM service with usage tracking (roadmap 3.3 / 3.4).
+"""Role-based LLM service with usage tracking.
 
 Every model call in the app goes through this module. Calls are addressed by
-*role* — 'pro', 'pro_max', 'flash', 'lite', or 'draft' — and the role→model
+*role* ('pro', 'pro_max', 'flash', 'lite', or 'draft') and the role→model
 mapping lives in config, so swapping a model is a config change, not a code
 change. Code generation normally uses 'draft'; the "Pro mode" toggle routes it
 to 'pro_max' (a bigger, stronger model) instead.
@@ -64,9 +64,9 @@ class LLMOutputError(RuntimeError):
 
 class TruncatedGenerationError(LLMOutputError):
     """Raised when a provider stopped generating because it hit the output-token
-    ceiling (P2-6). The partial text is unusable for code generation -- a script
+    ceiling. The partial text is unusable for code generation: a script
     cut mid-line would flow into validation and /run as confusing syntax errors
-    the auto-debugger then bills more tokens to explain -- so the backend fails
+    the auto-debugger then bills more tokens to explain. So the backend fails
     loudly instead of returning silently-truncated output. /chat turns this into
     a clean SSE error like any other backend exception."""
 
@@ -80,7 +80,7 @@ class BlockedGenerationError(LLMOutputError):
     """The provider's safety system blocked the prompt or stopped the answer
     (Gemini SAFETY/RECITATION/PROHIBITED_CONTENT/... or a blocked prompt,
     Anthropic ``stop_reason='refusal'``, OpenAI ``content_filter`` or a
-    ``refusal`` message) (D3-4). Any partial text is unusable."""
+    ``refusal`` message). Any partial text is unusable."""
 
     reason = 'blocked'
     default_message = ("The AI provider's safety filter declined this request, "
@@ -90,7 +90,7 @@ class BlockedGenerationError(LLMOutputError):
 
 class EmptyGenerationError(LLMOutputError):
     """The provider answered with no text at all (no candidates, an empty
-    message, or a stream that produced no deltas) (D3-4)."""
+    message, or a stream that produced no deltas)."""
 
     reason = 'empty'
     default_message = ('The model returned an empty response. Please try '
@@ -99,7 +99,7 @@ class EmptyGenerationError(LLMOutputError):
 
 class MalformedReplyError(LLMOutputError, ValueError):
     """A JSON-mode reply that does not parse, or parses to the wrong shape for
-    the route (D3-9/D3-10). Routes turn it into a 502."""
+    the route. Routes turn it into a 502."""
 
     reason = 'malformed'
     default_message = ("The model's reply was not in the expected format. "
@@ -110,7 +110,7 @@ class LLMUnavailableError(RuntimeError):
     """The provider could not be used at all: no answer came back. Like
     ``LLMOutputError`` it carries a ``user_message`` and a ``reason`` code,
     but it is a service failure (routes answer 503 and moderation still fails
-    closed), not an unusable answer (checklist 3.12)."""
+    closed), not an unusable answer."""
 
     reason = 'unavailable'
     default_message = ('The AI provider could not be reached. Please try '
@@ -196,7 +196,7 @@ def _truncated_by_token_limit(reason):
     return _reason_name(reason) in ('LENGTH', 'MAX_TOKENS')
 
 
-# Finish/stop reasons that mean "a safety system stopped this" (D3-4):
+# Finish/stop reasons that mean "a safety system stopped this":
 # Gemini FinishReason members, Anthropic 'refusal', OpenAI 'content_filter'.
 _BLOCKED_REASONS = frozenset({
     'SAFETY', 'RECITATION', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII',
@@ -208,14 +208,14 @@ _BLOCKED_REASONS = frozenset({
 def _check_truncation(reason, provider, model):
     """Raise ``TruncatedGenerationError`` when ``reason`` signals a token-ceiling
     cutoff; a no-op for a normal finish reason. One shared helper keeps the
-    three backends consistent (P2-6)."""
+    three backends consistent."""
     if _truncated_by_token_limit(reason):
         raise TruncatedGenerationError(provider, model)
 
 
 def _check_finish(reason, provider, model):
     """Raise the typed error a terminal finish/stop reason calls for: a safety
-    stop or refusal (D3-4), else a token-ceiling cutoff (P2-6)."""
+    stop or refusal, else a token-ceiling cutoff."""
     name = _reason_name(reason)
     if name in _BLOCKED_REASONS:
         raise BlockedGenerationError(provider, model, detail=name)
@@ -226,7 +226,7 @@ def _check_finish(reason, provider, model):
 def _billed(usage):
     """Attach the call's billed ``usage`` to any output error raised inside,
     so ``LLMService`` can still account for a blocked/empty/truncated call
-    the provider charged for (D3-11)."""
+    the provider charged for."""
     try:
         yield
     except LLMOutputError as exc:
@@ -238,7 +238,7 @@ def _usage_dict(model, input_tokens, output_tokens, thinking=0, cached=0):
     """Per-call usage. ``output`` is everything billed at the output rate
     (visible text plus thinking/reasoning tokens); ``thinking`` and ``cached``
     (prompt tokens served from the provider's cache, already inside ``input``)
-    are only present when non-zero (D3-3)."""
+    are only present when non-zero."""
     usage = {'model': model, 'input': int(input_tokens or 0),
              'output': int(output_tokens or 0)}
     if thinking:
@@ -257,7 +257,7 @@ def _status_code(exc):
 
 def _rejects_temperature(exc):
     """True for a provider 400 saying the model does not accept a custom
-    ``temperature`` (D3-12/D3-13). Anything else (context length, auth, 5xx)
+    ``temperature``. Anything else (context length, auth, 5xx)
     is not a temperature problem and must not trigger the no-temperature
     retry."""
     code = _status_code(exc)
@@ -267,7 +267,7 @@ def _rejects_temperature(exc):
 
 
 class _Timeouts:
-    """Per-model client timeout (D3-5): the Pro-mode model ('pro_max') gets the
+    """Per-model client timeout: the Pro-mode model ('pro_max') gets the
     longer budget, every other model the default one."""
 
     def __init__(self, config):
@@ -287,10 +287,10 @@ class _Timeouts:
 
 
 # ---------------------------------------------------------------------------
-# Gemini backend — owns only the wire protocol.
+# Gemini backend: owns only the wire protocol.
 # ---------------------------------------------------------------------------
 class GeminiBackend:
-    # Transient statuses retried with exponential backoff + jitter (D3-5).
+    # Transient statuses retried with exponential backoff + jitter.
     RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504]
 
     def __init__(self, config):
@@ -406,7 +406,7 @@ class GeminiBackend:
         # chunk that carries usage_metadata. Gemini reports cumulative counts on
         # its chunks, so the latest refresh holds the totals so far, and
         # usage_out is updated as they arrive: a stream cut short (client
-        # disconnect, safety stop) still accounts for what was billed (D3-11).
+        # disconnect, safety stop) still accounts for what was billed.
         if usage_out is not None:
             usage_out.update({'model': model, 'input': 0, 'output': 0})
         finish_reason = None
@@ -424,8 +424,8 @@ class GeminiBackend:
             if delta:
                 produced = True
                 yield delta
-        # After the deltas: a safety stop or blocked prompt (D3-4) and a
-        # token-ceiling cutoff (P2-6) fail loudly so /chat emits a clean error
+        # After the deltas: a safety stop or blocked prompt and a
+        # token-ceiling cutoff fail loudly so /chat emits a clean error
         # instead of accepting a partial script.
         if block:
             raise BlockedGenerationError('Gemini', model, detail=block)
@@ -445,7 +445,7 @@ class AnthropicBackend:
     JSON_SYSTEM = ("Output only a single valid JSON value — no markdown, "
                    "no code fences, no prose.")
 
-    # Sampling parameters (D3-13). Anthropic deprecated temperature/top_p/top_k
+    # Sampling parameters. Anthropic deprecated temperature/top_p/top_k
     # for Claude 4.7 and later models (a non-default value is a 400), and the
     # Python SDK 1.x dropped them from messages.create/stream (passing one is a
     # TypeError), so the temperature travels in ``extra_body`` and only for
@@ -531,14 +531,14 @@ class AnthropicBackend:
             (getattr(u, 'input_tokens', 0) or 0) + cache_read + cache_write,
             getattr(u, 'output_tokens', 0) or 0, cached=cache_read)
 
-    # B-14 (defensive, not live-verified: confirming it needs a paid call).
+    # Defensive, not live-verified (confirming it needs a paid call).
     # The Pro-mode model on Anthropic (claude-fable-5-1 by default) thinks on
     # every call, and thinking tokens count against max_tokens, so a long Pro
     # draft or report draft could stop at the configured budget and fail as
     # truncated. The 'pro_max' model gets at least this budget when it is a
     # current (4.7+) Claude id, all of which accept far larger outputs; the
     # cap is a ceiling, so it costs nothing unless the model uses it. OpenAI
-    # streams already get 32000 for the same reason (D3-16).
+    # streams already get 32000 for the same reason.
     PRO_MAX_MIN_TOKENS = 32000
 
     def _max_tokens(self, model, base):
@@ -564,7 +564,7 @@ class AnthropicBackend:
 
     def _call(self, fn, kwargs):
         """Call ``fn(**kwargs)``; on a 'temperature not supported' 400, retry
-        once without it and remember the model (D3-13)."""
+        once without it and remember the model."""
         try:
             return fn(**kwargs)
         except Exception as exc:
@@ -598,8 +598,8 @@ class AnthropicBackend:
         """Enter ``messages.stream`` and return ``(exit_stack, stream)``.
 
         ``messages.stream()`` only builds a manager; the HTTP request (and a
-        'temperature not supported' 400) happens on ENTER, so the D3-13
-        retry-without-temperature must wrap the enter, not the call (B-07).
+        'temperature not supported' 400) happens on ENTER, so the
+        retry-without-temperature must wrap the enter, not the call.
         No delta has been yielded at that point, so a retry is invisible."""
         stack = contextlib.ExitStack()
         try:
@@ -631,7 +631,7 @@ class AnthropicBackend:
                         yield delta
                 final = stream.get_final_message()
             finally:
-                # D3-11: account for a stream cut short (client disconnect or
+                # Account for a stream cut short (client disconnect or
                 # an error) from the partial snapshot the SDK keeps.
                 snapshot = final if final is not None else getattr(
                     stream, 'current_message_snapshot', None)
@@ -650,7 +650,7 @@ class OpenAIBackend:
     parts (images) and ``file`` parts (base64 PDFs). Reasoning models (gpt-5.x,
     gpt-6.x, o-series) reject non-default sampling params, so a ``temperature`` 400
     triggers one retry without it, and the model is remembered so later calls
-    skip the failing round-trip (D3-12). Determinism for cached temp-0 calls is
+    skip the failing round-trip. Determinism for cached temp-0 calls is
     preserved by ``LLMService``'s cache regardless."""
 
     def __init__(self, config):
@@ -701,8 +701,7 @@ class OpenAIBackend:
     def _usage(response, model):
         u = getattr(response, 'usage', None)
         # completion_tokens already includes reasoning tokens and prompt_tokens
-        # already includes cached ones; the details are reported alongside
-        # (D3-3).
+        # already includes cached ones; the details are reported alongside.
         return _usage_dict(
             model, getattr(u, 'prompt_tokens', 0) or 0,
             getattr(u, 'completion_tokens', 0) or 0,
@@ -715,7 +714,7 @@ class OpenAIBackend:
         kwargs = {
             'model': model,
             'messages': [{'role': 'user', 'content': self._content(contents)}],
-            # D3-16: on reasoning models this budget includes hidden reasoning
+            # On reasoning models this budget includes hidden reasoning
             # tokens, so streams (code drafts) get the larger cap.
             'max_completion_tokens': (
                 self.config.openai_stream_max_tokens if stream
@@ -808,7 +807,7 @@ def _make_backend(config):
 
 
 # ---------------------------------------------------------------------------
-# Service — routing, cache, and usage accounting.
+# Service: routing, cache, and usage accounting.
 # ---------------------------------------------------------------------------
 class LLMService:
     def __init__(self, config):
@@ -823,7 +822,7 @@ class LLMService:
     # ------------------------------------------------------------------
     def _resolve(self, role):
         cfg = self.config
-        # NB (P2-4): 'pro' and 'draft' BOTH map to model_pro — the default,
+        # NB: 'pro' and 'draft' BOTH map to model_pro, the default,
         # cheaper code-gen tier. The real "Pro mode" upgrade is 'pro_max' ->
         # model_pro_max. So MODEL_PRO changes the default tier, NOT Pro mode.
         mapping = {
@@ -852,7 +851,7 @@ class LLMService:
             return {model: dict(v) for model, v in self.usage_totals.items()}
 
     # ------------------------------------------------------------------
-    # Deterministic-call cache (workstream B)
+    # Deterministic-call cache
     # ------------------------------------------------------------------
     @staticmethod
     def _cache_key(model, contents, json_mode):
@@ -888,7 +887,7 @@ class LLMService:
             cache_key = self._cache_key(model, contents, json_mode)
             cached = self._cache_get(cache_key)
             if cached is not None:
-                # D3-11: a cache hit costs nothing, so report zero usage
+                # A cache hit costs nothing, so report zero usage
                 # (flagged) instead of re-showing the original call's tokens.
                 return LLMResult(text=cached.text, usage={
                     'model': model, 'input': 0, 'output': 0,
@@ -918,7 +917,7 @@ class LLMService:
     def stream(self, role, contents, *, temperature=0.2, usage_out=None):
         """Yield text deltas; fill ``usage_out`` (if given) when finished.
 
-        Usage is recorded in a ``finally`` (D3-11), so a stream that ends in a
+        Usage is recorded in a ``finally``, so a stream that ends in a
         truncation/safety error or is closed by a client disconnect
         (``GeneratorExit``) is still counted in ``/metrics`` and reported to
         the caller. The backends keep ``local`` current as usage arrives."""
@@ -931,7 +930,7 @@ class LLMService:
                 started = True
                 yield delta
         except Exception as exc:
-            # A network error or timeout mid-stream says so (3.12).
+            # A network error or timeout mid-stream says so.
             typed = _translate_unavailable(exc, self.config.llm_provider)
             if typed is None:
                 raise

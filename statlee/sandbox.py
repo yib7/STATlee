@@ -1,19 +1,19 @@
-"""Isolated execution of untrusted analysis code (roadmap Tier 0).
+"""Isolated execution of untrusted analysis code.
 
-- 0.1 The subprocess gets an explicit, secret-free environment — generated
-      code cannot read GEMINI_API_KEY or any other app secret.
-- 0.2 Every run gets its own throwaway working directory containing ONLY the
-      one dataset it needs; concurrent runs can never see each other's files.
-      On POSIX, resource limits cap memory/CPU/file-size/processes (no-op on
-      the Windows dev host). Captured output is bounded WHILE it is read, so a
-      script that floods stdout cannot exhaust the app's memory.
-- 0.3 Optional true container isolation: SANDBOX_MODE=docker launches a
-      sibling container (network-less, non-root, read-only, resource-capped)
-      per execution using the image built from docker/runner.Dockerfile.
-- 5.2 All ``plot*.png`` files produced by the run are collected, not just one,
-      up to ``PLOTS_MAX`` plots and ``PLOTS_BYTES_MAX`` bytes of them per run
-      (every run's plots are kept in the session workbook). Only regular files
-      are read back: a symlink or FIFO the script planted is skipped.
+- The subprocess gets an explicit, secret-free environment: generated
+  code cannot read GEMINI_API_KEY or any other app secret.
+- Every run gets its own throwaway working directory containing ONLY the
+  one dataset it needs; concurrent runs can never see each other's files.
+  On POSIX, resource limits cap memory/CPU/file-size/processes (no-op on
+  the Windows dev host). Captured output is bounded WHILE it is read, so a
+  script that floods stdout cannot exhaust the app's memory.
+- Optional true container isolation: SANDBOX_MODE=docker launches a
+  sibling container (network-less, non-root, read-only, resource-capped)
+  per execution using the image built from docker/runner.Dockerfile.
+- All ``plot*.png`` files produced by the run are collected, not just one,
+  up to ``PLOTS_MAX`` plots and ``PLOTS_BYTES_MAX`` bytes of them per run
+  (every run's plots are kept in the session workbook). Only regular files
+  are read back: a symlink or FIFO the script planted is skipped.
 """
 import base64
 import glob
@@ -49,7 +49,7 @@ FILE_LIMIT_MB_DEFAULT = 256
 RUN_DIR_FILES_FACTOR = 2
 _DIR_POLL_SECONDS = 0.25
 
-# Thread fan-out of the numeric libraries (B-01). One thread each: OpenBLAS,
+# Thread fan-out of the numeric libraries. One thread each: OpenBLAS,
 # MKL, OpenMP (R's data.table too) and numexpr then start no worker threads at
 # all. RLIMIT_CPU counts CPU across threads, so extra BLAS threads only spent
 # the CPU budget faster, and each one counts against RLIMIT_NPROC.
@@ -74,8 +74,8 @@ NPROC_FALLBACK = 128
 _root_warned = False
 
 # Run output (tracebacks above all) is shown in the UI, stored with the run and
-# shipped in /export, so host paths in it are rewritten to neutral labels
-# (Phase 4, 4.9): the run dir and the docker workdir disappear (``File
+# shipped in /export, so host paths in it are rewritten to neutral labels:
+# the run dir and the docker workdir disappear (``File
 # "script.py"``), the interpreter's install dirs become ``<site-packages>``,
 # ``<stdlib>`` or ``<python>``, the temp dir ``<tmp>`` and the home dir ``~``.
 DOCKER_WORKDIR = '/work'
@@ -168,7 +168,7 @@ class RunResult:
 
 
 def _safe_env(run_dir):
-    """Minimal, secret-free environment (0.1)."""
+    """Minimal, secret-free environment."""
     env = {
         'PATH': os.environ.get('PATH', ''),
         'HOME': run_dir,
@@ -219,7 +219,7 @@ def _nproc_cap():
     """The RLIMIT_NPROC value for the next run: the uid's current task count
     plus ``NPROC_HEADROOM``, never above the existing hard limit (raising it
     needs privileges, and a failed setrlimit would leave no cap at all)."""
-    import resource  # noqa: PLC0415 — POSIX-only import
+    import resource  # noqa: PLC0415 (POSIX-only import)
     current = _user_task_count()
     cap = NPROC_FALLBACK if current is None else current + NPROC_HEADROOM
     try:
@@ -243,13 +243,13 @@ def _warn_if_root():
 
 
 def _posix_limits(memory_mb, file_limit_mb=FILE_LIMIT_MB_DEFAULT):
-    """Build a preexec_fn applying rlimits. POSIX only (0.2).
+    """Build a preexec_fn applying rlimits. POSIX only.
 
     The process cap is computed here, in the parent, because the closure runs
     between fork and exec where reading ``/proc`` is unsafe."""
     if os.name == 'nt':
         return None
-    import resource  # noqa: PLC0415 — POSIX-only import
+    import resource  # noqa: PLC0415 (POSIX-only import)
 
     _warn_if_root()
     nproc = _nproc_cap()
@@ -269,7 +269,7 @@ def _posix_limits(memory_mb, file_limit_mb=FILE_LIMIT_MB_DEFAULT):
 
 
 # ---------------------------------------------------------------------------
-# Output capture (B-02): bounded while it is read
+# Output capture: bounded while it is read
 # ---------------------------------------------------------------------------
 
 class _BoundedReader(threading.Thread):
@@ -329,8 +329,8 @@ def _timeout_message(timeout):
 
 
 def _timeout_output(partial, timeout):
-    """What the script printed before it was stopped, then the timeout notice
-    (S5): a long model fit that dies at the limit still shows its progress."""
+    """What the script printed before it was stopped, then the timeout notice,
+    so a long model fit that dies at the limit still shows its progress."""
     notice = _timeout_message(timeout)
     return f"{partial}\n\n{notice}" if partial else notice
 
@@ -424,7 +424,7 @@ def _execute(cmd, popen_kwargs, *, timeout, output_limit, kill, run_dir=None,
 
 
 def _file_limit_note(outcome, file_limit_mb, dir_limit_mb):
-    """A plain explanation when the run hit a file-size limit (B-10): Python
+    """A plain explanation when the run hit a file-size limit: Python
     raises ``OSError: [Errno 27] File too large`` and R is killed by
     SIGXFSZ, neither of which says which limit or how big it is."""
     if outcome.disk_exceeded:
@@ -441,7 +441,7 @@ def _file_limit_note(outcome, file_limit_mb, dir_limit_mb):
 
 def _docker_cmd(image, run_dir, script_name, is_python, memory_mb, name,
                 file_limit_mb=FILE_LIMIT_MB_DEFAULT):
-    """Sibling-container invocation (0.3, option A)."""
+    """Sibling-container invocation (docker mode)."""
     interpreter = 'python' if is_python else 'Rscript'
     env_flags = []
     for key, value in {**THREAD_ENV, 'MPLBACKEND': 'Agg',
@@ -470,8 +470,8 @@ def _docker_cmd(image, run_dir, script_name, is_python, memory_mb, name,
 
 
 def _read_regular_file(path, max_bytes):
-    """Up to ``max_bytes`` of ``path``, or None unless it is a regular file
-    (B-03). The script chose these names, so a symlink (which in docker mode
+    """Up to ``max_bytes`` of ``path``, or None unless it is a regular file.
+    The script chose these names, so a symlink (which in docker mode
     would point the host-side app at a host file) or a FIFO (whose open would
     block forever) is skipped: ``lstat`` first, then an ``O_NOFOLLOW`` /
     ``O_NONBLOCK`` open re-checked with ``fstat``."""
@@ -503,7 +503,7 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
     against the HOST filesystem; a run dir in the app container's private /tmp
     does not exist host-side. Pointing this at a path the operator bind-mounts
     at the SAME absolute path into the app container lets the daemon resolve
-    the ``-v`` source (P1-5).
+    the ``-v`` source.
 
     ``file_limit_mb`` (config ``EXEC_FILE_LIMIT_MB``) caps each file the run
     writes, in both modes; all files together may add at most
@@ -521,7 +521,7 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
     # 1000 the runner cannot read /work, so widen the throwaway dir to
     # world-accessible on the POSIX docker path. chmod's permission bits are a
     # POSIX concept; docker mode is never exercised on the Windows dev host, so
-    # the chmod is guarded out there and behavior stays unchanged (P1-5).
+    # the chmod is guarded out there and behavior stays unchanged.
     if mode == 'docker' and os.name == 'posix':
         os.chmod(run_dir, 0o777)
     result = RunResult()
@@ -587,7 +587,7 @@ def run_in_sandbox(code, language='Python', dataset_path=None,
             output += _file_limit_note(outcome, file_limit_mb, dir_limit_mb)
             if outcome.timed_out:
                 # The script ran and was stopped; what it wrote before the
-                # stop is kept (S5).
+                # stop is kept.
                 result.timed_out = True
                 result.returncode = -1
                 result.output = _timeout_output(output, timeout)

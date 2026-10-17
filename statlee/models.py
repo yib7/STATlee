@@ -1,9 +1,9 @@
-"""Database models (roadmap 7.2).
+"""Database models.
 
-SQLite by default (zero-config dev), PostgreSQL in production via
-``DATABASE_URL``. Anonymous sandbox sessions never touch these tables —
-they only exist for logged-in users, preserving the "data not stored"
-promise for anonymous use.
+SQLite by default (nothing to set up in development), PostgreSQL in
+production via ``DATABASE_URL``. Anonymous sandbox sessions never touch
+these tables: they only exist for logged-in users, preserving the "data
+not stored" promise for anonymous use.
 """
 from datetime import UTC, datetime
 
@@ -18,7 +18,7 @@ def _utcnow():
 
 
 def _iso_utc(value):
-    """ISO-8601 with an explicit ``+00:00`` (D4-28). SQLite hands back naive
+    """ISO-8601 with an explicit ``+00:00``. SQLite hands back naive
     datetimes even for ``DateTime(timezone=True)`` columns; the values are
     stored as UTC, and an offset-less string is parsed as LOCAL time by
     browsers, shifting every server history entry by the viewer's offset."""
@@ -37,7 +37,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
-    # --- Monetization seam (workstream E) --------------------------------
+    # --- Monetization seam --------------------------------
     # No real billing yet. These exist so Pro mode and a future paid tier have
     # a place to live; ``billing.check_and_debit`` is the only code that should
     # read/write ``credits``.
@@ -45,7 +45,7 @@ class User(UserMixin, db.Model):
     credits = db.Column(db.Integer, nullable=False, default=0)
     # 'YYYY-MM' of the last month this account's free credits were topped up.
     # Lets billing.check_and_debit apply MONTHLY_FREE_CREDITS lazily, exactly
-    # once per calendar month on the first billed request of that month (P2-10).
+    # once per calendar month on the first billed request of that month.
     credits_month = db.Column(db.String(7), nullable=True)
 
     # --- Email verification (opt-in via REQUIRE_EMAIL_VERIFICATION) -------
@@ -54,10 +54,10 @@ class User(UserMixin, db.Model):
     email_verified = db.Column(db.Boolean, nullable=False, default=False)
     verification_token = db.Column(db.String(64), nullable=True, index=True)
     # When the verification token was issued, so a stale/leaked link can expire
-    # instead of granting login forever (P2-12).
+    # instead of granting login forever.
     token_issued_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
-    # --- Password reset (P2-11) ------------------------------------------
+    # --- Password reset ------------------------------------------
     # Single-use reset token plus its issue time (1h expiry). Mirrors the
     # verification-token machinery.
     password_reset_token = db.Column(db.String(64), nullable=True, index=True)
@@ -74,7 +74,7 @@ class User(UserMixin, db.Model):
 
 
 class AnalysisRun(db.Model):
-    """One generate→run→interpret cycle, persisted for logged-in users (5.7/7.2)."""
+    """One generate→run→interpret cycle, persisted for logged-in users."""
     __tablename__ = 'analysis_runs'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -86,7 +86,7 @@ class AnalysisRun(db.Model):
     output = db.Column(db.Text)
     interpretation = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
-    # Session workbook link (SP1): the run this entry came from, filled by the
+    # Session workbook link: the run this entry came from, filled by the
     # history writer from the server's run record. While the run dir still
     # exists, a restore can bring back its output, plots and methods.
     run_id = db.Column(db.String(16), nullable=True)
@@ -110,7 +110,7 @@ class AnalysisRun(db.Model):
 
 
 class IssueReport(db.Model):
-    """In-app diagnostic reports (6.3)."""
+    """In-app diagnostic reports."""
     __tablename__ = 'issue_reports'
 
     id = db.Column(db.Integer, primary_key=True)

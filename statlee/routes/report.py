@@ -1,4 +1,4 @@
-"""AI report builder (5.17): ``POST /generate_report`` drafts a report from
+"""Report builder: ``POST /generate_report`` drafts a report from
 the selected workbook runs, or revises a draft, streamed over SSE. Each
 run's script output, interpretation and Methods card ground the prompt;
 free text is moderated first and the call is debited like the other model
@@ -52,7 +52,7 @@ REPORT_METHODS_MAX = 12000      # chars of all the runs' Methods cards
 
 
 def _report_run_ids(data):
-    """``(run_ids, explicit)`` for /generate_report (SP1). Without
+    """``(run_ids, explicit)`` for /generate_report. Without
     ``run_ids`` the report grounds on the latest run; with them, on each
     named run, in the order they were run. Every id must be one of the
     caller's own runs (``RunNotFound`` otherwise, never a silent skip)."""
@@ -71,8 +71,8 @@ def _report_run_ids(data):
 
 
 def _run_card(run_id, output):
-    """The run's Methods card as prompt text (SP3): its stored card, or one
-    parsed from its output for a run saved before SP3."""
+    """The run's Methods card as prompt text: its stored card, or one
+    parsed from its output for a run saved without one."""
     return methods_card.render_text(
         methods_card.for_run(storage.run_meta(run_id), output))
 
@@ -83,7 +83,7 @@ def _run_grounding(run_ids):
     labelled with their id and question (both server-side: the question
     passed /chat's moderation; client-chosen run names are left out of the
     prompt) and share the same ``FREE_TEXT_MAX`` budget evenly. ``methods``
-    is each run's Methods card (SP3), in its own ``REPORT_METHODS_MAX``
+    is each run's Methods card, in its own ``REPORT_METHODS_MAX``
     budget, labelled the same way."""
     if len(run_ids) == 1:
         output, _plots = storage.run_artifacts(run_ids[0])
@@ -118,7 +118,7 @@ def _run_grounding(run_ids):
 
 
 def _moderate_free_text(service, text, material=None):
-    """P1-2: the same fail-closed moderation gate /converse applies, run on
+    """The same fail-closed moderation gate /converse applies, run on
     the report builder's client free-text. Returns ``(error_response, usage)``
     where ``error_response`` is the response to send when the text is blocked
     (or the service failed), else ``None``."""
@@ -144,13 +144,13 @@ def generate_report():
     run_ids = []
 
     if revision:
-        # P1-7/P1-2: every revision field is client text; clamp before use.
+        # Every revision field is client text; clamp before use.
         selection = clamp(revision.get('selection'), FREE_TEXT_MAX).strip()
         instruction = clamp(revision.get('instruction'), BACKGROUND_MAX).strip()
         if not selection or not instruction:
             return json_error('Revision needs a selected passage and an instruction.')
         # The instruction is free-form user text; moderate it like /converse.
-        # D3-2: the report and the selection are client text too and reach
+        # The report and the selection are client text too and reach
         # the model, so they are reviewed with it.
         blocked_resp, mod_usage = _moderate_free_text(
             service, instruction,
@@ -163,16 +163,16 @@ def generate_report():
             clamp(revision.get('report'), FREE_TEXT_MAX), selection,
             instruction)
     else:
-        # P1-7/P1-2: cap every client-supplied field before it can reach the
+        # Cap every client-supplied field before it can reach the
         # two paid model calls below.
-        # D3-2: ground on the server's record of the last run (its output and
+        # Ground on the server's record of the last run (its output and
         # the interpretation /interpret stored) and fall back to the client's
         # copy only where no server record exists. Client copies are then
         # moderated below with the rest of the client text.
-        # SP1: ``run_ids`` selects the runs (default: the latest). Named runs
+        # ``run_ids`` selects the runs (default: the latest). Named runs
         # are grounded on the server's record only; the client copies are a
         # fallback for the default path with no server run.
-        # SP3: each grounded run's Methods card goes in too, from the
+        # Each grounded run's Methods card goes in too, from the
         # server's record only (never a client field).
         run_ids, explicit = _report_run_ids(data)
         server_output, server_interp, cards = (
@@ -207,7 +207,7 @@ def generate_report():
 
         # Every piece of client text that reaches the two paid calls (the
         # background, unverified results, the chat and converse history) is
-        # moderated together (fail-closed) before any billable work (D3-2).
+        # moderated together (fail-closed) before any billable work.
         material = _join_material(
             ('TERMINAL OUTPUT', '' if output_trusted else output),
             ('INTERPRETATION', '' if interp_trusted else interpretation),
@@ -227,7 +227,7 @@ def generate_report():
             background, length, fmt, output, interpretation, history, converse,
             methods_card=cards or None)
 
-        # P1-2: the draft pass runs on the priciest (pro_max) tier, so it must
+        # The draft pass runs on the priciest (pro_max) tier, so it must
         # clear the same billing chokepoint as Pro-mode /chat, in the settled
         # moderate -> validate -> debit order. Without this the report builder
         # is a free tunnel to the tier billing exists to meter. Everything
@@ -259,7 +259,7 @@ def generate_report():
             # Two-pass authoring: the 'pro_max' model compiles all the material
             # (results, interpretation, and the converse discussion of the
             # findings) into a grounded working draft, then the default 'pro'
-            # model writes the finished piece. B-14: the draft is streamed
+            # model writes the finished piece. The draft is streamed
             # (and collected here, not shown): streams get the larger output
             # budget, which a thinking Pro model needs, and no non-streaming
             # request timeout applies to a long draft.
@@ -291,6 +291,6 @@ def generate_report():
             yield sse_event(debit.with_balance(
                 llm_error_payload(exc, 'Report generation failed.')))
         finally:
-            debit.refund()   # D1-15: client disconnect (GeneratorExit)
+            debit.refund()   # Client disconnect (GeneratorExit)
 
     return debit.attach(sse_stream(generate))

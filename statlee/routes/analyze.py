@@ -1,9 +1,8 @@
 """Analysis pipeline routes: code generation, guarded execution,
 interpretation/auto-debugging, and the method picker.
 
-Implements roadmap items 0.4 (run-guard), 5.5 (streamed draft), 5.11
-(auto-debug), 5.12 (refinement mode), 5.14 (method picker), 5.2 (multi-plot),
-plus the per-analysis usage accounting from 3.4.
+Covers the run-guard, the streamed draft, auto-debug, refinement mode, the
+method picker, multi-plot output, and per-analysis usage accounting.
 """
 import base64
 import logging
@@ -68,13 +67,13 @@ def _cfg():
 
 
 # ---------------------------------------------------------------------------
-# /chat — moderation → feature selection → streamed draft → streamed validation
+# /chat: moderation → feature selection → streamed draft → streamed validation
 # ---------------------------------------------------------------------------
 
 def _chat_material(history, current_code, language):
     """The client text besides the prompt that /chat sends to the draft: the
     conversation history and a current script the run-guard has not already
-    approved. Reviewed with the request by Gate 1 (B-06)."""
+    approved. Reviewed with the request by Gate 1."""
     material = []
     if current_code and not storage.is_approved_script(current_code, language):
         material.append('CURRENT SCRIPT:\n' + current_code)
@@ -102,16 +101,16 @@ def _fix_question(user_prompt, fix_of):
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def chat():
     data = request_json()
-    # P1-7: clamp everything that flows into prompts before any LLM call --
+    # Clamp everything that flows into prompts before any LLM call:
     # unbounded client text here is unmetered input-token spend on the
     # operator's key.
     user_prompt = clamp(data.get('prompt'), FREE_TEXT_MAX)
     filename = dataset_filename_field(data)
     # 'language' selects the interpreter, the static check and the approval
-    # key, so it is validated as an enum (D1-12), not free text.
+    # key, so it is validated as an enum, not free text.
     target_language = language_field(data)
     history = clamp_history(data.get('history', []))
-    # SP2: the codebook comes from the server (below); a client-sent one is
+    # The codebook comes from the server (below); a client-sent one is
     # accepted for old clients but never reaches a prompt.
     if data.get('codebook'):
         logger.debug("/chat: ignoring the client-sent 'codebook' field")
@@ -133,9 +132,9 @@ def chat():
 
     service = llm.get_service()
 
-    # Gate 1: moderation (synchronous — must 403 before any stream starts).
+    # Gate 1: moderation (synchronous, must 403 before any stream starts).
     # Structured verdict + default-deny: a malformed/ambiguous reply blocks.
-    # B-06: the chat history and an unapproved current script reach the paid
+    # The chat history and an unapproved current script reach the paid
     # draft (whose deltas stream straight back), so they are client text to
     # review with the request, exactly as /converse does.
     denied, mod = moderation_gate(
@@ -148,9 +147,9 @@ def chat():
     # Gate 2: the dataset must resolve and read BEFORE any money moves. An
     # invalid/expired filename (anonymous TTL cleanup makes stale tabs common)
     # or an unreadable CSV returns here without touching credits or the
-    # operator's monthly priority ceiling (P1-1).
+    # operator's monthly priority ceiling.
     try:
-        # D3-7: the full (cached) frame, so the draft's missing counts, dtypes
+        # The full (cached) frame, so the draft's missing counts, dtypes
         # and ranges describe the whole dataset rather than its first 100 rows.
         df, _ = read_active_frame(filename)
     except Exception:
@@ -179,7 +178,7 @@ def chat():
     selection_usage = None
     selection_degraded = False   # feature selection failed -> full-schema fallback
     if len(headers) >= cfg.feature_selection_threshold:
-        # D1-5/D3-6: list EVERY column, annotated by its codebook entry where
+        # List EVERY column, annotated by its codebook entry where
         # one exists. Sending only the codebook (when present) hid every column
         # the user had not classified, so selection could never pick them.
         summaries = {h: codebook_store.summary_line(entries[h])
@@ -213,7 +212,7 @@ def chat():
         logger.info("[/chat] Stage 1 skipped: %d columns below threshold (%d)",
                     len(headers), cfg.feature_selection_threshold)
 
-    # SP2: the codebook budget applies to the columns the draft will use
+    # The codebook budget applies to the columns the draft will use
     # (after selection), so a selected late column keeps its entry; the roles
     # block is built from the unclamped entries (bounded by column count).
     selected = codebook_store.prompt_dict(
@@ -228,7 +227,7 @@ def chat():
             # depends on the paid feature-selection pass, which must stay
             # behind the debit) so a prompt-construction failure lands on the
             # refund path below instead of stranding the debited credit.
-            # D1-5/D3-6: the metadata covers the columns Stage 1 picked (all of
+            # The metadata covers the columns Stage 1 picked (all of
             # them when it was skipped), not whatever the first 80 happened to be.
             metadata_summary = datatools.metadata_json(
                 df[filtered_headers],
@@ -237,7 +236,7 @@ def chat():
                 filename, filtered_headers, filtered_codebook, target_language,
                 metadata_summary, history, user_prompt,
                 current_code=current_code, roles=codebook_roles)
-            # Surface the feature-selection fallback (P2-8): the user already
+            # Surface the feature-selection fallback: the user already
             # paid for the request, so if Stage 1 failed and we quietly reverted
             # to the full schema, tell them rather than swallowing it server-side.
             if selection_degraded:
@@ -245,7 +244,7 @@ def chat():
                     'type': 'phase', 'phase': 'feature_selection_skipped',
                     'message': ('Column pre-selection was unavailable; analyzing '
                                 'with the full dataset schema.')})
-            # Phase A: stream the draft (5.5) — the slowest step is now visible.
+            # Phase A: stream the draft, so the slowest step is visible.
             # Pro mode routes code generation to the bigger 'pro_max' model.
             yield sse_event({'type': 'phase', 'phase': 'drafting'})
             draft_accumulated = ''
@@ -256,14 +255,14 @@ def chat():
                 yield sse_event({'type': 'delta', 'text': delta})
             draft_code = strip_code_fences(draft_accumulated)
             if not draft_code.strip():
-                # D3-4: nothing usable to validate (e.g. a reply that was
+                # Nothing usable to validate (e.g. a reply that was
                 # only a code fence).
                 raise llm.EmptyGenerationError()
 
             # Phase B: stream the validation pass (replaces the draft client-side).
             yield sse_event({'type': 'phase', 'phase': 'validating'})
             validated = ''
-            # D3-8: the reviewer sees the request and the analysed columns.
+            # The reviewer sees the request and the analysed columns.
             # In Pro mode it runs on the same Pro model as the draft: a
             # weaker model rewriting a Pro draft undid what the user paid for.
             for delta in service.stream(
@@ -278,12 +277,12 @@ def chat():
 
             final_code = strip_code_fences(validated)
             if not final_code.strip():
-                # D3-4: an empty validation result must never be moderated,
+                # An empty validation result must never be moderated,
                 # approved and delivered as the script; the except below
                 # refunds and explains.
                 raise llm.EmptyGenerationError()
 
-            # Run-guard (0.4): re-moderate the model's OWN generated script, not
+            # Run-guard: re-moderate the model's OWN generated script, not
             # just the user's instruction (Gate 1). A jailbroken or misbehaving
             # model can emit network / env-exfiltration / shell code from a
             # benign-looking prompt, so moderating the instruction alone is not
@@ -304,7 +303,7 @@ def chat():
             except Exception as exc:
                 logger.exception("Run-guard code-moderation failed in /chat")
                 debit.refund()
-                # No key / provider unreachable says so (3.12).
+                # No key / provider unreachable says so.
                 yield sse_event(debit.with_balance(llm_error_payload(
                     exc, 'Could not verify the generated script. Please try '
                          'again.')))
@@ -320,7 +319,7 @@ def chat():
                                f'check. {reason}'}))
                 return
 
-            # Static pre-check (P1-1a): a non-LLM AST gate encoding the same
+            # Static pre-check: a non-LLM AST gate encoding the same
             # prohibitions as prompts.code_moderation, run as the LAST gate after
             # the (bypassable) LLM pass. Defense-in-depth ADDED to, never
             # replacing, the LLM guard above. On a block, refund like the guard
@@ -337,7 +336,7 @@ def chat():
 
             # Only a moderated script is remembered as approved; /run then
             # executes this (or a re-moderated edit of it) without re-moderating.
-            # D6: remember what it was generated for, so /interpret can ground
+            # Remember what it was generated for, so /interpret can ground
             # on the user's question and the analysed columns server-side.
             storage.save_approved_script(
                 final_code, target_language, source='chat',
@@ -348,7 +347,7 @@ def chat():
                          [:CONTEXT_COLUMNS_MAX],
                          'codebook': clamp_codebook(filtered_codebook,
                                                     CONTEXT_CODEBOOK_MAX),
-                         # SP1 provenance: the role/model that drafted it.
+                         # Provenance: the role/model that drafted it.
                          'role': draft_role, 'model': draft_model})
 
             usage = usage_breakdown(mod.usage, selection_usage,
@@ -362,15 +361,15 @@ def chat():
             logger.exception("Code generation stream failed")
             # The credit (if any) was debited before streaming began; the stream
             # produced no usable script, so refund it rather than charge for
-            # nothing (P1-3). Best-effort: a refund failure must not mask the
-            # original error the user needs to see. D3-4: a provider block,
+            # nothing. Best-effort: a refund failure must not mask the
+            # original error the user needs to see. A provider block,
             # refusal, empty or truncated reply says so instead of the generic
             # message.
             debit.refund()
             yield sse_event(debit.with_balance(llm_error_payload(
                 exc, 'Code generation failed. Please try again.')))
         finally:
-            # D1-15: a client disconnect closes this generator with
+            # A client disconnect closes this generator with
             # GeneratorExit, which the except above never sees. Anything not
             # delivered is refunded (at most once).
             debit.refund()
@@ -381,7 +380,7 @@ def chat():
 
 
 # ---------------------------------------------------------------------------
-# /run — guarded local execution (0.4 + Tier 0 sandbox + 5.2 multi-plot)
+# /run: guarded local execution (run-guard + sandbox + multi-plot)
 # ---------------------------------------------------------------------------
 
 DATASET_GONE_MESSAGE = ('That dataset is no longer available (uploads expire '
@@ -392,8 +391,8 @@ DATASET_GONE_MESSAGE = ('That dataset is no longer available (uploads expire '
 @limiter.limit(lambda: _cfg().rate_limit_run)
 def run_code():
     data = request_json()
-    # D1-12: validate every field BEFORE anything is persisted, so a bad
-    # language can no longer be saved into the approved store and break /export.
+    # Validate every field BEFORE anything is persisted, so a bad
+    # language cannot be saved into the approved store and break /export.
     code = str_field(data, 'code')
     language = language_field(data)
     filename = dataset_filename_field(data)
@@ -404,7 +403,7 @@ def run_code():
         return json_error(
             f'The script is too long to run ({len(code):,} characters; the '
             f'limit is {RUN_CODE_MAX:,}).', 413)
-    # D4-29: an unchanged script runs under the language it was generated and
+    # An unchanged script runs under the language it was generated and
     # approved for, even if the dropdown was switched afterwards (Python code
     # under Rscript only produced a confusing error). Code approved for
     # neither language keeps the requested one and is reviewed for it below.
@@ -420,18 +419,18 @@ def run_code():
         dataset_path, dataset_version = storage.active_dataset_snapshot(
             filename)
         if not (dataset_path and os.path.isfile(dataset_path)):
-            # B-11: an expired or deleted upload. Running anyway only crashed
+            # An expired or deleted upload. Running anyway only crashed
             # the script on a missing file, saved that as a run, and invited a
             # paid /interpret call to explain it.
             return json_error(DATASET_GONE_MESSAGE, 404)
         dataset_name = os.path.basename(storage.resolve_path(filename) or '') or None
 
-    # Static pre-check (P1-1a): the non-LLM gate before execution, for both
+    # Static pre-check: the non-LLM gate before execution, for both
     # the approved-from-chat and the edited paths. This import allowlist
     # (Python) / regex denylist (R) is defense-in-depth added to the LLM
     # code_moderation below, not a replacement: an LLM gate is prompt-injection
     # bypassable and the default subprocess sandbox has no network/filesystem
-    # isolation. B-12: it runs FIRST, because it is free and deterministic: a
+    # isolation. It runs FIRST, because it is free and deterministic: a
     # script it refuses costs no moderation call and is never recorded as
     # approved (an approval would let /converse skip reviewing it).
     static_blocked, static_reason = codecheck.check_code(code, language)
@@ -440,17 +439,17 @@ def run_code():
             f'Script rejected by the safety check (static analysis). '
             f'{static_reason}', 403)
 
-    # P2-2: membership over a hash-keyed store, not equality against one slot,
+    # Membership over a hash-keyed store, not equality against one slot,
     # so a /wrangle that saved its own transform does not force a spurious
     # re-moderation of the unchanged, already-validated /chat script.
-    # D1-7: approval is per (language, code) -- a script reviewed as Python
+    # Approval is per (language, code): a script reviewed as Python
     # must be re-moderated before it may run under Rscript.
-    # D4-10: a script restored into a fresh session (empty approved store) is
-    # treated exactly like an edited one -- LLM code moderation (default-deny,
-    # failing closed) after the static check above -- instead of a hard 403,
+    # A script restored into a fresh session (empty approved store) is
+    # treated exactly like an edited one (LLM code moderation, default-deny,
+    # failing closed, after the static check above) instead of a hard 403,
     # so a reopened editor or a pasted export can run again.
     if not storage.is_approved_script(code, language):
-        # User-edited or restored script (5.4): re-moderate first (0.4b).
+        # User-edited or restored script: re-moderate first.
         denied, _verdict = moderation_gate(
             llm.get_service(), prompts.code_moderation(code, language),
             denied='Edited script rejected by the safety check.',
@@ -470,17 +469,17 @@ def run_code():
         runner_image=cfg.runner_image, work_root=cfg.sandbox_work_root,
         file_limit_mb=cfg.exec_file_limit_mb)
 
-    # SP3: the methods block the script printed, parsed once and kept with
+    # The methods block the script printed, parsed once and kept with
     # the run (the raw block stays in the output).
     methods = methods_card.parse(result.output)
-    # 3A A3: the runs this save pushed out of the workbook go back to the
+    # The runs this save pushed out of the workbook go back to the
     # client, so the user hears about it (a starred run included).
     run_id, evicted = storage.record_run(
         result.output, result.plots, script=code, language=language,
         returncode=result.returncode, timed_out=result.timed_out,
         methods=methods, **provenance)
 
-    # L9/S5: a timeout is an executed failure, not a server error. The script
+    # A timeout is an executed failure, not a server error. The script
     # ran and was stopped; its outcome is recorded above, so the reply is a 200
     # with ``timed_out`` and whatever it printed before the stop.
     return jsonify({
@@ -503,7 +502,7 @@ def _ctx_str(ctx, key):
 
 
 def _run_provenance(code, language, filename, dataset_path, version):
-    """What produced this run, from the server's own records (SP1), and the
+    """What produced this run, from the server's own records, and the
     exact dataset version and bytes the sandbox read. Called BEFORE the
     sandbox runs, with ``dataset_path``/``version`` from one manifest read
     (``storage.active_dataset_snapshot``).
@@ -554,7 +553,7 @@ def _run_provenance(code, language, filename, dataset_path, version):
 
 
 # ---------------------------------------------------------------------------
-# /interpret — single-pass streamed interpretation + auto-debugging (5.11)
+# /interpret: single-pass streamed interpretation + auto-debugging
 # ---------------------------------------------------------------------------
 
 _FAILURE_RE = re.compile(
@@ -592,7 +591,7 @@ def _codebook_parts(codebook):
 def _column_context(df, filename, columns, codebook):
     """The analysed columns described for the interpreter: measurement level,
     labels, value labels, missing codes, roles and scale groups from the
-    dataset's server codebook (SP2, so a correction made after the run is
+    dataset's server codebook (so a correction made after the run is
     used). Only a dataset with no server codebook falls back to the codebook
     stored with the generation's approval."""
     columns = [c for c in (columns or []) if c in df.columns]
@@ -612,11 +611,11 @@ def _column_context(df, filename, columns, codebook):
 
 def _analysis_context(record, run_meta=None):
     """``(question, column_context, n_rows)`` for the script that produced the
-    run, from the server's own records (D6 quick win 5): the context /chat
+    run, from the server's own records: the context /chat
     stored with the approval, the dataset's true row count, and the analysed
     columns with their native value labels.
 
-    SP1: a workbook run that recorded its provenance is described by ITS
+    A workbook run that recorded its provenance is described by ITS
     record (``_run_analysis_context``). Only a run without one (adopted
     from the old single-run layout, or saved without provenance) uses the
     approval's context, and an edited script inherits the latest /chat
@@ -704,7 +703,7 @@ def _looks_failed(output):
     """Text heuristic for a failed run, used only when no recorded outcome
     exists (legacy run dirs, or the client-copy fallback without a success
     flag). Matches line starts anywhere, so R errors after earlier output and
-    the timeout message are caught (D3-14)."""
+    the timeout message are caught."""
     return bool(_FAILURE_RE.search(output or ''))
 
 
@@ -714,7 +713,7 @@ def interpret_results():
     data = request_json()
     service = llm.get_service()
 
-    # P2-7: prefer the server-persisted last-run artifacts over the client's
+    # Prefer the server-persisted last-run artifacts over the client's
     # copy of the results. The client `output`/`plots` are spoofable (a caller
     # can POST fabricated "results"); the server recorded exactly what the
     # sandbox produced on the last /run, so when those exist we ground the
@@ -722,7 +721,7 @@ def interpret_results():
     # server run is on record do we fall back to the client copy, and then it
     # must pass the same moderation gate /chat and /converse use (this route is
     # otherwise a general-purpose LLM proxy on the operator's key).
-    # SP1: ground on the selected run (default: the latest). A named run the
+    # Ground on the selected run (default: the latest). A named run the
     # caller does not have is a 404, never a fallback to another run.
     requested = run_id_field(data)
     run_id = selected_run_id(requested)
@@ -741,8 +740,8 @@ def interpret_results():
         # actually PRODUCED this run (recorded next to the last-run artifacts),
         # falling back to the most-recent approved script. Both are server-side
         # and trusted; the client `code` field is arbitrary spoofable text and
-        # nothing client-supplied may reach the model unmoderated on this path
-        # (P2-1/P2-7). Preferring the last-run script keeps the debugged code in
+        # nothing client-supplied may reach the model unmoderated on this path.
+        # Preferring the last-run script keeps the debugged code in
         # sync with `final_output` after a post-run /wrangle poisons the shared
         # approved-script store's "most recent" slot.
         record = storage.run_script(run_id) or storage.load_approved_script()
@@ -756,7 +755,7 @@ def interpret_results():
             except Exception:
                 logger.warning("Skipping unreadable server plot for interpretation")
         # Derive the pass/fail branch from the trusted server record, not the
-        # client-sent (spoofable) success flag. D1-2: the sandbox's real return
+        # client-sent (spoofable) success flag. The sandbox's real return
         # code / timeout flag decide; the text heuristic is only a fallback
         # for run dirs written before the outcome was persisted.
         status = storage.run_status(run_id)
@@ -766,13 +765,13 @@ def interpret_results():
             failed = _looks_failed(final_output)
         meta = storage.run_meta(run_id)
         question, column_context, n_rows = _analysis_context(record, meta)
-        # SP3: the run's own Methods card (a run saved before SP3 is parsed
+        # The run's own Methods card (a run saved without one is parsed
         # from its stored output), never anything the client sent.
         card = None if failed else clamp(
             methods_card.render_text(methods_card.for_run(meta, server_output)),
             METHODS_CONTEXT_MAX)
     else:
-        # P1-7: cap the client-supplied text and plot payloads before they reach
+        # Cap the client-supplied text and plot payloads before they reach
         # the prompt. Client `code` is allowed here only because the moderation
         # gate below covers it together with `output`.
         code = clamp(data.get('code'), FREE_TEXT_MAX)
@@ -791,7 +790,7 @@ def interpret_results():
         return jsonify({'interpretation': NOTHING_TO_INTERPRET})
 
     # Fallback path only: moderate the client-supplied text before it reaches
-    # the model, failing closed exactly like /converse (P2-7).
+    # the model, failing closed exactly like /converse.
     if not grounded:
         moderated = (final_output + '\n' + code).strip()
         denied, _mod = moderation_gate(
@@ -824,7 +823,7 @@ def interpret_results():
                 text += delta
                 yield sse_event({'type': 'delta', 'text': delta})
             if grounded:
-                # D3-2: /converse and /generate_report ground on this copy
+                # /converse and /generate_report ground on this copy
                 # instead of the client's.
                 try:
                     storage.save_interpretation(text, run_id=run_id)
@@ -843,7 +842,7 @@ def interpret_results():
 
 
 # ---------------------------------------------------------------------------
-# /method_prompt — analysis catalog → tailored prompt (5.14)
+# /method_prompt: analysis catalog → tailored prompt
 # ---------------------------------------------------------------------------
 
 @bp.route('/method_prompt', methods=['POST'])
@@ -852,7 +851,7 @@ def method_prompt():
     data = request_json()
     filename = dataset_filename_field(data)
     method = dict_field(data, 'method')
-    # D1-6: every field below reaches the paid method_prompt call.
+    # Every field below reaches the paid method_prompt call.
     method_name = clamp(method.get('name'), STYLE_FIELD_MAX).strip()
     method_desc = clamp(method.get('description'), BACKGROUND_MAX)
     ignore_client_codebook(data, '/method_prompt')
@@ -860,7 +859,7 @@ def method_prompt():
         return json_error('Missing filename or method')
 
     try:
-        df, _ = read_active_frame(filename)   # D3-7: full-frame statistics
+        df, _ = read_active_frame(filename)   # Full-frame statistics
     except Exception:
         logger.exception("method_prompt read failure")
         return json_error('Could not read dataset.', 500)
@@ -868,7 +867,7 @@ def method_prompt():
         return json_error('Invalid filename')
     try:
         codebook, descriptions = server_codebook_context(filename, df)
-        # Bounded like /suggest (3A A9): a wide survey names its later
+        # Bounded like /suggest: a wide survey names its later
         # columns instead of billing a full profile of each one.
         context = datatools.build_column_context(
             df, codebook, descriptions, max_chars=SUGGEST_CONTEXT_MAX)
@@ -876,7 +875,7 @@ def method_prompt():
             'flash',
             prompts.method_prompt(method_name, method_desc, context),
             temperature=0.4, json_mode=True)
-        # D3-9/D3-10: tolerant parse, then a real shape check -- the client
+        # Tolerant parse, then a real shape check: the client
         # pastes 'prompt' straight into the prompt box.
         payload = json_object_reply(result.text)
         method_text = payload.get('prompt')

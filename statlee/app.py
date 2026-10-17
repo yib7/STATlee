@@ -1,17 +1,17 @@
 """STATlee application factory.
 
-The old 940-line monolith now lives in focused modules (roadmap 3.1):
+The app is split into focused modules:
 config.py, storage.py, sandbox.py, llm.py, prompts.py, datatools.py,
 models.py, and the routes/ blueprints. This file wires them together and
 owns the cross-cutting middleware:
 
-- per-session ids + per-identity file isolation (1.1)
-- CSRF double-submit tokens + hardened session cookies (1.5)
-- rate limiting (1.4)
-- generic client errors / full server-side logs (1.6)
-- request-id correlated logging (3.3)
+- per-session ids + per-identity file isolation
+- CSRF double-submit tokens + hardened session cookies
+- rate limiting
+- generic client errors / full server-side logs
+- request-id correlated logging
 
-Importing this module has no side effects (D5-14): it neither loads ``.env``
+Importing this module has no side effects: it neither loads ``.env``
 nor builds an app. The entry point ``wsgi.py`` does both, so a test process
 that imports the package never picks up a developer's real ``.env``.
 """
@@ -50,11 +50,11 @@ def _setup_logging():
 
 logger = logging.getLogger('statlee')
 
-# P2-14 - defense-in-depth response headers. script-src is strict ('self' only,
-# no 'unsafe-inline'): the two inline <script> blocks were moved into static JS
-# files and every inline onclick= handler is now wired by a delegated listener
-# in boot.js, so no executable inline script remains. The relaxations are only
-# what the app actually needs:
+# Defense-in-depth response headers. script-src is strict ('self' only, no
+# 'unsafe-inline'): all script lives in static JS files and click handlers
+# are wired by a delegated listener in boot.js, so the templates carry no
+# executable inline script. The relaxations are only
+# what the app needs:
 #   style-src 'unsafe-inline'          - the templates use many inline style=""
 #                                        attributes and <style> blocks (Tailwind
 #                                        utility layout); style injection is far
@@ -101,7 +101,7 @@ _MIGRATIONS_DIR = os.path.join(
 # CLI sub-commands that inspect or repair the schema themselves. Importing
 # wsgi for one of these must not run the boot upgrade first: if the DB is in a
 # state the upgrade cannot handle, the repair tool would crash before its own
-# command ran (D5-1), and `db current` / `db downgrade` would silently upgrade.
+# command ran, and `db current` / `db downgrade` would silently upgrade.
 _SCHEMA_REPAIR_COMMANDS = {'db', 'statlee-doctor'}
 # flask CLI options that consume the following argv token.
 _FLASK_OPTS_WITH_VALUE = {'--app', '-A', '--env-file', '-e'}
@@ -140,7 +140,7 @@ def _skip_boot_migrate():
 
 def schema_missing(connection):
     """Tables and columns the models need that the live database lacks,
-    as sorted ``table`` / ``table.column`` names (D5-2).
+    as sorted ``table`` / ``table.column`` names.
 
     Extra tables/columns in the DB and type/index differences are ignored:
     only a missing table or column makes queries fail."""
@@ -148,7 +148,7 @@ def schema_missing(connection):
     from alembic.migration import MigrationContext
 
     # Autogenerate logs every plugin and detected difference at INFO; that is
-    # noise on every boot (the actionable summary is logged by the caller).
+    # noise on every boot (the caller logs the summary that matters).
     alembic_logger = logging.getLogger('alembic')
     previous_level = alembic_logger.level
     alembic_logger.setLevel(logging.WARNING)
@@ -196,8 +196,8 @@ def _remove_stamp():
 
 
 def _verify_schema(cfg):
-    """Fail loudly when the stamped revision's columns are not actually there
-    (D5-2). Stamping never inspects tables, so a DB can claim head while a
+    """Fail loudly when the stamped revision's columns are not actually there.
+    Stamping never inspects tables, so a DB can claim head while a
     column is missing and then 500 on every query that touches it."""
     current, _head, missing = schema_report()
     if not missing:
@@ -224,7 +224,7 @@ def _init_schema(app, cfg):
 
     - no tables at all           -> fresh install, migrate to head;
     - tables but no alembic_version, schema already matches the models
-                                  -> stamp head (nothing to replay; D5-1);
+                                  -> stamp head (nothing to replay);
     - tables but no alembic_version, schema behind the models
                                   -> legacy create_all() DB, stamp the
       baseline then upgrade (existing rows are preserved). If that upgrade
@@ -232,7 +232,7 @@ def _init_schema(app, cfg):
       revision it did not reach;
     - alembic_version present     -> plain upgrade to head.
 
-    After upgrading, the live schema is checked against the models (D5-2).
+    After upgrading, the live schema is checked against the models.
     Skipped entirely for ``flask db ...`` / ``flask statlee-doctor`` and when
     ``STATLEE_SKIP_BOOT_MIGRATE=1``, so those stay usable as repair tools.
     """
@@ -335,7 +335,7 @@ def create_app(config=None):
     app.config['RATELIMIT_DEFAULT'] = cfg.rate_limit_default
     app.config['TESTING'] = cfg.is_testing
 
-    # 1.5 — session cookie hardening
+    # Session cookie hardening
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = cfg.is_production
@@ -397,7 +397,7 @@ def create_app(config=None):
     register_cli(app)
 
     # --- request lifecycle ----------------------------------------------------
-    # D5-18: /health is exempt from the default rate limit (probes must not be
+    # /health is exempt from the default rate limit (probes must not be
     # throttled into a false 'unhealthy'), never mints a session, and is
     # answered by `health_probe` below with a cheap `SELECT 1`, so a dead
     # database reports 503 instead of 'OK'. The throttled TTL cleanup still
@@ -408,7 +408,7 @@ def create_app(config=None):
     @app.before_request
     def assign_request_context():
         g.request_id = uuid.uuid4().hex[:8]
-        # Probes and metric scrapes never mint a session (D5-18, S5).
+        # Probes and metric scrapes never mint a session.
         if request.endpoint in ('misc.health_check', 'misc.metrics'):
             return
 
@@ -419,13 +419,13 @@ def create_app(config=None):
 
     @app.before_request
     def csrf_protect():
-        # PATCH too: /runs/<run_id> renames and stars runs (SP1).
+        # PATCH too: /runs/<run_id> renames and stars runs.
         if not cfg.csrf_enabled or request.method not in (
                 'POST', 'PUT', 'PATCH', 'DELETE'):
             return None
         token = (request.headers.get('X-CSRF-Token')
                  or (request.form.get('csrf_token') if request.form else None))
-        # Constant-time compare (P2-8). The `token and` guard keeps a missing or
+        # Constant-time compare. The `token and` guard keeps a missing or
         # None token out of compare_digest; both sides are encoded because the
         # str overload of compare_digest raises on non-ASCII input, and a
         # garbage client token must be a normal 403 reject, not a 500.
@@ -445,10 +445,10 @@ def create_app(config=None):
             return jsonify({'error': 'Unauthorized. Please log in.'}), 401
         return None
 
-    # P1-6 — anonymous-data TTL cleanup previously only fired from the two
-    # upload routes, so it never ran at all for a session that uploads once
-    # and then just browses/analyzes. Run it opportunistically on any
-    # request instead, throttled to once per 15 minutes so it stays cheap;
+    # Anonymous-data TTL cleanup runs opportunistically on any request, not
+    # only on uploads, so it also runs for a session that uploads once and
+    # then just browses/analyzes. Throttled to once per 15 minutes so it
+    # stays cheap;
     # best-effort (a missing storage root or mid-flight FS error must never
     # break a real request).
     _cleanup_state = {'ts': 0.0}
@@ -484,7 +484,7 @@ def create_app(config=None):
     @app.after_request
     def stamp_request_id(response):
         response.headers['X-Request-ID'] = g.get('request_id', '-')
-        # P2-14 - security headers. setdefault so a route that sets its own
+        # Security headers. setdefault so a route that sets its own
         # (e.g. a future embeddable widget) is not clobbered.
         response.headers.setdefault('Content-Security-Policy', CSP_POLICY)
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
@@ -500,7 +500,7 @@ def create_app(config=None):
                                         f'max-age={HSTS_MAX_AGE}')
         return response
 
-    # --- error handling (1.6) ----------------------------------------------------
+    # --- error handling ----------------------------------------------------
     @app.errorhandler(413)
     def too_large(_e):
         return jsonify({'error':

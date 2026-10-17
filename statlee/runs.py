@@ -1,4 +1,4 @@
-"""Session workbook (SP1): every analysis run is kept, not just the last one.
+"""Session workbook: every analysis run is kept, not just the last one.
 
 Layout, per identity::
 
@@ -73,7 +73,7 @@ _LOCK_TIMEOUT = 10
 _UNSET = object()
 # A legacy .last_run/ that could not be renamed (a file held open on Windows,
 # a permission error) is retried at most this often per process, so every
-# workbook read does not take the index lock and log a traceback (3A A4).
+# workbook read does not take the index lock and log a traceback.
 ADOPT_RETRY_SECONDS = 300
 _adopt_failures = {}     # legacy dir path -> monotonic time of the last failure
 
@@ -310,8 +310,8 @@ def _new_meta(run_id, created_ts=None, prompt=None, filename=None,
         'role': _clamp_str(role, RUN_FIELD_MAX),
         'name': None,
         'starred': False,
-        # SP3: the parsed Methods card (statlee.methods.parse) /run passes
-        # in. Null for runs saved before SP3; readers parse those lazily
+        # The parsed Methods card (statlee.methods.parse) /run passes
+        # in. Null for runs saved without a card; readers parse those lazily
         # from output.txt (statlee.methods.for_run).
         'methods': methods,
     }
@@ -403,11 +403,11 @@ def record_run(output, plots_b64, script=None, language=None, identity=None,
                fix_of=None):
     """Persist one run's artifacts as a new run. Returns ``(run_id,
     evicted)``: ``evicted`` lists the runs this save pushed out, as
-    ``{run_id, name, starred}``, so a caller can tell the user (3A A3).
+    ``{run_id, name, starred}``, so a caller can tell the user.
 
-    ``script`` is the exact script that produced the run (P2-1/P2-7: /export
+    ``script`` is the exact script that produced the run (/export
     and /interpret read it, never the shared approved store's "most recent").
-    ``returncode``/``timed_out`` are the real sandbox outcome (D1-2).
+    ``returncode``/``timed_out`` are the real sandbox outcome.
     ``prompt``, ``filename``, ``dataset_version``, ``dataset_sha256``,
     ``model`` and ``role`` record what produced it, for provenance;
     ``prompt_inherited`` marks a prompt borrowed from another generation;
@@ -638,7 +638,7 @@ def run_time(run_id, identity=None):
 
 def interpretation_time(run_id, identity=None):
     """Epoch seconds the run's interpretation was last written, or None when
-    it has none (SP4 provenance)."""
+    it has none (provenance)."""
     run_dir = _run_dir(run_id, identity)
     if not run_dir:
         return None
@@ -654,7 +654,7 @@ def interpretation_time(run_id, identity=None):
 def save_interpretation(text, run_id=None, identity=None):
     """Store the interpretation of ``run_id`` (default: the latest run) next
     to its output, so /converse and /generate_report ground on the server's
-    copy (D3-2). Returns the run id written, or None when there is no such
+    copy. Returns the run id written, or None when there is no such
     run (a no-op)."""
     if run_id is None:
         run_id = latest_run_id(identity)

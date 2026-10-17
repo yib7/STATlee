@@ -1,4 +1,4 @@
-"""Index, sample dataset, health, metrics (3.3) and issue reporting (6.3)."""
+"""Index, sample dataset, health, metrics and issue reporting."""
 import hmac
 import logging
 import os
@@ -73,7 +73,7 @@ def sample_dataset():
 
 @bp.route('/welcome')
 def welcome():
-    """Public marketing/landing page (workstream D). The app itself lives at
+    """Public marketing/landing page. The app itself lives at
     '/'; this is the startup-style front door that links into it."""
     return render_template('landing.html')
 
@@ -87,7 +87,7 @@ def _metrics_denied():
     """None when this request may read /metrics, else the response to send.
 
     The snapshot is operational data about every user of the server (uptime,
-    per-model call and token totals), so it is an operator endpoint (S5): with
+    per-model call and token totals), so it is an operator endpoint: with
     METRICS_TOKEN set the request must carry that token, with or without a
     session; unset, production hides the route (404) and development/testing
     keep the normal app gate."""
@@ -113,7 +113,7 @@ def _metrics_denied():
 
 @bp.route('/metrics')
 def metrics():
-    """Structured usage/uptime snapshot (3.3), for the operator only."""
+    """Structured usage/uptime snapshot, for the operator only."""
     denied = _metrics_denied()
     if denied is not None:
         return denied
@@ -128,10 +128,10 @@ def metrics():
 
 
 # ---------------------------------------------------------------------------
-# In-app issue reporting (6.3)
+# In-app issue reporting
 # ---------------------------------------------------------------------------
 
-# B-16: /report_issue is open to anonymous callers, stores up to ~60 KB a row
+# /report_issue is open to anonymous callers, stores up to ~60 KB a row
 # and emails the operator. The chat limit (20/min per IP) allowed ~28,800 rows
 # and emails a day per IP, so it gets its own tight limit, the table keeps only
 # the newest ISSUE_REPORTS_MAX_ROWS rows, and at most ISSUE_EMAILS_PER_HOUR
@@ -169,7 +169,7 @@ def _prune_issue_reports():
 @limiter.limit(REPORT_ISSUE_RATE)
 def report_issue():
     data = request_json()
-    # D1-12: non-string fields are a 400, not a 500 from slicing a dict.
+    # Non-string fields are a 400, not a 500 from slicing a dict.
     description = str_field(data, 'description', 10000).strip()
     if not description:
         return json_error('Please describe the issue.')

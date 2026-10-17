@@ -1,4 +1,4 @@
-"""Monetization seam (roadmap workstream E).
+"""Monetization seam.
 
 A single chokepoint for the question: *"is this request allowed, and what does
 it cost?"* so wiring (Pro mode) can depend on one stable call. It does two
@@ -6,7 +6,7 @@ things:
 - ALWAYS (billing on or off) enforces the **global monthly ceiling** on
   priority (high-tier) requests when ``MONTHLY_PRIORITY_CALL_CEILING > 0``, so
   the operator's own API key can't be run up without bound during a billing-off
-  free trial (D5-3). The ceiling protects the operator, not the ledger.
+  free trial. The ceiling protects the operator, not the ledger.
 - only when ``billing_enabled`` is on, debits ``User.credits`` for a logged-in
   free-plan user's priority requests (and tops up monthly free credits), and
   refuses priority requests from anonymous callers, who have no credits.
@@ -65,7 +65,7 @@ def _return_ceiling_unit():
     """Give back one unit consumed by ``_within_monthly_ceiling``. Used when
     the request is refused after the unit was taken (the credit debit was
     denied), so out-of-credit retries cannot drain the operator-wide ceiling
-    and lock paying users out of priority requests (P2-1)."""
+    and lock paying users out of priority requests."""
     with _lock:
         if _spend['priority_calls'] > 0:
             _spend['priority_calls'] -= 1
@@ -73,7 +73,7 @@ def _return_ceiling_unit():
 
 def _apply_monthly_free_credits(user, config):
     """Lazily top a free user's balance up to ``MONTHLY_FREE_CREDITS`` on the
-    first billed request of a new calendar month (P2-10).
+    first billed request of a new calendar month.
 
     Semantics: a *set-to-at-least-N* on month rollover, not an additive grant.
     ``credits_month`` records the last month already topped up so the top-up
@@ -114,7 +114,7 @@ def refund(user, *, priority=False, cost=None, config=None):
     A no-op with the same gating as ``check_and_debit``: only credits a
     logged-in free-plan user, only when billing is enabled and a non-zero cost
     was actually debited. The per-process monthly priority ceiling is a coarse
-    guardrail and is deliberately NOT rolled back here — over-counting it fails
+    guardrail and is deliberately NOT rolled back here: over-counting it fails
     safe (toward the operator's protection), and it self-resets each month.
     """
     if config is None or not getattr(config, 'billing_enabled', False):
@@ -129,15 +129,15 @@ def refund(user, *, priority=False, cost=None, config=None):
             .values(credits=User.credits + need))
         db.session.commit()
         # A streamed request refunds from its generator, where the User loaded
-        # at request start may no longer belong to the session; refreshing it
-        # there raised AFTER the refund had committed and logged a false
+        # at request start may not belong to the session any more; refreshing
+        # it there would raise AFTER the refund committed and log a false
         # "Failed to refund". Refresh only an instance the session still owns.
         if user in db.session:
             db.session.refresh(user)
 
 
 def credits_remaining(user_id, config=None):
-    """The caller's current credit balance for a response payload (D4-19), or
+    """The caller's current credit balance for a response payload, or
     None when there is nothing metered to show: billing off, anonymous, or a
     plan that is not debited. Read straight from the row, so it reflects the
     debit (or refund) this request just committed."""
@@ -166,7 +166,7 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
             applies (no credit is ever debited).
 
     Returns:
-        ``(allowed: bool, message: str | None)`` — ``message`` is a user-facing
+        ``(allowed: bool, message: str | None)``. ``message`` is a user-facing
         reason when ``allowed`` is ``False``.
     """
     if config is None:
@@ -174,15 +174,15 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
 
     need = cost if cost is not None else (PRIORITY_COST if priority else 0)
 
-    # B-05: with billing on, a metered request needs an account to debit.
-    # Anonymous callers used to skip the credit path entirely, so Pro mode and
-    # the report builder were free to anyone who signed out. Refused before
-    # the ceiling, so a refused request never consumes a ceiling unit.
+    # With billing on, a metered request needs an account to debit, otherwise
+    # Pro mode and the Report builder would be free to anyone who signed out.
+    # Refused before the ceiling, so a refused request never consumes a
+    # ceiling unit.
     if getattr(config, 'billing_enabled', False) and user is None and need:
         return False, ANONYMOUS_METERED_MESSAGE
 
     # Operator-protecting global ceiling (applies to everyone, incl. anonymous,
-    # and regardless of BILLING_ENABLED: D5-3). Checked before the credit top-up
+    # and regardless of BILLING_ENABLED). Checked before the credit top-up
     # so a capped request never writes to the DB.
     ceiling = getattr(config, 'monthly_priority_call_ceiling', 0)
     if priority and not _within_monthly_ceiling(ceiling):
@@ -194,7 +194,7 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
     if not getattr(config, 'billing_enabled', False):
         return True, None
 
-    # P2-10: refresh this user's monthly free credits before deciding, so the
+    # Refresh this user's monthly free credits before deciding, so the
     # first billed request of a new month sees the topped-up balance.
     _apply_monthly_free_credits(user, config)
 
@@ -216,11 +216,11 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
         db.session.commit()
         if not rows:
             # The debit was refused, so the request does no priority work:
-            # give the ceiling unit back (P2-1). Out-of-credit retries must
+            # give the ceiling unit back. Out-of-credit retries must
             # not erode the operator-wide quota for everyone else.
             if ceiling_unit_taken:
                 _return_ceiling_unit()
-            # Only promise a monthly reset when one actually exists (P2-10): a
+            # Only promise a monthly reset when one actually exists: a
             # MONTHLY_FREE_CREDITS top-up is what refreshes the balance. With it
             # off, saying "wait for your reset" would be a lie.
             if getattr(config, 'monthly_free_credits', 0) > 0:
@@ -228,7 +228,7 @@ def check_and_debit(user, *, priority=False, cost=None, config=None):
                                'the start of next month.')
             return False, ('Out of credits. Contact the site operator to add '
                            'more credits.')
-        # The UPDATE above is a bulk/Core statement — SQLAlchemy does not sync
+        # The UPDATE above is a bulk/Core statement. SQLAlchemy does not sync
         # it back onto the in-memory ORM instance, so `user.credits` is stale
         # here. Refresh it so any downstream read (this request's response
         # payload, /check_auth, etc.) sees the real post-debit balance.

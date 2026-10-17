@@ -1,11 +1,11 @@
-/* Workspace tools: project export (5.3), AI report builder (5.17), analysis
- * history (5.7), analysis catalog (5.14), issue reporting (6.3), accounts
- * (7.1), and the auth boot sequence. */
+/* Workspace tools: project export, Report builder, analysis
+ * history, analysis catalog, issue reporting, accounts
+ * and the auth boot sequence. */
 (function () {
     'use strict';
 
     // =====================================================================
-    // Project export (5.3)
+    // Project export
     // =====================================================================
     function openExportDialog() {
         if (!CC.state.filename && !CC.getCode()) {
@@ -23,7 +23,7 @@
         const btn = document.getElementById('exportDownloadBtn');
         btn.disabled = true;
         const code = CC.getCode();
-        // SP4 bundle options from the export dialog.
+        // Bundle options from the export dialog.
         const promptsBox = document.getElementById('exportIncludePrompts');
         const runsSelect = document.getElementById('exportRuns');
         const includePrompts = promptsBox ? promptsBox.checked : true;
@@ -35,9 +35,9 @@
                 body: JSON.stringify({
                     filename: CC.state.filename,
                     code,
-                    // D1-7: approval is per (language, code). The generated
+                    // Approval is per (language, code). The generated
                     // script is exported in the language it was approved in,
-                    // even if the selector moved since (as Run does, D4-29).
+                    // even if the selector moved since (as Run does).
                     language: CC.runLanguage ? CC.runLanguage(code)
                         : document.getElementById('languageSelect').value,
                     // No interpretation: the server writes the run's own
@@ -65,11 +65,11 @@
             document.body.appendChild(a);
             a.click();
             a.remove();
-            // D4-31: revoking synchronously can cancel the download in some
+            // Revoking synchronously can cancel the download in some
             // browsers before it has started reading the blob.
             setTimeout(() => URL.revokeObjectURL(a.href), 60000);
             CC.modal.close('exportModal');
-            // S1-B contract 15: the zip runs as unzipped. The current data
+            // The zip runs as unzipped. The current data
             // sits next to the script under the name it reads, the original
             // upload is in data/, cleaning.py replays the cleaning steps.
             CC.toast('Project archive downloaded. Unzip it and run analysis.py (or analysis.R) in that folder: '
@@ -90,7 +90,7 @@
     async function generateReport() {
         const btn = document.getElementById('reportGenerateBtn');
         const editor = document.getElementById('reportEditor');
-        // SP1: the report is grounded on the workbook runs ticked in the
+        // The report is grounded on the workbook runs ticked in the
         // checklist; the server reads each one's own output and interpretation.
         const inWorkbook = CC.workbook ? CC.workbook.count() : 0;
         const runIds = CC.workbook ? CC.workbook.selectedRunIds() : [];
@@ -211,17 +211,17 @@
         a.href = URL.createObjectURL(blob);
         a.download = 'report.md';
         a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 60000);   // D4-31
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);   // revoke late: an early revoke can cancel the download
     }
 
     // =====================================================================
-    // Analysis history (5.7) — localStorage always; server when logged in
+    // Analysis history: localStorage always; server when logged in
     // =====================================================================
     const HISTORY_KEY = 'cc_history';
     const HISTORY_MAX = 30;
-    // D4-11: terminal output can be 256KB; thirty of those overflow the
-    // ~5MB localStorage quota and the old catch swallowed it, so history
-    // silently stopped saving. Keep the tail of the output, and evict the
+    // Terminal output can be 256KB; thirty of those overflow the
+    // ~5MB localStorage quota, and a swallowed quota error would silently
+    // stop history from saving. Keep the tail of the output, and evict the
     // oldest entries until the write fits.
     const HISTORY_OUTPUT_CHARS = 4000;
 
@@ -259,7 +259,7 @@
     };
 
     /** Server timestamps are naive UTC ("2026-10-08T12:00:00"); Date.parse
-     *  would read them as local time (D4-28). */
+     *  would read them as local time. */
     function parseServerTime(value) {
         if (!value) return 0;
         const s = String(value);
@@ -290,7 +290,7 @@
                 // The server's created_at is stamped after the client's ts, so
                 // an exact (code + ts) key never matched and every synced run
                 // showed twice. Same script and prompt within 10 minutes is
-                // the same run (D4-28).
+                // the same run.
                 const near = (a, b) => Math.abs(a - b) < 10 * 60 * 1000;
                 data.runs.forEach(r => {
                     const ts = parseServerTime(r.created_at);
@@ -351,14 +351,14 @@
             // own plots back while its workbook run exists).
             const plotOutput = document.getElementById('plotOutput');
             if (plotOutput) plotOutput.innerHTML = '';
-            // Nor its Methods card: a text-only row has none (SP3).
+            // Nor its Methods card: a text-only row has none.
             // restoreSavedRun shows the run's own card while it exists.
             if (CC.clearMethods) CC.clearMethods();
-            // D4-10: the report builder and Converse read lastRun; without
-            // it the restored results looked present but "Run an analysis
-            // first" blocked the report.
-            // Entries recorded since S4 carry the server's verdict (/interpret
-            // `debug`, from the real exit code); older ones are assumed fine.
+            // The report builder and Converse read lastRun; without
+            // it the restored results would look present but "Run an analysis
+            // first" would block the report.
+            // Newer entries carry the server's verdict (/interpret `debug`,
+            // from the real exit code); entries without it are assumed fine.
             CC.state.lastRun = { output: entry.output, plots: [], success: entry.success !== false,
                 code: entry.code || '', restored: true };
             document.body.classList.remove('cc-no-run');
@@ -371,8 +371,8 @@
         }
         CC.switchTab('generate');
         restoreSavedRun(entry);
-        // S1-B contract 11: a script this session did not generate is no
-        // longer refused outright. /run gives it a safety re-check first, so a
+        // A script this session did not generate is not refused outright.
+        // /run gives it a safety re-check first, so a
         // restored script runs in a fresh session too (or is refused with a
         // reason, 403, or "could not check", 503).
         const same = entry.dataset_name && entry.dataset_name === CC.state.filename;
@@ -385,7 +385,7 @@
             'info');
     }
 
-    /** SP1: while the entry's workbook run still exists, bring back what the
+    /** While the entry's workbook run still exists, bring back what the
      *  text-only history row cannot hold: the full output and the plots. An
      *  account row says so itself (`run_available`); a browser entry is
      *  checked here, and a run newer than the entry (an id reused after the
@@ -414,7 +414,7 @@
     }
 
     // =====================================================================
-    // Analysis catalog (5.14)
+    // Analysis catalog
     // =====================================================================
     const CATALOG = [
         {
@@ -476,8 +476,8 @@
         });
     }
 
-    // One /method_prompt (a billed model call) at a time: a double click
-    // used to send two, and the second captured the spinner as the label.
+    // One /method_prompt (a billed model call) at a time, so a double click
+    // cannot send two (the second would capture the spinner as the label).
     let methodBusy = false;
 
     async function pickMethod(method, btn) {
@@ -515,7 +515,7 @@
     }
 
     // =====================================================================
-    // Issue reporting (6.3)
+    // Issue reporting
     // =====================================================================
     async function submitIssue() {
         const desc = document.getElementById('issueDescription').value.trim();
@@ -544,9 +544,9 @@
     }
 
     // =====================================================================
-    // Accounts (7.1) + auth boot
+    // Accounts + auth boot
     // =====================================================================
-    /** D4-19: the balance, shown only when billing is switched on (otherwise
+    /** The balance, shown only when billing is switched on (otherwise
      *  credits mean nothing). Called at sign-in with /check_auth's value and
      *  by CC.noteCredits whenever a reply carries `credits_remaining`. */
     CC.showCredits = function () {
@@ -583,10 +583,10 @@
 
     /** After /login or a signed-in /register (201). The server has moved this
      *  browser session's anonymous datasets, history, last run and approvals
-     *  into the account (S1-B contract 16, L2), so the stored filename stays
+     *  into the account, so the stored filename stays
      *  valid: keep the workspace instead of reloading it away.
      *
-     *  `workspace` is the server's report (S5): `{moved: [...], skipped:
+     *  `workspace` is the server's report: `{moved: [...], skipped:
      *  [...]}`, stored dataset names. A skipped name already existed in the
      *  account, whose copy wins; the user is told which ones. */
     async function afterSignIn(workspace) {
@@ -685,7 +685,7 @@
         return accAction(async () => {
             accMessage('');
             const { ok, status, data } = await CC.post('/register', accCreds());
-            // D4-12: only 201 {status:'success'} means "signed in". A 202
+            // Only 201 {status:'success'} means "signed in". A 202
             // (verification required / email failed) carries a message the
             // user must read, so no reload.
             if (ok && data && data.status === 'success') { await afterSignIn(data.workspace); return; }
@@ -728,7 +728,7 @@
     }
 
     // =====================================================================
-    // Anonymous session expiry (D4-20)
+    // Anonymous session expiry
     // =====================================================================
     // Anonymous uploads are deleted by the TTL reaper (file_ttl from config).
     // Say when, before it happens, instead of letting the next click fail
@@ -847,7 +847,7 @@
 
         if (window.CC_BOOT && window.CC_BOOT.accounts) {
             document.getElementById('accountBtn').addEventListener('click', () => CC.modal.open('accountModal'));
-            // D4-12: a real <form>, so Enter in either field signs in.
+            // A real <form>, so Enter in either field signs in.
             const form = document.getElementById('accForm');
             if (form) {
                 form.addEventListener('submit', (e) => { e.preventDefault(); doLogin(); });

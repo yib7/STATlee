@@ -1,7 +1,7 @@
-"""Authentication & account routes (roadmap 7.1) + per-user history (5.7/7.2).
+"""Authentication & account routes + per-user history.
 
 Three coexisting modes keep the anonymous sandbox promise intact:
-- open:      no PASSWORD set, no login required — anyone can use the sandbox.
+- open:      no PASSWORD set, no login required; anyone can use the sandbox.
 - password:  legacy single APP_PASSWORD gate (backwards compatible).
 - accounts:  optional email/password accounts (Flask-Login). REQUIRE_LOGIN=true
              makes them mandatory.
@@ -48,21 +48,21 @@ def _valid_email(email):
     return len(email) <= EMAIL_MAX and bool(EMAIL_RE.match(email))
 
 
-# Hard cap on persisted history rows per user (P2-13). Field sizes are already
+# Hard cap on persisted history rows per user. Field sizes are already
 # capped in history_save; this bounds the row count too, so a looping client
 # cannot grow the table without limit. Saves past the cap prune the oldest
 # rows in the same transaction.
 HISTORY_MAX_ROWS = 200
 
-# Verification tokens expire after this window (P2-12); a stale or leaked link
+# Verification tokens expire after this window; a stale or leaked link
 # must not grant login forever.
 VERIFY_TOKEN_TTL = timedelta(hours=48)
 
-# Password-reset tokens are short-lived (P2-11): a reset link should be usable
+# Password-reset tokens are short-lived: a reset link should be usable
 # for one sitting, not indefinitely.
 RESET_TOKEN_TTL = timedelta(hours=1)
 
-# Hash of a random throwaway secret, computed once at import (D2-5). /login
+# Hash of a random throwaway secret, computed once at import. /login
 # verifies the submitted password against it when no account matches, so an
 # unknown email costs the same hash work as a wrong password and response
 # timing does not reveal which emails are registered.
@@ -88,13 +88,14 @@ def _cfg():
 
 def _sign_in(user):
     """``login_user`` plus adoption of this browser session's anonymous
-    workspace (L2): the storage identity switches from ``anon_<sid>`` to
+    workspace: the storage identity switches from ``anon_<sid>`` to
     ``user_<id>`` here, and without the move a "sign up to save my work"
-    lost the upload. Best-effort -- a failed move must never fail the login.
+    would lose the upload. Best-effort: a failed move must never fail the
+    login.
 
     Returns ``{'moved': [...], 'skipped': [...]}`` (stored dataset names) for
     the response, so the client can name a dataset the account's own copy
-    kept from moving (S5)."""
+    kept from moving."""
     sid = session.get('sid')
     login_user(user, remember=True)
     report = {'moved': [], 'skipped': []}
@@ -160,7 +161,7 @@ def login():
         user = db.session.execute(
             db.select(User).filter_by(email=email)).scalar_one_or_none()
         if user is None:
-            # Equalize work with the wrong-password path (D2-5); result unused.
+            # Equalize work with the wrong-password path; result unused.
             check_password_hash(_DUMMY_PASSWORD_HASH, password)
         elif user.check_password(password):
             if cfg.require_email_verification and not user.email_verified:
@@ -242,7 +243,7 @@ def register():
 def _send_verification_email(cfg, email, token):
     """Send the confirmation link, or log it when SMTP isn't configured (dev).
 
-    D5-7 (as for reset links): the link's origin comes from PUBLIC_BASE_URL,
+    As for reset links, the link's origin comes from PUBLIC_BASE_URL,
     never from the request's Host header, and the token-bearing link is only
     ever logged in development. In production a missing PUBLIC_BASE_URL or
     SMTP_HOST raises, so /register reports that the email could not be sent
@@ -280,9 +281,9 @@ def _send_password_reset_email(cfg, email, token):
     """Send the reset link, or log it when SMTP isn't configured (dev).
 
     Mirrors ``_send_verification_email`` so the reset flow reuses the exact same
-    SMTP plumbing (P2-11).
+    SMTP plumbing.
 
-    D5-7: the link's origin comes from PUBLIC_BASE_URL, never from the request's
+    The link's origin comes from PUBLIC_BASE_URL, never from the request's
     Host header (reset-link poisoning). Production with no PUBLIC_BASE_URL sends
     nothing. The token-bearing link is only ever logged in development."""
     link = cfg.external_url(url_for('auth.reset_password', token=token))
@@ -325,7 +326,7 @@ def verify_email():
         db.select(User).filter_by(verification_token=token)).scalar_one_or_none()
     if not user:
         return json_error('Invalid or expired verification link.', 400)
-    # P2-12: reject a token older than the TTL. It is consumed either way below
+    # Reject a token older than the TTL. It is consumed either way below
     # (cleared on success); an expired one just does not confirm the account,
     # so the same generic message covers "unknown" and "too old".
     if not _token_age_ok(user.token_issued_at, VERIFY_TOKEN_TTL):
@@ -343,7 +344,7 @@ def verify_email():
 
 
 # ---------------------------------------------------------------------------
-# Password reset (P2-11) - mirrors the verify_email token machinery.
+# Password reset: mirrors the verify_email token machinery.
 # ---------------------------------------------------------------------------
 
 # Always-200 body for /request_password_reset. Constant so the response is
@@ -446,7 +447,7 @@ def logout():
 
 
 # ---------------------------------------------------------------------------
-# Per-user analysis history (5.7 server side / 7.2)
+# Per-user analysis history (server side)
 # ---------------------------------------------------------------------------
 
 @bp.route('/history', methods=['GET'])
@@ -480,7 +481,7 @@ def _workbook_times(rows):
 
 
 def _history_row(row, run_times):
-    """``to_dict`` plus ``run_available`` (SP1): True while the linked run
+    """``to_dict`` plus ``run_available``: True while the linked run
     is still in the caller's workbook, so the client can restore its output,
     plots and methods from ``GET /runs/<run_id>``; otherwise the restore is
     text-only from this row."""
@@ -503,7 +504,7 @@ def history_save():
         # Anonymous sessions keep history client-side only ("data not stored").
         return jsonify({'saved': False})
     data = request_json()
-    # SP1: link the entry to a workbook run. Only the id comes from the
+    # Link the entry to a workbook run. Only the id comes from the
     # client, and only one of the caller's own runs is accepted; the dataset
     # version and model are read from the server's run record.
     run_id = data.get('run_id')
@@ -528,7 +529,7 @@ def history_save():
     )
     db.session.add(run)
     db.session.flush()
-    # Keep only the newest HISTORY_MAX_ROWS rows for this user (P2-13); the
+    # Keep only the newest HISTORY_MAX_ROWS rows for this user; the
     # prune rides the same transaction as the insert.
     keep_ids = db.session.execute(
         db.select(AnalysisRun.id)

@@ -1,4 +1,4 @@
-"""Methods and assumptions card (SP3).
+"""Methods and assumptions card.
 
 The draft prompt asks every generated script (Python or R) to finish its
 output with a fixed block::
@@ -370,7 +370,7 @@ def normalize(card):
 
 def for_run(meta, output):
     """The card of a stored run: its saved card, or (``methods`` null, a run
-    saved before SP3) one parsed from its output on the fly. Not written
+    saved before cards were stored) one parsed from its output on the fly. Not written
     back: a read never mutates the run."""
     stored = meta.get('methods') if isinstance(meta, dict) else None
     card = normalize(stored) if isinstance(stored, dict) else None

@@ -1,4 +1,4 @@
-"""Non-LLM static pre-check for generated/edited analysis scripts (P1-1a).
+"""Non-LLM static pre-check for generated/edited analysis scripts.
 
 This is DEFENSE IN DEPTH, added to (never replacing) the two LLM moderation
 passes in the run-guard. The default ``SANDBOX_MODE=subprocess`` provides no
@@ -388,7 +388,7 @@ def _collect_bindings(tree):
 
 
 def _module_value_reason(node, parent, aliases, functions, imported):
-    """Reason if ``node`` uses a host module object as a VALUE (B-04).
+    """Reason if ``node`` uses a host module object as a VALUE.
 
     ``node`` is a module when it is a Name bound to one (an import or a
     tracked ``name = module``), or an Attribute naming one on an imported

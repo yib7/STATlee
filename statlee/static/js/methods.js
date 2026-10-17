@@ -1,4 +1,4 @@
-/* Methods and assumptions card (SP3): the run's parsed methods block, shown
+/* Methods and assumptions card: the run's parsed methods block, shown
  * in Results above the terminal.
  *
  * The card comes from the server (/run and GET /runs/<id> return `methods`,

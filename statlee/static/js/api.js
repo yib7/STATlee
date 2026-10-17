@@ -9,7 +9,7 @@
         csrfToken: csrfMeta ? csrfMeta.content : '',
         state: {
             filename: '',           // the STORED name: send it on every request
-            originalName: '',       // the picked file's name: show it (D1-1)
+            originalName: '',       // the picked file's name: show it
             headers: [],
             codebook: {},
             pdfMapping: {},
@@ -32,7 +32,7 @@
         consoleErrors: [],
     };
 
-    // --- console error ring buffer (6.3) ---------------------------------
+    // --- console error ring buffer ---------------------------------
     window.addEventListener('error', (e) => {
         CC.consoleErrors.push(`${new Date().toISOString()} ${e.message} @ ${e.filename}:${e.lineno}`);
         if (CC.consoleErrors.length > 20) CC.consoleErrors.shift();
@@ -116,7 +116,7 @@
 
     /** Read a non-streaming JSON body without throwing. A proxy's 502/504 HTML
      *  page is not JSON; callers get {} and fall back to the HTTP status
-     *  instead of mislabelling a server error as a "network error" (D4-22). */
+     *  instead of mislabelling a server error as a "network error". */
     CC.readJSON = async function (response) {
         let data = {};
         try { data = await response.json(); } catch (e) { return {}; }
@@ -133,7 +133,7 @@
 
     /** Map server wording the user cannot act on to wording they can. The
      *  anonymous TTL reaper deletes the dataset; every route then answers
-     *  "Invalid filename" (D4-20). */
+     *  "Invalid filename". */
     CC.explainError = function (msg) {
         if (/^invalid filename/i.test(String(msg || '')) && CC.state.filename && !CC.state.user) {
             return 'Your anonymous session data has expired and was deleted. Upload the dataset again to continue.';
@@ -142,15 +142,15 @@
     };
 
     /** The dataset's name as the user knows it. The server stores non-Latin
-     *  names under an ASCII name (`upload_<8hex>.csv`, D1-1): that stored
+     *  names under an ASCII name (`upload_<8hex>.csv`): that stored
      *  `CC.state.filename` is what every request sends, `original_name` is
      *  what the user sees. */
     CC.datasetLabel = function () {
         return CC.state.originalName || CC.state.filename || '';
     };
 
-    /** What to tell the user for a typed model failure. S1-C puts a `reason`
-     *  code on SSE `error` events (and on JSON errors from model routes):
+    /** What to tell the user for a typed model failure. The server puts a
+     *  `reason` code on SSE `error` events (and on JSON errors from model routes):
      *  each one gets wording that says what happened and what to try. An
      *  unknown or missing reason keeps the server's own message. */
     const REASON_MESSAGES = {
@@ -164,7 +164,7 @@
     };
     /** Reasons where the server's message is the better text (it names the
      *  missing variable, for one), so it is shown as sent; the words here are
-     *  only for a reply that carries no message (3.12). */
+     *  only for a reply that carries no message. */
     const REASON_FALLBACKS = {
         not_configured: 'The AI model is not set up on this server yet: its API key is missing. '
             + 'Whoever runs the app needs to add the key to .env and restart it.',
@@ -181,13 +181,13 @@
 
     /** Parse an SSE response. Handlers: onDelta, onPhase, onDone, onError.
      *  onPhase receives (phase, message): some phases are notices rather than
-     *  progress (P2-8's feature-selection fallback carries the text to show),
+     *  progress (the feature-selection fallback carries the text to show),
      *  so the message must reach the caller instead of being dropped here.
      *
      *  Every stream ends in exactly one terminal callback. If the connection
      *  closes with neither a `done` nor an `error` event (proxy idle timeout,
      *  worker restart, a mobile network handoff), onError fires with a
-     *  "connection closed" message, so callers have one failure path (D4-7).
+     *  "connection closed" message, so callers have one failure path.
      *  Resolves to {terminated: true|false}. */
     CC.streamSSE = async function (response, handlers) {
         const h = handlers || {};
@@ -244,11 +244,11 @@
     };
 
     /** Sanitized markdown rendering: the only path LLM text takes into the
-     *  DOM (roadmap 0.5).
+     *  DOM.
      *
      *  Model text can carry prompt-injected HTML (dataset cells and column
      *  names reach the prompts, and terminal output is fed to /interpret), so
-     *  DOMPurify's defaults are not enough (D4-4): they keep data-* attributes
+     *  DOMPurify's defaults are not enough: they keep data-* attributes
      *  (which boot.js's click dispatcher reads), inline style (a full-screen
      *  click-jacking overlay) and form controls (a fake "session expired"
      *  form). id/name/class are dropped too: no DOM clobbering of the app's own
@@ -281,7 +281,7 @@
         return DOMPurify.sanitize(html, SANITIZE_CONFIG);
     };
 
-    /** One polite screen-reader announcement (D4-14). Streamed output is not a
+    /** One polite screen-reader announcement. Streamed output is not a
      *  live region itself (every chunk would be read out); instead the stream's
      *  end is announced once here. */
     CC.announce = function (message) {
@@ -297,7 +297,7 @@
             '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
     };
 
-    // --- usage accounting (3.4 cost display) -----------------------------------
+    // --- usage accounting (session cost display) -------------------------------
     CC.fmtUSD = function (usd) {
         if (!usd || usd <= 0) return '$0.00';
         if (usd < 0.01) return '<$0.01';
@@ -359,7 +359,7 @@
 
     // --- toasts ------------------------------------------------------------------
     /** Errors are announced assertively, stay long enough to read (a 300-char
-     *  /wrangle error does not fit in 4 s), and can be dismissed (D4-14). */
+     *  /wrangle error does not fit in 4 s), and can be dismissed. */
     CC.toast = function (message, type) {
         const area = document.getElementById('toastArea');
         if (!area) return;

@@ -1,4 +1,4 @@
-"""Session workbook routes (SP1): list, view, rename and star runs.
+"""Session workbook routes: list, view, rename and star runs.
 
 Every lookup goes through ``storage``'s run store, which validates the id
 (``^r[0-9]{4,6}$``) and resolves it under the caller's own identity root, so
@@ -66,7 +66,7 @@ def get_run(run_id):
         'model': _meta_str(meta, 'model'),
         'role': _meta_str(meta, 'role'),
         'starred': bool(meta.get('starred')),
-        # SP3: the stored card, or one parsed on the fly for a run saved
+        # The stored card, or one parsed on the fly for a run saved
         # before the methods card existed (``methods: null``).
         'methods': methods_card.for_run(meta, run['output']),
         'output': run['output'],

@@ -21,7 +21,7 @@ statsmodels==0.15.0
 matplotlib==3.11.2
 seaborn==0.13.2
 python-dotenv==1.2.4
-filelock==4.2.0       # cross-worker lock on the dataset version manifest (P2-9)
+filelock==4.2.0       # cross-worker lock on the dataset version manifest
 gunicorn==26.2.0
 fpdf2==2.8.9
 pypdf==6.21.0        # PDF parser for untrusted uploads; 6.20.0-6.21.0 add SEC work limits (streams, cyclic trees, fields)

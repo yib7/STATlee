@@ -1,4 +1,4 @@
-# Compose v2 no longer needs the top-level `version` key.
+# No top-level `version` key: Compose v2 ignores it.
 services:
   statlee-web:
     build:
@@ -9,7 +9,7 @@ services:
       # (TRUST_PROXY_HOPS=0); if you put a reverse proxy in front, publish
       # through it and set TRUST_PROXY_HOPS to the number of proxy hops.
       - "127.0.0.1:5000:5000"
-    # Every setting in your .env reaches the container (D5-4). Compose reads
+    # Every setting in your .env reaches the container. Compose reads
     # the file on the HOST and passes its values as environment variables; the
     # file itself is still masked inside the container (see volumes). Optional,
     # so `docker compose up` also works before you have created a .env.
@@ -24,7 +24,7 @@ services:
       # DEV ONLY: live-syncs your local code into the container so you don't
       # have to rebuild on every edit. Remove this for a production-like run.
       - .:/app
-      # Mask the host .env (P1-1b): the default SANDBOX_MODE=subprocess has NO
+      # Mask the host .env: the default SANDBOX_MODE=subprocess has NO
       # filesystem isolation, so without this, generated/edited code could read
       # the operator's secrets straight off disk at /app/.env. The container
       # gets its configuration from env_file/environment above, not from this

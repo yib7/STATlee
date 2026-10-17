@@ -1,4 +1,4 @@
-# Minimal, network-less execution image for SANDBOX_MODE=docker (roadmap 0.3).
+# Minimal, network-less execution image for SANDBOX_MODE=docker.
 # Build once (from the repo root, the build context):
 #   docker build -f docker/runner.Dockerfile -t statlee-runner .
 # The app launches throwaway sibling containers from this image per run:

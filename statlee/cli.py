@@ -1,12 +1,12 @@
-"""Operator CLI commands, registered on the Flask app (P2-10).
+"""Operator CLI commands, registered on the Flask app.
 
 With billing enabled a free account starts at 0 credits and has no in-app way to
 get more; ``flask grant-credits <email> <n>`` is the minimum-viable manual grant
 so an operator can top someone up (or hand out credits before the optional
 ``MONTHLY_FREE_CREDITS`` monthly refresh exists).
 
-``flask statlee-doctor`` reports whether the database schema matches the models
-(D5-2). It skips the boot upgrade, so it also works on a DB the upgrade cannot
+``flask statlee-doctor`` reports whether the database schema matches the models.
+It skips the boot upgrade, so it also works on a DB the upgrade cannot
 handle.
 """
 import click

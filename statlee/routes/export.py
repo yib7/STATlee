@@ -1,4 +1,4 @@
-"""Project export (5.3): the reproducibility bundle zip.
+"""Project export: the reproducibility bundle zip.
 
 ``POST /export`` packages the active dataset version, the original upload, the
 replayable cleaning steps (cleaning.py), the analysis script, the codebook, the
@@ -39,7 +39,7 @@ def _cfg():
 
 
 def _filename(data):
-    """The dataset a request names (L8: never a reserved version-file name)."""
+    """The dataset a request names (never a reserved version-file name)."""
     return dataset_filename_field(data)
 
 
@@ -55,8 +55,8 @@ def _for_dataset(entry, dataset_name):
 
 
 def _export_script(client_code, client_language, dataset_name, run=None):
-    """Pick the analysis script to bundle when no included run kept one
-    (D4-9). Only a script that belongs to the exported dataset is ever
+    """Pick the analysis script to bundle when no included run kept one.
+    Only a script that belongs to the exported dataset is ever
     bundled: another dataset's script would not read this one.
 
     ``run`` is ``(run_id, record)`` of the latest run on this dataset that
@@ -72,7 +72,7 @@ def _export_script(client_code, client_language, dataset_name, run=None):
        (the README then says no analysis has been run on it yet).
 
     A /wrangle transform is never bundled as the analysis script: it is a
-    fragment that expects a ``df`` in scope (P2-1); cleaning.py replays those.
+    fragment that expects a ``df`` in scope; cleaning.py replays those.
     """
     if client_code:
         entry = storage.approved_entry(client_code, client_language)
@@ -93,7 +93,7 @@ def _export_script(client_code, client_language, dataset_name, run=None):
     if candidates:
         _, record, source = max(candidates, key=lambda c: c[0])
         language = record.get('language')
-        if not isinstance(language, str):   # legacy store entry (pre-D1-12)
+        if not isinstance(language, str):   # legacy store entry with no language
             language = 'Python'
         code = record['code']
         differs = bool(client_code) and client_code.strip() != code.strip()
@@ -112,7 +112,7 @@ def _comment(text):
 
 
 def _cleaning_script(lineage, data_name, include_prompts=True):
-    """cleaning.py (D6): rebuild the analysed dataset from the original upload
+    """cleaning.py: rebuild the analysed dataset from the original upload
     by replaying each recorded /wrangle transform in order, the same way the
     in-app harness ran them. Without ``include_prompts`` a step's comment
     never falls back to the instruction the user typed."""
@@ -163,7 +163,7 @@ def _report_md(stem, history, last_output, interpretation, include_prompts):
 
 
 def _export_options(data):
-    """SP4 export options: ``include_prompts`` (bool, default true) and
+    """Export options: ``include_prompts`` (bool, default true) and
     ``runs`` (all|starred|latest, default all)."""
     include_prompts = data.get('include_prompts', True)
     if not isinstance(include_prompts, bool):
@@ -177,7 +177,7 @@ def _export_options(data):
 @bp.route('/export', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_run)
 def export_project():
-    """The reproducibility bundle (SP4): it runs as unzipped and documents
+    """The reproducibility bundle: it runs as unzipped and documents
     what produced it (statlee/bundle.py builds provenance.json and
     README.md; statlee/environment.py captures environment.txt). Rate
     limited like /run: an export can run the sandboxed environment probe."""
@@ -186,7 +186,7 @@ def export_project():
     language = language_field(data)
     include_prompts, runs_selection = _export_options(data)
     # Not a prompt (only written into report.md), so the bounds are generous;
-    # clamp_history also drops non-dict turns that used to 500 here.
+    # clamp_history also drops non-dict turns, which would otherwise 500 here.
     history = clamp_history(data.get('history'), max_turns=1000,
                             field_max=20_000)
     # The interpretation in report.md is always the server's copy of the
@@ -262,9 +262,9 @@ def export_project():
     try:
         with zipfile.ZipFile(spool, 'w', zipfile.ZIP_DEFLATED) as zf:
             if active and os.path.exists(active) and staged:
-                # D4-9: /run stages the active version under the dataset's
+                # /run stages the active version under the dataset's
                 # stored name (dataset_name in run_code), and the script
-                # reads it from its working directory -- so it goes at the
+                # reads it from its working directory, so it goes at the
                 # zip root under that name, not as data/<name>__vN.csv.
                 if bundle.write_file(zf, active, dataset_name, root):
                     data_name = dataset_name

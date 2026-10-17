@@ -1,4 +1,4 @@
-"""Client-facing LLM usage aggregation (3.4 cost display).
+"""Client-facing LLM usage aggregation (for the session cost display).
 
 Each LLM call returns a per-call usage dict shaped like
 ``{'model': <id>, 'input': <int>, 'output': <int>}``, optionally with
@@ -17,13 +17,13 @@ def usage_breakdown(*usages):
     """Aggregate per-call usage dicts into a client-facing summary.
 
     Falsy entries are skipped, and app-cache hits are not billed calls: they
-    only bump ``cache_hits`` (D3-11). Returns::
+    only bump ``cache_hits``. Returns::
 
         {'input': int, 'output': int, 'calls': int,
          'by_model': {model_id: {'input': int, 'output': int, 'calls': int}}}
 
     plus ``thinking`` / ``cached`` (totals and per model) when any call
-    reported them (D3-3), and ``cache_hits`` when any call was a cache hit.
+    reported them, and ``cache_hits`` when any call was a cache hit.
     """
     total = {'input': 0, 'output': 0, 'calls': 0, 'by_model': {}}
     for u in usages:

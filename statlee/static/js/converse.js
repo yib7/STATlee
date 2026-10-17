@@ -1,5 +1,5 @@
-/* Converse tab: single-pass streamed chat (4.2) with sanitized markdown
- * bubbles (0.5) and the hypothesis-coach guide mode (5.15). */
+/* Converse tab: single-pass streamed chat with sanitized markdown
+ * bubbles and the hypothesis-coach guide mode. */
 (function () {
     'use strict';
 
@@ -18,7 +18,7 @@
     };
     window.askSample = CC.askSample;
 
-    // D4-6: one answer streams at a time. A second send while the first is in
+    // One answer streams at a time. A second send while the first is in
     // flight would interleave two bubbles and send a history that is missing
     // the first exchange; the unsent text stays in the composer instead.
     let sending = false;
@@ -71,7 +71,7 @@
             chatLog.scrollTop = chatLog.scrollHeight;
         }
 
-        // SP1: while a saved run is open in Results, the conversation is about
+        // While a saved run is open in Results, the conversation is about
         // that run: its id, its script and its interpretation (the server
         // reads the stored interpretation for the id it is given).
         const saved = CC.workbook ? CC.workbook.viewedRun() : null;
@@ -149,7 +149,7 @@
         });
         document.getElementById('guideToggle').addEventListener('change', (e) => {
             const chatLog = document.getElementById('chatLog');
-            // One explainer per session, not one per toggle (D4-24).
+            // One explainer per session, not one per toggle.
             if (e.target.checked && !guideNoteShown) {
                 guideNoteShown = true;
                 // This note is the first thing in the log: retire the empty

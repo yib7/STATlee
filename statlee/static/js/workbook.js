@@ -1,4 +1,4 @@
-/* Session workbook (SP1): the run rail in Results, read-only viewing of a
+/* Session workbook: the run rail in Results, read-only viewing of a
  * saved run, "Load script", star and inline rename, and the report builder's
  * run checklist.
  *
@@ -138,7 +138,7 @@
         star.type = 'button';
         star.setAttribute('aria-pressed', run.starred ? 'true' : 'false');
         star.setAttribute('aria-label', 'Star run ' + n);
-        // 3A A3: starring picks a run for reports. It only moves the run to
+        // Starring picks a run for reports. It only moves the run to
         // the back of the eviction queue; a full workbook can still drop it.
         star.title = run.starred
             ? 'Starred: selected for reports by default. When the workbook is full, '
@@ -462,7 +462,7 @@
     }
 
     /** Tell the user when a new run pushed older ones out of the workbook,
-     *  naming any starred one (3A A3). Labels are read before the refresh
+     *  naming any starred one. Labels are read before the refresh
      *  drops the evicted rows. */
     function announceEvictions(evicted) {
         const gone = Array.isArray(evicted) ? evicted.filter((r) => r && r.run_id) : [];

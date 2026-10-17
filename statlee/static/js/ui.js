@@ -1,9 +1,9 @@
-/* UI chrome: theme, modals, pipeline checklist (4.4), tab + split-pane
- * workspace (6.1), sidebar resizer, codebook rendering + pop-out (6.2). */
+/* UI chrome: theme, modals, pipeline checklist, tab + split-pane
+ * workspace, sidebar resizer, codebook rendering + pop-out. */
 (function () {
     'use strict';
 
-    // --- guarded storage (D4-25) -----------------------------------------------
+    // --- guarded storage -----------------------------------------------
     // Blocked storage (privacy modes, enterprise policy) throws on access. It
     // must degrade to "no persistence", never abort start-up or the upload flow.
     CC.store = {
@@ -18,12 +18,12 @@
             document.documentElement.classList.contains('dark') ? 'dark' : 'light');
     };
 
-    // --- modal helpers (D4-14) ---------------------------------------------------
+    // --- modal helpers ---------------------------------------------------
     // open() remembers the opener, moves focus into the dialog and traps Tab
     // inside it; close() restores focus. dismiss() is the USER closing it
     // (Escape, the X): it also runs the dialog's onDismiss hook, so a dialog
     // whose close has a meaning (the codebook prompt: "no thanks" = skip) can
-    // never be closed into a stuck state (D4-1). Forced dialogs refuse it.
+    // never be closed into a stuck state. Forced dialogs refuse it.
     const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]),' +
         ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const openers = {};
@@ -99,9 +99,9 @@
         }
     });
 
-    // --- pipeline status checklist (4.4) ---------------------------------------
+    // --- pipeline status checklist ---------------------------------------
     // The full run spine, not just the upload half: the last two steps are the
-    // ones a run can actually fail on, so `execute` carries recovery actions.
+    // ones a run can fail on, so `execute` carries recovery actions.
     const PIPELINE_STEPS = [
         { id: 'load', label: 'Data loaded' },
         { id: 'codebook_link', label: 'Codebook linked' },
@@ -141,7 +141,7 @@
         },
         /** `opts.noFix`: the failure never reached the sandbox (run-guard
          *  refusal, timeout, 5xx), so there is no traceback for "Fix with AI"
-         *  to send; offer Retry only (D4-8). */
+         *  to send; offer Retry only. */
         set(stepId, state, note, opts) {
             const el = document.querySelector(`#pipelineChecklist [data-step="${stepId}"]`);
             if (!el) return;
@@ -162,7 +162,7 @@
         },
     };
 
-    // --- tabs + split panes (6.1) ------------------------------------------------
+    // --- tabs + split panes ------------------------------------------------
     const VIEWS = ['Generate', 'Data', 'Results', 'Converse', 'Report', 'Pdf'];
     let activeA = 'generate';
     let paneBView = null;
@@ -192,7 +192,7 @@
             if (tabName === 'pdf') tab.style.display = 'flex';
             activeA = tabName;
         }
-        // Roving tabindex (D4-14): exactly one tab is in the Tab order, the
+        // Roving tabindex: exactly one tab is in the Tab order, the
         // selected one; arrow keys move between the rest (initTabKeys).
         const selected = document.getElementById('tab' + cap(activeA));
         if (selected) {
@@ -366,7 +366,7 @@
                 leftSidebar.style.transition = '';
             }
         });
-        // 5.9: keyboard-operable resizer
+        // Keyboard-operable resizer
         resizer.addEventListener('keydown', (e) => {
             const cur = leftSidebar.getBoundingClientRect().width;
             if (e.key === 'ArrowLeft') leftSidebar.style.width = `${Math.max(320, cur - 24)}px`;
@@ -375,7 +375,7 @@
         });
     }
 
-    // --- intelligent codebook (render + toggle + pop-out 6.2) ----------------------
+    // --- codebook (render + toggle + pop-out) --------------------------
     let codebookVisible = true;
     let codebookExpanded = false;  // expanded view shows each variable's description inline
 
@@ -464,7 +464,7 @@
         cbContainer.classList.remove('hidden');
     };
 
-    // Pop-out codebook (6.2): float the list in a draggable panel.
+    // Pop-out codebook: float the list in a draggable panel.
     CC.popOutCodebook = function () {
         if (document.getElementById('codebookFloat')) return;
         const list = document.getElementById('codebookList');
@@ -488,8 +488,8 @@
     };
 
     /** Drag a floating panel by its handle. The two document listeners are
-     *  removed when the panel docks (D4-26): before, every pop-out/dock cycle
-     *  left another pair behind. */
+     *  removed when the panel docks, so a pop-out/dock cycle does not
+     *  leave another pair behind. */
     function makeDraggable(float, handle) {
         let drag = null;
         const onMove = (e) => {
@@ -612,7 +612,7 @@
         set(key, val) { CC.store.set('cc_pref_' + key, val ? 'true' : 'false'); },
     };
 
-    // Split view (6.1) can be hidden entirely as a focus preference.
+    // Split view can be hidden entirely as a focus preference.
     function applySplitPref() {
         const on = CC.prefs.get('split', true);
         const btn = document.getElementById('splitBtn');
@@ -657,7 +657,7 @@
 
     // The empty workspace shows the spine up front rather than materialising it
     // on upload: the run is legible before you commit a file. Step 1 carries the
-    // active pulse because it is genuinely what the app is waiting on.
+    // active pulse because it is what the app is waiting on.
     function bootPipeline() {
         CC.pipeline.begin('awaiting data');
         CC.pipeline.set('load', 'active', 'waiting for a dataset');

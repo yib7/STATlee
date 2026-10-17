@@ -1,4 +1,4 @@
-"""Survey-native codebook routes (SP2).
+"""Survey-native codebook routes.
 
 ``GET /codebook?filename=``         the merged codebook of a dataset
 ``PUT /codebook``                   partial or full update, fields become user

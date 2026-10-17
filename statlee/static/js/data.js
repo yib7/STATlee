@@ -1,14 +1,14 @@
-/* Dataset flows: upload (multi-format 5.1), codebook decision tree incl.
- * survey branch (5.13), classification + suggestions with reroll (4.5),
- * data table, conversational wrangling with changelog/undo/redo (5.16),
- * and reset (4.6). */
+/* Dataset flows: multi-format upload, codebook decision tree incl.
+ * survey branch, classification + suggestions with reroll,
+ * data table, conversational wrangling with changelog/undo/redo,
+ * and reset. */
 (function () {
     'use strict';
 
     let pendingFilename = null;
-    let pdfMode = 'codebook';   // 'codebook' | 'survey' (5.13)
+    let pdfMode = 'codebook';   // 'codebook' | 'survey'
     let searchDebounce;
-    let pageSeq = 0;            // D4-23: only the newest /data_page reply renders
+    let pageSeq = 0;            // Only the newest /data_page reply renders
     let uploadBusy = false;
     let codebookURL = null;     // blob: URL of the attached document (revoked on replace)
 
@@ -85,7 +85,7 @@
             rows.forEach(row => {
                 html += '<tr class="border-b border-slate-100/50 dark:border-slate-800/30 hover:bg-slate-50/50 dark:hover:bg-indigo-900/10 transition-colors">';
                 headers.forEach(h => {
-                    // D1-9: missing, NaN and +/-inf cells arrive as null. Mark
+                    // Missing, NaN and +/-inf cells arrive as null. Mark
                     // them, so "missing" never looks like an empty string.
                     const value = row[h];
                     if (value === null || value === undefined) {
@@ -162,7 +162,7 @@
                 CC.state.codebook = data.codebook;
                 CC.renderCodebookUI();
                 if (data.usage) CC.addUsage(data.usage);
-                // The classification is now in the server codebook (SP2),
+                // The classification is in the server codebook,
                 // under any edits the user made: show the merged result.
                 if (CC.codebookEditor) CC.codebookEditor.refresh();
                 if (!quiet) CC.pipeline.set('classify', 'done', data.cached ? 'cached' : '');
@@ -176,8 +176,8 @@
         }
     }
 
-    /** /suggest accepts at most 10 `previous` ideas of 500 chars each (S1-B
-     *  contract 9). The ideas on screen come first, so a reroll never repeats
+    /** /suggest accepts at most 10 `previous` ideas of 500 chars each.
+     *  The ideas on screen come first, so a reroll never repeats
      *  them; older ones fill the rest. */
     const PREVIOUS_MAX = 10;
     const PREVIOUS_CHARS = 500;
@@ -206,7 +206,7 @@
                 pdf_mapping: CC.state.pdfMapping,
                 previous: previous ? previousSuggestions(previous) : [],
             });
-            // D4-21: the model's JSON shape is not guaranteed. Accept a list or
+            // The model's JSON shape is not guaranteed. Accept a list or
             // {suggestions: [...]}, keep strings only, at most three; anything
             // else is a failed step, not a TypeError mislabelled "network error".
             const raw = data && (Array.isArray(data.suggestions) ? data.suggestions
@@ -274,7 +274,7 @@
 
     // --- upload flow ------------------------------------------------------------
     /** Clear the previous dataset's sidebar state. Runs only once the NEW
-     *  upload has been accepted (D4-2): a rejected file must leave the dataset
+     *  upload has been accepted: a rejected file must leave the dataset
      *  the user is working on untouched. */
     function resetDatasetChrome() {
         CC.state.pdfMapping = {};
@@ -290,8 +290,8 @@
         if (CC.codebookEditor) CC.codebookEditor.show('variables');
     }
 
-    /** The sidebar's "Loaded <name>" line (D1-1) plus upload warnings, e.g.
-     *  "This workbook has 3 sheets. Imported 'Data'..." (D1-13). Quiet, in
+    /** The sidebar's "Loaded <name>" line plus upload warnings, e.g.
+     *  "This workbook has 3 sheets. Imported 'Data'...". Quiet, in
      *  place, and kept until the next upload: nothing to dismiss. */
     function showDatasetInfo(data) {
         const box = document.getElementById('datasetInfo');
@@ -319,7 +319,7 @@
     }
 
     /** Is there analysis work tied to the current dataset that a new upload
-     *  would discard? (D4-3) */
+     *  would discard? */
     function hasAnalysisWork() {
         return !!(CC.getCode && CC.getCode().trim()) || !!CC.state.lastRun ||
             CC.state.converseHistory.length > 0 || !!(CC.state.report && CC.state.report.trim());
@@ -378,7 +378,7 @@
                 if (ok && data.filename) {
                     resetDatasetChrome();
                     if (CC.resetAnalysisState) CC.resetAnalysisState();
-                    // D1-1: the stored name may differ from the picked file
+                    // The stored name may differ from the picked file
                     // (`<ascii>_<8hex>.csv`, `upload_<8hex>.csv`). Every
                     // request uses the stored one; the user sees their own.
                     CC.state.filename = data.filename;
@@ -386,7 +386,7 @@
                     const label = CC.datasetLabel();
                     showDatasetInfo(data);
                     if (previous && previous === data.filename) {
-                        // D1-14: same stored name = the server replaced the
+                        // Same stored name = the server replaced the
                         // dataset and restarted its cleaning history at v1.
                         CC.toast(`Replaced ${label}. Its cleaning history starts again at v1.`, 'info');
                     }
@@ -399,9 +399,9 @@
                     CC.state.converseHistory = [];
                     CC.state.headers = data.profile.headers;
                     if (data.labels && Object.keys(data.labels).length > 0) {
-                        // Native .sav/.dta variable labels seed the codebook (5.1)
+                        // Native .sav/.dta variable labels seed the codebook
                         CC.state.pdfMapping = Object.assign({}, data.labels);
-                        // D1-13: value labels are merged into the column label,
+                        // Value labels are merged into the column label,
                         // e.g. "Sex (1=Male, 2=Female)".
                         const n = Object.keys(data.labels).length;
                         const coded = Object.values(data.labels)
@@ -412,14 +412,14 @@
                     CC.renderTableHeaders(CC.state.headers);
                     // The server codebook of the new dataset: native .sav/.dta
                     // labels now, and earlier edits when identical content
-                    // was uploaded before (SP2).
+                    // was uploaded before.
                     if (CC.codebookEditor) CC.codebookEditor.refresh();
                     if (data.codebook_restored) {
                         CC.toast('The codebook from your earlier upload of this file is back.', 'info');
                     }
                     CC.pipeline.set('load', 'done', label);
                     // The table preview is its own request: a /data_page hiccup
-                    // must not mark an accepted upload as failed (D4-23).
+                    // must not mark an accepted upload as failed.
                     CC.fetchDataPage(1);
                     renderChangelog(data.changelog);   // reveal the cleaning chat with v1
                     pendingFilename = data.filename;
@@ -436,11 +436,11 @@
                 failed('Network error: the upload did not reach the server.');
             } finally {
                 uploadBusy = false;
-                input.value = '';   // D4-18: re-picking the same file must fire `change` again
+                input.value = '';   // Re-picking the same file must fire `change` again
             }
         });
 
-        // Codebook decision tree (5.13): ask → [upload codebook] / [no →
+        // Codebook decision tree: ask → [upload codebook] / [no →
         // ask survey] → [upload survey] / [skip]
         document.getElementById('codebookYesBtn').addEventListener('click', () => {
             pdfMode = 'codebook';
@@ -461,7 +461,7 @@
             hideCodebookPrompt();
             await skipCodebook();
         });
-        // D4-1: Escape / closing the prompt is the usual way to say "no
+        // Escape / closing the prompt is the usual way to say "no
         // thanks". It must mean "skip", or classification never starts and
         // Generate stays disabled forever.
         CC.modal.onDismiss('codebookPromptOverlay', skipCodebook);
@@ -477,13 +477,13 @@
             try {
                 const { ok, status, data } = await CC.postForm('/upload_pdf', formData);
                 if (ok && data.filename) {
-                    // D4-30: show the document only once the server accepted it,
+                    // Show the document only once the server accepted it,
                     // so a rejected PDF never reads as "attached".
                     await showCodebookDocument(file, data.filename);   // swap empty state -> the document
                     CC.switchTab('pdf');
                     const ext = await CC.post('/extract_pdf_codebook', {
                         filename: data.filename,
-                        dataset: CC.state.filename,   // seeds the server codebook (SP2)
+                        dataset: CC.state.filename,   // seeds the server codebook
                         mode: pdfMode,
                         headers: CC.state.headers,
                     });
@@ -491,7 +491,7 @@
                         CC.state.pdfMapping = Object.assign({}, CC.state.pdfMapping, ext.data.mapping);
                         if (ext.data.usage) CC.addUsage(ext.data.usage);
                         CC.renderCodebookUI();   // surface new descriptions on hover (no-op if not yet classified)
-                        if (CC.codebookEditor) CC.codebookEditor.refresh();   // labels from the document (SP2)
+                        if (CC.codebookEditor) CC.codebookEditor.refresh();   // labels from the document
                         const n = Object.keys(ext.data.mapping).length;
                         const matched = Object.keys(ext.data.mapping)
                             .filter(k => CC.state.headers.some(h => h.toLowerCase() === k.toLowerCase())).length;
@@ -544,7 +544,7 @@
     }
     function hideCodebookPrompt() { CC.modal.close('codebookPromptOverlay'); }
 
-    // --- wrangling + version control (5.16) -----------------------------------------
+    // --- wrangling + version control -----------------------------------------
     function renderChangelog(changelog) {
         const panel = document.getElementById('changelogPanel');
         const list = document.getElementById('changelogList');
@@ -585,11 +585,11 @@
             CC.renderTableHeaders(CC.state.headers);
             await CC.fetchDataPage(1);
             // The new version's columns: added ones get a default codebook
-            // row now, the re-classify below fills them in (SP2).
+            // row now, the re-classify below fills them in.
             if (CC.codebookEditor) CC.codebookEditor.refresh();
             // Re-classify in the BACKGROUND, not awaited: the edit itself is
             // already done and shown above. Awaiting this slow LLM re-profile
-            // used to hold the Apply button's spinner spinning for seconds after
+            // would keep the Apply button's spinner spinning for seconds after
             // a successful edit. Fire-and-forget; it swallows its own errors and
             // refreshes the codebook chips when it lands.
             fetchCodebook(CC.state.filename, true);
@@ -607,9 +607,9 @@
         fetchCodebook(filename, true);   // background, like afterVersionChange
     }
 
-    /** Re-read the dataset after a 409 (L1), or after sign-in kept the
+    /** Re-read the dataset after a 409, or after sign-in kept the
      *  account's copy of this name: the cleaning history and the active
-     *  version's columns from /dataset_versions (S5: it returns `headers` in
+     *  version's columns from /dataset_versions (it returns `headers` in
      *  the frame's own order), then the table. Returns the fresh changelog,
      *  or null. */
     async function reloadDatasetState() {
@@ -636,7 +636,7 @@
         const applyBtn = document.getElementById('wrangleApplyBtn');
         const input = document.getElementById('wrangleInput');
 
-        // D4-6: one dataset-version change at a time. A second /wrangle (or an
+        // One dataset-version change at a time. A second /wrangle (or an
         // undo) fired while one is in flight would branch two versions off the
         // same parent.
         let versionBusy = false;
@@ -693,7 +693,7 @@
                     changelog = data.changelog;
                     await afterVersionChange(data.profile, data.changelog);
                 } else if (status === 409) {
-                    // L1: another tab's wrangle / undo / revert moved the
+                    // Another tab's wrangle / undo / revert moved the
                     // active version while this one ran; nothing was saved.
                     // Show the data as it now is before the user retries.
                     pending.remove();
@@ -770,7 +770,7 @@
         }
     }
 
-    // --- reset (4.6) --------------------------------------------------------------------
+    // --- reset --------------------------------------------------------------------
     function initReset() {
         document.getElementById('resetBtn').addEventListener('click', async () => {
             if (!window.confirm('Start a new analysis? This clears the current dataset, generated code, chats, and results.')) return;
@@ -780,7 +780,7 @@
     }
 
     // --- codebook viewer tab (empty state <-> loaded document) --------------------------
-    /** Decode a local text file like the server does (D1-8/D1-10): UTF-8
+    /** Decode a local text file like the server does: UTF-8
      *  first, then Windows-1252, so a cp1252 codebook does not preview as
      *  replacement characters. */
     async function readText(file) {
@@ -789,8 +789,8 @@
         catch (e) { return new TextDecoder('windows-1252').decode(bytes); }
     }
 
-    /** Show the attached document. The server keeps a .txt codebook as text
-     *  (S1-B contract 6), so it is decided by the STORED name: a PDF goes in
+    /** Show the attached document. The server keeps a .txt codebook as text,
+     *  so it is decided by the STORED name: a PDF goes in
      *  the frame as a typed blob, a TXT is rendered as plain text. A text
      *  blob in the frame would be sniffed and run at the app's origin. */
     async function showCodebookDocument(file, storedName) {
@@ -832,7 +832,7 @@
         if (replace) replace.classList.add('hidden');
         if (codebookURL) { URL.revokeObjectURL(codebookURL); codebookURL = null; }
     }
-    // The Codebook tab is always reachable now. Its empty-state buttons let the
+    // The Codebook tab is always reachable. Its empty-state buttons let the
     // user add a codebook (or a survey to generate descriptions) at any time
     // WITHOUT re-uploading the dataset: they reuse the existing pdfInput flow.
     function initCodebookTab() {
@@ -848,7 +848,7 @@
         }
         if (uploadBtn) uploadBtn.addEventListener('click', () => pickCodebook('codebook'));
         if (surveyBtn) surveyBtn.addEventListener('click', () => pickCodebook('survey'));
-        // D4-30: an attached document can be swapped without re-uploading data.
+        // An attached document can be swapped without re-uploading data.
         const replaceBtn = document.getElementById('codebookReplaceBtn');
         if (replaceBtn) replaceBtn.addEventListener('click', () => pickCodebook('codebook'));
     }
@@ -883,10 +883,10 @@
         applyDataZoom();
     }
 
-    // --- suggestion reroll (4.5) -----------------------------------------------------------
+    // --- suggestion reroll -----------------------------------------------------------
     // A reroll skips the server cache by design, so every click is a billed
     // model call: one user-asked /suggest at a time, the button disabled
-    // while it runs (a double click used to send two).
+    // while it runs (so a double click cannot send two).
     let manualSuggestBusy = false;
     async function manualSuggest(btn, previous) {
         if (manualSuggestBusy || !CC.state.filename) return;

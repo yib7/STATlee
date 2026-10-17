@@ -1,4 +1,4 @@
-"""Flask blueprints (roadmap 3.1) and small shared route helpers."""
+"""Flask blueprints and small shared route helpers."""
 import json
 import logging
 import re
@@ -7,7 +7,7 @@ from flask import Response, jsonify, stream_with_context
 
 
 def json_error(message, status=400):
-    """Generic client-safe error body (1.6 — never leak str(e))."""
+    """Generic client-safe error body (never leak str(e))."""
     return jsonify({'error': message}), status
 
 
@@ -18,7 +18,7 @@ _FENCE_RE = re.compile(r'```[a-zA-Z0-9_-]*\s*\n?(.*?)```', re.DOTALL)
 
 
 def parse_json_reply(text):
-    """Parse a JSON-mode model reply tolerantly (D3-10).
+    """Parse a JSON-mode model reply tolerantly.
 
     Only Gemini (``response_mime_type``) and OpenAI (``response_format``)
     constrain JSON at the API; Anthropic is asked by system prompt, and any
@@ -58,7 +58,7 @@ def parse_json_reply(text):
 
 
 def json_object_reply(text):
-    """``parse_json_reply`` that must yield an object (D3-9)."""
+    """``parse_json_reply`` that must yield an object."""
     from .. import llm
     value = parse_json_reply(text)
     if not isinstance(value, dict):
@@ -70,7 +70,7 @@ def json_object_reply(text):
 def string_mapping(value, *, key_max=200, value_max=2000):
     """Keep a ``{str: str}`` view of a model mapping: scalar values become
     strings, nested lists/objects are serialised compactly, ``None`` and
-    empty values are dropped (D3-9)."""
+    empty values are dropped."""
     out = {}
     for key, val in value.items():
         if val is None:
@@ -86,17 +86,17 @@ def string_mapping(value, *, key_max=200, value_max=2000):
 def moderation_blocked(result_text):
     """Interpret a moderation verdict, **failing closed**.
 
-    Moderation prompts now return a structured JSON verdict
+    Moderation prompts return a structured JSON verdict
     ``{"decision": "pass" | "block", "reason": "..."}``. This parses it and
-    treats anything that is not an explicit ``pass`` — malformed JSON, a missing
-    or unexpected ``decision``, an empty body — as *blocked*. That closes the
+    treats anything that is not an explicit ``pass`` (malformed JSON, a missing
+    or unexpected ``decision``, an empty body) as *blocked*. That closes the
     prompt-injection path where suppressing a magic word made moderation
     fail open.
 
-    Case handling (P1-6): the prompt schema (``prompts._VERDICT_SHAPE``)
+    Case handling: the prompt schema (``prompts._VERDICT_SHAPE``)
     specifies lowercase ``"pass"``/``"block"``, but ``decision`` is compared
     case-INSENSITIVELY on purpose. This is deliberate slack, not a bug: it is
-    the safe direction to differ — a model that returns ``"Pass"`` or ``"PASS"``
+    the safe direction to differ. A model that returns ``"Pass"`` or ``"PASS"``
     is honored as a pass rather than fail-closed into blocking a legitimate
     request, while any non-pass token (however cased) still blocks. Do NOT
     tighten this to an exact-case match; that would let a stray capital letter
@@ -105,7 +105,7 @@ def moderation_blocked(result_text):
     Returns ``(blocked: bool, reason: str)``; ``reason`` is empty when allowed.
     """
     try:
-        # D3-10: a fenced or prose-wrapped verdict is still a verdict; only a
+        # A fenced or prose-wrapped verdict is still a verdict; only a
         # reply with no JSON value at all fails closed here.
         verdict = parse_json_reply(result_text)
     except (ValueError, TypeError):
@@ -125,7 +125,7 @@ def moderation_blocked(result_text):
 
 
 # ---------------------------------------------------------------------------
-# D3-4: provider safety blocks, refusals and empty/truncated output
+# Provider safety blocks, refusals and empty/truncated output
 # ---------------------------------------------------------------------------
 
 def _output_error(exc):
@@ -159,7 +159,7 @@ def llm_json_error(exc, default_message, default_status=500):
     or truncated reply a 502 (the upstream answer was unusable); anything else
     is ``default_message``/``default_status``. A provider that could not be
     used at all (no key, network error) is a 503. A typed failure carries the
-    same ``reason`` code as the SSE error event (S5)."""
+    same ``reason`` code as the SSE error event."""
     err = _output_error(exc)
     if err is None:
         return json_error(default_message, default_status)
@@ -210,7 +210,7 @@ def moderation_gate(service, prompt, *, denied='Request denied.',
 
 
 # ---------------------------------------------------------------------------
-# P1-7: server-side caps on client-supplied prompt material
+# Server-side caps on client-supplied prompt material
 # ---------------------------------------------------------------------------
 # Every free-text field a client POSTs flows into an LLM prompt billed to the
 # operator's key; before these caps the only bound was the global 16 MB
@@ -315,7 +315,7 @@ def clamp_str_list(items, max_count, field_max):
 
 
 # ---------------------------------------------------------------------------
-# D1-12: request-shape validation. A wrong JSON type is a 400, not a 500 from
+# Request-shape validation. A wrong JSON type is a 400, not a 500 from
 # deep inside a route.
 # ---------------------------------------------------------------------------
 
@@ -365,7 +365,7 @@ RESERVED_NAME_MESSAGE = (
 def dataset_filename_field(data, key='filename'):
     """The dataset a request names, as ``str_field`` (clamped to
     ``FILENAME_MAX``). A reserved version-file name (``stem__v2.csv``) is a
-    ``FieldError`` (L8): it addresses a history file, not a dataset, so a
+    ``FieldError``: it addresses a history file, not a dataset, so a
     wrangle on it would grow a second history on top of the version file."""
     from .. import storage
     name = str_field(data, key, FILENAME_MAX)
@@ -408,7 +408,7 @@ def list_field(data, key):
 
 
 def run_id_field(data, key='run_id'):
-    """An optional run id (SP1). Missing/null/'' -> None; a non-string is a
+    """An optional run id. Missing/null/'' -> None; a non-string is a
     ``FieldError``. Format and ownership are checked by ``selected_run_id``."""
     value = data.get(key)
     if value is None or value == '':
@@ -450,7 +450,7 @@ def language_field(data, key='language', default='Python'):
 
     Missing/empty -> ``default``. Anything else is a ``FieldError``: the value
     selects the interpreter, the static check and the approval key, so it is an
-    enum, not free text (D1-7/D1-12)."""
+    enum, not free text."""
     value = data.get(key)
     if value is None or value == '':
         return default
@@ -477,7 +477,7 @@ def clamp_plots(plots, max_count=PLOTS_MAX_COUNT, max_chars=PLOT_B64_MAX):
 
 class DebitGuard:
     """Give a debited credit back unless the streamed request delivered its
-    result (D1-15).
+    result.
 
     Error branches inside a stream refunded through ``except Exception``, but a
     client disconnect closes the generator with ``GeneratorExit`` (a
@@ -547,7 +547,7 @@ class DebitGuard:
         return response
 
     def with_balance(self, payload):
-        """Add ``credits_remaining`` (D4-19) to a final ``done``/``error``
+        """Add ``credits_remaining`` to a final ``done``/``error``
         payload when billing meters this user, so the UI can show the balance
         after the debit or the refund. Never fails the response."""
         from .. import billing
@@ -577,7 +577,7 @@ def sse_event(payload):
 def strip_code_fences(text):
     """Defensive fence-stripping for models that ignore the no-markdown rule."""
     final_code = (text or '').strip()
-    # Broadened fence tag (P2-6): match any language label (```py, ```python,
+    # Broadened fence tag: match any language label (```py, ```python,
     # ```r, ```javascript, or a bare ```), not just python/r, so a mis-tagged
     # fence is stripped cleanly instead of falling through to the line-strip.
     match = re.search(r'```[a-zA-Z]*\n(.*?)```', final_code,

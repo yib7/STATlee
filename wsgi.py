@@ -22,7 +22,7 @@ from statlee.config import ConfigError  # noqa: E402
 
 def _build_app():
     """Build the app; a configuration error ends ``python wsgi.py`` and the
-    Flask CLI with one line naming the variable, not a traceback (3.12)."""
+    Flask CLI with one line naming the variable, not a traceback."""
     try:
         return create_app()
     except ConfigError as exc:
@@ -35,5 +35,5 @@ app = _build_app()
 
 if __name__ == '__main__':
     cfg = app.config['STATLEE']
-    # Loopback unless BIND_HOST opts in to LAN exposure (D5-8).
+    # Loopback unless BIND_HOST opts in to LAN exposure.
     app.run(debug=False, host=cfg.bind_host, port=cfg.port)

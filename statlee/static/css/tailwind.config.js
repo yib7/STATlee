@@ -1,5 +1,5 @@
 /**
- * Tailwind build config (replaces the CDN runtime). Builds tailwind.css, the
+ * Tailwind build config (no CDN runtime). Builds tailwind.css, the
  * purged stylesheet the app serves, from tailwind.src.css beside it. From the
  * repo root:
  *   npx tailwindcss@3.2.7 -c statlee/static/css/tailwind.config.js \
@@ -34,7 +34,7 @@ module.exports = {
         display: ['Syne', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
-      // Dark-surface depth ramp (replaces eight ad-hoc near-black hexes).
+      // Dark-surface depth ramp (one token per level, not ad-hoc near-black hexes).
       // 0 = page bg, 1 = panels/modals, 2 = inputs/raised, 3 = code/terminal.
       colors: {
         surface: {

@@ -19,7 +19,7 @@ def _rate_limit_key():
     Deliberately NOT keyed on the server-set ``sid`` cookie: that cookie is
     minted by the server, so an abuser who simply discards cookies between
     requests would get a fresh, empty rate-limit bucket every time and bypass
-    the limits entirely — running up the Gemini bill. Keying anonymous traffic
+    the limits entirely, running up the Gemini bill. Keying anonymous traffic
     on the source IP closes that bypass. (Behind a proxy the real client IP
     requires ProxyFix; see ``TRUST_PROXY_HOPS`` in app.py / config.py.)
     """

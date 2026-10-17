@@ -1,4 +1,4 @@
-"""Survey-native codebook (SP2): schema, validation, clamping and merge.
+"""Survey-native codebook: schema, validation, clamping and merge.
 
 One codebook per dataset, stored in the dataset's meta sidecar under
 ``codebook`` as one layer per source::
@@ -67,7 +67,7 @@ IMPORT_ENTRIES_MAX = 10000
 # write that would grow them past this is refused (413) instead of stored.
 # The native layer does not count: it comes from the uploaded file, is
 # bounded by the per-field clamps, and the user could not shrink it to make
-# room for an edit (3A A1).
+# room for an edit.
 CODEBOOK_BYTES_MAX = 4 * 1024 * 1024
 PROMPT_VALUE_LABELS_MAX = 40
 SUMMARY_LINE_MAX = 200
@@ -518,7 +518,7 @@ def dataset_columns(filename, identity=None):
     """Column names of the dataset's active version; None when the dataset is
     unknown or its file is gone. Like every other reader
     (``storage.active_dataset_snapshot``), a dataset whose version manifest
-    is missing or unreadable falls back to its plain stored file (3A A2)."""
+    is missing or unreadable falls back to its plain stored file."""
     import pandas as pd
     path = _st().active_dataset_path(filename, identity)
     if not path or not path.lower().endswith('.csv') \
@@ -597,8 +597,8 @@ def apply(filename, source, updates, identity=None):
 def init_for_upload(filename, meta, native=None, identity=None):
     """Write a fresh upload's meta sidecar with its codebook: the user, pdf
     and llm layers come back when identical content (same sha256) was
-    described before -- the previous sidecar of this name, else the archive
-    -- and the native layer is the upload's own .sav/.dta metadata. Returns
+    described before (the previous sidecar of this name, else the archive),
+    and the native layer is the upload's own .sav/.dta metadata. Returns
     True when an earlier codebook was restored."""
     st = _st()
     sha = meta.get('sha256')

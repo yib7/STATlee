@@ -1,10 +1,9 @@
 """Dataset lifecycle routes: upload (data and its documentation), paging,
 classification and suggestions, wrangling with version control, reset.
 
-Implements roadmap items 5.1 (formats), 5.6 (cache), 5.8 (paging cache +
-row cap), 5.13 (survey→codebook), 5.16 (wrangle + undo/redo),
-4.5 (suggestion reroll), 4.6 (reset). The /export bundle lives in
-``routes/export.py``.
+Covers multi-format upload, the analysis cache, paging (cache + row cap),
+survey→codebook, wrangle + undo/redo, suggestion reroll and reset. The
+/export bundle lives in ``routes/export.py``.
 """
 import hashlib
 import io
@@ -63,7 +62,7 @@ register_field_errors(bp)
 
 
 def _filename(data):
-    """The dataset a request names (L8: never a reserved version-file name)."""
+    """The dataset a request names (never a reserved version-file name)."""
     return dataset_filename_field(data)
 
 
@@ -88,14 +87,14 @@ def _incoming_size(file):
 
 
 def _quota_error(incoming_bytes, replacing=None):
-    """P2-4: return a 413 ``json_error`` if accepting ``incoming_bytes`` more
+    """Return a 413 ``json_error`` if accepting ``incoming_bytes`` more
     would push the caller's identity dir past its file-count or byte quota,
     else ``None``. Uses a cheap directory scan BEFORE the new file is saved so
     a burst of uploads cannot fill the disk ahead of the 2h TTL cleanup.
 
     ``replacing`` is the path the upload will overwrite, if it exists: the file
     count then does not grow and its bytes are freed, so a user at the cap can
-    still refresh ``data.csv`` (D1-14)."""
+    still refresh ``data.csv``."""
     cfg = _cfg()
     count, used = storage.identity_usage()
     if replacing and os.path.exists(replacing):
@@ -118,13 +117,13 @@ def _quota_error(incoming_bytes, replacing=None):
 
 
 # ---------------------------------------------------------------------------
-# Small caches (5.6 classification/suggestion cache, 5.8 parsed-frame cache)
+# Small caches (classification/suggestion cache, parsed-frame cache)
 # ---------------------------------------------------------------------------
 _analysis_cache = OrderedDict()   # (sha256, kind) -> result
 _frame_cache = OrderedDict()      # (path, mtime) -> DataFrame
 # (path, mtime, filters) -> filtered DataFrame. Lets /data_page filter the frame
 # ONCE per filter set and then serve any page of it, instead of re-filtering the
-# whole (up to data_page_row_cap) frame on every page request (P2-5).
+# whole (up to data_page_row_cap) frame on every page request.
 _filtered_cache = OrderedDict()
 _cache_lock = threading.Lock()
 ANALYSIS_CACHE_MAX = 128
@@ -146,7 +145,7 @@ def _normalize_suggestions(value):
     """A list of at most ``SUGGESTIONS_MAX`` non-empty strings from a
     ``/suggest`` reply: a bare array, ``{"suggestions": [...]}``, or an object
     holding exactly one list. Raises ``llm.MalformedReplyError`` when nothing
-    usable is left (D3-9/D4-21)."""
+    usable is left."""
     items = value
     if isinstance(value, dict):
         items = value.get('suggestions')
@@ -191,7 +190,7 @@ def clear_caches():
 def _read_active(filename, nrows=None, row_cap=None):
     """Read the ACTIVE version of a dataset (5.16-aware).
 
-    With ``row_cap`` (L5), at most ``row_cap + 1`` rows are parsed: a frame
+    With ``row_cap``, at most ``row_cap + 1`` rows are parsed: a frame
     longer than ``row_cap`` comes back truncated (and uncached) so the caller
     can refuse it without first materializing the whole file."""
     path = storage.active_dataset_path(filename)
@@ -214,7 +213,7 @@ def _read_active(filename, nrows=None, row_cap=None):
 
 
 def read_version_frame(filename, version):
-    """Cached full read of one version of a dataset (SP1: interpreting an
+    """Cached full read of one version of a dataset (interpreting an
     older run reads the data it ran on). Returns ``(df, path)`` or
     ``(None, None)`` when that version's file is gone."""
     path = storage.dataset_version_path(filename, version)
@@ -236,7 +235,7 @@ def read_active_frame(filename):
 
 
 def _json_records(df):
-    """Rows as JSON-safe records (D1-9): NaN/NA and +/-inf become null. Flask
+    """Rows as JSON-safe records: NaN/NA and +/-inf become null. Flask
     would otherwise emit bare ``NaN``/``Infinity`` tokens, which the browser's
     ``JSON.parse`` rejects, breaking the data viewer."""
     df = df.replace([np.inf, -np.inf], np.nan)
@@ -250,7 +249,7 @@ def _json_records(df):
 @bp.route('/upload', methods=['POST'])
 @limiter.limit(lambda: _cfg().rate_limit_chat)
 def upload_file():
-    """Dataset upload — CSV/TSV/Excel/Stata/SPSS (5.1), normalized to CSV."""
+    """Dataset upload: CSV/TSV/Excel/Stata/SPSS, normalized to CSV."""
     storage.cleanup_old_files(_cfg().file_ttl_seconds)
 
     if 'file' not in request.files:
@@ -259,16 +258,16 @@ def upload_file():
     if not file.filename:
         return json_error('No selected file')
 
-    # D1-1: derive the extension and the stored name together, so the
-    # extension that is validated is the one that is kept (non-Latin names
-    # used to lose it to secure_filename).
+    # Derive the extension and the stored name together, so the
+    # extension that is validated is the one that is kept (secure_filename
+    # alone would strip it from a non-Latin name).
     filename, ext = storage.upload_name(file.filename)
     if ext not in datatools.SUPPORTED_EXTENSIONS:
         return json_error(
             'Invalid file format. Supported: '
             + ', '.join(datatools.SUPPORTED_EXTENSIONS))
 
-    # P2-3: version artifacts are named "{stem}__vN.csv" and share this flat
+    # Version artifacts are named "{stem}__vN.csv" and share this flat
     # identity dir, so a file whose stem already ends in a __vN suffix could
     # later be overwritten by a wrangle of another dataset. Reserve that suffix
     # at upload time rather than silently corrupting the second file.
@@ -285,7 +284,7 @@ def upload_file():
     if quota is not None:
         return quota
 
-    # D1-8: parse in a hidden staging file and move it into place only on
+    # Parse in a hidden staging file and move it into place only on
     # success. No failure path can leave an unregistered file counting toward
     # the quota, and a failed re-upload leaves the existing dataset intact.
     staged = storage.incoming_path(ext)
@@ -303,7 +302,7 @@ def upload_file():
     cfg = _cfg()
     info = {}
     try:
-        # P2-2: bound the parse so a decompression bomb can't OOM/pin the
+        # Bound the parse so a decompression bomb can't OOM/pin the
         # worker. 0 disables either cap (0 * 1024 * 1024 == 0).
         csv_path, labels = datatools.normalize_to_csv(
             staged,
@@ -331,7 +330,7 @@ def upload_file():
     clear_caches()
     sha256 = datatools.file_sha256(target)
     storage.register_dataset(csv_name)
-    # SP2: the meta sidecar carries the server codebook. Native .sav/.dta
+    # The meta sidecar carries the server codebook. Native .sav/.dta
     # metadata seeds its native layer; identical content restores the user,
     # pdf and llm layers of an earlier upload (keyed by sha256).
     restored = codebook_store.init_for_upload(csv_name, {
@@ -343,10 +342,10 @@ def upload_file():
     return jsonify({
         'message': 'File uploaded',
         'filename': csv_name,
-        'original_name': file.filename,   # display name (D1-1)
+        'original_name': file.filename,   # display name
         'profile': profile,
         'labels': labels,        # native .sav/.dta labels seed the codebook
-        'warnings': info.get('warnings', []),   # e.g. skipped sheets (D1-13)
+        'warnings': info.get('warnings', []),   # e.g. skipped sheets
         'sha256': sha256,
         'changelog': storage.dataset_changelog(csv_name),  # seeds the cleaning panel
         'codebook_restored': restored,   # GET /codebook has the merged codebook
@@ -366,9 +365,9 @@ def upload_pdf():
     if not file.filename:
         return json_error('No selected file')
 
-    # D1-1: branch on the extension of the name we STORE, derived once from
-    # the raw name. Non-Latin names used to sanitize to a bare 'pdf', which
-    # skipped both the page cap and the TXT size check below.
+    # Branch on the extension of the name we STORE, derived once from
+    # the raw name. Sanitizing a non-Latin name alone would leave a bare
+    # 'pdf', which would skip both the page cap and the TXT size check below.
     filename, ext = storage.upload_name(file.filename)
     if ext not in ('.pdf', '.txt'):
         return json_error('Invalid file format. Please upload a PDF or TXT.')
@@ -381,13 +380,10 @@ def upload_pdf():
     if quota is not None:
         return quota
 
-    # P2-5: a .txt is rendered to PDF page-by-page through fpdf (pure Python,
-    # slow) and only THEN measured against pdf_max_pages, so a 16 MB text file
-    # could hold a worker in that conversion before being rejected. Measure the
-    # raw bytes first. The budget (4096 bytes per allowed page) sits well above
-    # real text density (~3 KB per dense rendered page), so nothing short enough
-    # to pass the page cap is rejected here -- it only short-circuits the
-    # pathological oversized case before any conversion work happens.
+    # A .txt has no pages to count, so its raw size stands in for the page
+    # cap and is checked before the file is saved. The budget (4096 bytes per
+    # allowed page) sits well above real text density (~3 KB per dense
+    # rendered page), so only a pathologically oversized file is refused.
     if ext == '.txt':
         max_txt_bytes = max_pages * 4096
         if incoming > max_txt_bytes:
@@ -419,10 +415,10 @@ def upload_pdf():
                 413, f'PDF is {page_count} pages, which exceeds the '
                      f'{max_pages}-page limit. Please upload a shorter document.')
     else:
-        # D1-10: a TXT codebook is kept as UTF-8 text and inlined into the
-        # extraction prompt. It used to be rendered to PDF in a Latin-1 core
-        # font, which silently erased Cyrillic/CJK text and smart quotes. The
-        # byte budget above stands in for the page cap.
+        # A TXT codebook is kept as UTF-8 text and inlined into the
+        # extraction prompt rather than rendered to PDF, because a Latin-1
+        # core font would silently erase Cyrillic/CJK text and smart quotes.
+        # The byte budget above stands in for the page cap.
         try:
             with open(staged, 'rb') as f:
                 text, _enc = datatools.decode_text_bytes(f.read())
@@ -443,16 +439,16 @@ def extract_pdf_codebook():
     """Map variable labels from an uploaded PDF.
 
     mode='codebook' (default): formal codebook extraction.
-    mode='survey' (5.13): infer a codebook from the questionnaire itself.
+    mode='survey': infer a codebook from the questionnaire itself.
     """
     data = request_json()
     # A codebook document, not a dataset: no version files exist for it.
     filename = str_field(data, 'filename', FILENAME_MAX)
     mode = str_field(data, 'mode', 32, default='codebook')
-    # D1-6: the survey header list is client text going into a paid prompt.
+    # The survey header list is client text going into a paid prompt.
     headers = clamp_str_list(list_field(data, 'headers'),
                              HEADERS_MAX_COUNT, HEADER_FIELD_MAX)
-    # SP2: the dataset whose server codebook the extraction seeds (pdf
+    # The dataset whose server codebook the extraction seeds (pdf
     # layer). Optional: without it the mapping is only returned, as before.
     dataset = dataset_filename_field(data, 'dataset')
     if not filename:
@@ -478,7 +474,7 @@ def extract_pdf_codebook():
             prompt = prompts.pdf_extract()
 
         if doc_ext == '.txt':
-            # D1-10: TXT codebooks are sent as text, so non-Latin text survives.
+            # TXT codebooks are sent as text, so non-Latin text survives.
             text, _enc = datatools.decode_text_bytes(doc_bytes)
             contents = [prompt, "ATTACHED DOCUMENT (plain text, from the "
                                 "user's .txt upload):\n"
@@ -488,7 +484,7 @@ def extract_pdf_codebook():
                         prompt]
         result = llm.get_service().generate(
             'flash', contents, temperature=0.1, json_mode=True)
-        # D3-9/D3-10: tolerant parse; the mapping feeds every later prompt as
+        # Tolerant parse; the mapping feeds every later prompt as
         # column descriptions, so values are normalised to strings.
         mapping = string_mapping(json_object_reply(result.text),
                                  key_max=MAPPING_KEY_MAX,
@@ -507,7 +503,7 @@ def extract_pdf_codebook():
 
 def _seed_pdf_layer(dataset, columns, mapping):
     """Write extracted descriptions into the dataset's codebook as pdf-layer
-    labels (SP2), matching names case-insensitively like the prompt context
+    labels, matching names case-insensitively like the prompt context
     always did. Returns how many columns were described."""
     by_lower = {}
     for column in columns:
@@ -533,8 +529,8 @@ def _seed_pdf_layer(dataset, columns, mapping):
 
 def server_codebook_context(filename, df):
     """``(levels, descriptions)`` of the dataset's server codebook for
-    ``datatools.build_column_context``, clamped like the client mapping used
-    to be (SP2: the client's ``codebook``/``pdf_mapping`` are ignored)."""
+    ``datatools.build_column_context``, clamped like any prompt mapping (the
+    client's ``codebook``/``pdf_mapping`` are ignored)."""
     entries = codebook_store.merged(filename, [str(c) for c in df.columns])
     levels, descriptions = codebook_store.prompt_levels_and_descriptions(
         entries or {})
@@ -544,7 +540,7 @@ def server_codebook_context(filename, df):
 def ignore_client_codebook(data, route):
     """The client's ``codebook``/``pdf_mapping`` fields stay accepted (old
     clients send them; a wrong JSON type is still a 400) but never reach a
-    prompt: the server codebook is the only source (SP2)."""
+    prompt: the server codebook is the only source."""
     for key in ('codebook', 'pdf_mapping'):
         if dict_field(data, key):
             logger.debug("%s: ignoring the client-sent %r field", route, key)
@@ -587,7 +583,7 @@ def data_page():
 
     try:
         # Reuse a previously-filtered frame for this exact (path, mtime, filters)
-        # set (P2-5), so paging through many pages of one filter set filters the
+        # set, so paging through many pages of one filter set filters the
         # frame ONCE instead of re-scanning up to data_page_row_cap rows per page.
         # The mtime/path in the key invalidate the entry on any data change.
         key = (path, os.stat(path).st_mtime,
@@ -597,7 +593,7 @@ def data_page():
             filtered = df
             for col, term in filters.items():
                 if term and col in filtered.columns:
-                    # regex=False (P1-3): filter terms are literal text, so users
+                    # regex=False: filter terms are literal text, so users
                     # can type '(' or '$' and a hostile pattern like '(a+)+$'
                     # cannot pin a worker thread with catastrophic backtracking.
                     filtered = filtered[filtered[col].astype(str).str.contains(
@@ -622,11 +618,11 @@ def data_page():
 
 
 # ---------------------------------------------------------------------------
-# Intelligent codebook + suggestions (cached per content hash, 5.6)
+# Codebook + suggestions (cached per content hash)
 # ---------------------------------------------------------------------------
 
 def _seed_llm_layer(filename, levels):
-    """Classification seeds the llm layer's ``type`` (SP2); the user's and
+    """Classification seeds the llm layer's ``type``; the user's and
     native fields still win in the merged view. The response keeps the
     model's levels for older clients."""
     try:
@@ -664,10 +660,10 @@ def classify_variables():
         return jsonify({'status': 'success', 'codebook': cached, 'cached': True})
 
     try:
-        # D1-5/D3-6: classify in chunks of CLASSIFY_CHUNK columns instead of
+        # Classify in chunks of CLASSIFY_CHUNK columns instead of
         # truncating at the first 80, so a wide survey's later columns get a
         # measurement level too (and can then be found by feature selection).
-        # D3-7: the metadata describes the full frame.
+        # The metadata describes the full frame.
         columns = list(df.columns)
         chunks = [columns[i:i + CLASSIFY_CHUNK]
                   for i in range(0, len(columns), CLASSIFY_CHUNK)]
@@ -682,7 +678,7 @@ def classify_variables():
             usages.append(result.usage)
             part = json_object_reply(result.text)
             wanted = set(map(str, chunk))
-            # D3-9: only real columns, and only the three measurement levels
+            # Only real columns, and only the three measurement levels
             # the prompts and the UI understand (case-normalised).
             for key, level in part.items():
                 level = _MEASUREMENT_LEVELS.get(str(level).strip().lower()) \
@@ -704,7 +700,7 @@ def suggest_analysis():
     data = request_json()
     filename = _filename(data)
     ignore_client_codebook(data, '/suggest')
-    # D1-6: every field below reaches the paid suggest prompt.
+    # Every field below reaches the paid suggest prompt.
     previous = clamp_str_list(list_field(data, 'previous'),    # 4.5 reroll
                               PREVIOUS_MAX_COUNT, PREVIOUS_FIELD_MAX)
 
@@ -719,7 +715,7 @@ def suggest_analysis():
         return json_error('Invalid filename')
 
     sha = datatools.file_sha256(path)
-    # SP2: the codebook context is the server's; D1-11: the cache key covers
+    # The codebook context is the server's; the cache key covers
     # all of it (levels and descriptions), so an edit serves new suggestions.
     codebook, pdf_mapping = server_codebook_context(filename, df)
     context_hash = hashlib.sha256(json.dumps(
@@ -738,7 +734,7 @@ def suggest_analysis():
         result = llm.get_service().generate(
             'flash', prompts.suggest(context, previous),
             temperature=0.7, json_mode=True)
-        # D3-9/D4-21: OpenAI JSON mode returns an object, other providers may
+        # OpenAI JSON mode returns an object, other providers may
         # return a bare array; either way the client gets <= 3 strings, and a
         # reply with none is a 502 that is never cached.
         suggestions = _normalize_suggestions(parse_json_reply(result.text))
@@ -752,7 +748,7 @@ def suggest_analysis():
 
 
 # ---------------------------------------------------------------------------
-# Conversational wrangling + version control (5.16)
+# Conversational wrangling + version control
 # ---------------------------------------------------------------------------
 
 WRANGLE_HARNESS = textwrap.dedent("""\
@@ -774,7 +770,7 @@ WRANGLE_HARNESS = textwrap.dedent("""\
 def wrangle():
     data = request_json()
     filename = _filename(data)
-    # D1-6/D3-1: the instruction is billed twice (moderation + plan) and is
+    # The instruction is billed twice (moderation + plan) and is
     # stored in the version manifest, so cap it like the /chat prompt.
     instruction = str_field(data, 'instruction', BACKGROUND_MAX).strip()
     if not filename or not instruction:
@@ -787,7 +783,7 @@ def wrangle():
     if denied is not None:
         return denied
 
-    # S5: take the version token BEFORE reading the data. Any upload, wrangle,
+    # Take the version token BEFORE reading the data. Any upload, wrangle,
     # undo or revert that lands after this point changes it, so the commit
     # below is refused (409) instead of stacking a frame built from data that
     # is no longer the active version.
@@ -820,9 +816,9 @@ def wrangle():
         return json_error(plan.get('error')
                           or 'Could not translate that instruction.', 422)
 
-    # Run-guard (0.4): the LLM-generated transform code is itself re-moderated
+    # Run-guard: the LLM-generated transform code is itself re-moderated
     # before execution, exactly as /run does for user-edited scripts. Moderating
-    # only the user instruction (above) is not enough — a jailbroken or
+    # only the user instruction (above) is not enough: a jailbroken or
     # misbehaving model can emit code doing network access, env exfiltration, or
     # shell execution regardless of a benign-looking instruction. Default-deny:
     # a malformed/ambiguous verdict blocks (see moderation_blocked()).
@@ -834,7 +830,7 @@ def wrangle():
     if denied is not None:
         return denied
 
-    # Static pre-check (P1-1a): a non-LLM AST gate on the generated transform,
+    # Static pre-check: a non-LLM AST gate on the generated transform,
     # run AFTER the (bypassable) LLM code_moderation as defense-in-depth, before
     # the transform is approved and the harness executes it.
     # The transform runs inside WRANGLE_HARNESS, so the assembled script is
@@ -852,7 +848,7 @@ def wrangle():
 
     # Record the moderated transform in the approved-script store so /wrangle
     # upholds the same "every executed LLM-generated script is moderated and
-    # recorded" invariant as the /chat -> /run path (0.4 run-guard).
+    # recorded" invariant as the /chat -> /run path (the run-guard).
     storage.save_approved_script(plan['code'], 'Python', source='wrangle')
 
     run = sandbox.run_in_sandbox(
@@ -872,8 +868,8 @@ def wrangle():
 
     try:
         new_df = pd.read_csv(io.BytesIO(run.files['__wrangled.csv']))
-        # D6: keep the transform on the version entry (export replays it).
-        # L1: refuse to commit when a concurrent wrangle/undo moved the active
+        # Keep the transform on the version entry (export replays it).
+        # Refuse to commit when a concurrent wrangle/undo moved the active
         # version while this one ran, rather than discarding that edit.
         storage.add_dataset_version(
             filename, new_df, instruction, summary=plan.get('summary'),
@@ -908,7 +904,7 @@ def dataset_versions():
     changelog = storage.dataset_changelog(filename)
     if changelog is None:
         return json_error('Unknown dataset.', 404)
-    # S5: the active version's columns too, so a client recovering from a
+    # The active version's columns too, so a client recovering from a
     # /wrangle 409 learns the current headers without a /data_page probe.
     try:
         df, _ = _read_active(filename)
@@ -923,7 +919,7 @@ def dataset_versions():
 
 @bp.route('/version_control', methods=['POST'])
 def version_control():
-    """Undo/redo by moving the active-version pointer (5.16)."""
+    """Undo/redo by moving the active-version pointer."""
     data = request_json()
     filename = _filename(data)
     direction = data.get('direction')
@@ -934,7 +930,7 @@ def version_control():
         return json_error('Unknown dataset.', 404)
     clear_caches()
     try:
-        df, _ = _read_active(filename)   # D3-7: profile the whole version
+        df, _ = _read_active(filename)   # Profile the whole version
         profile = datatools.profile_dataframe(df) if df is not None else None
     except Exception:
         profile = None
@@ -947,8 +943,8 @@ def version_control():
 
 @bp.route('/revert_dataset', methods=['POST'])
 def revert_dataset():
-    """Restore the dataset to its original upload as a new, undo-able version
-    (4.6). Distinct from /reset, which wipes the whole workspace."""
+    """Restore the dataset to its original upload as a new, undo-able version.
+    Distinct from /reset, which wipes the whole workspace."""
     data = request_json()
     filename = _filename(data)
     if not filename:
@@ -958,7 +954,7 @@ def revert_dataset():
         return json_error('Unknown dataset.', 404)
     clear_caches()
     try:
-        df, _ = _read_active(filename)   # D3-7: profile the whole version
+        df, _ = _read_active(filename)   # Profile the whole version
         profile = datatools.profile_dataframe(df) if df is not None else None
     except Exception:
         profile = None
@@ -970,12 +966,12 @@ def revert_dataset():
 
 
 # ---------------------------------------------------------------------------
-# Reset (4.6)
+# Reset
 # ---------------------------------------------------------------------------
 
 @bp.route('/reset', methods=['POST'])
 def reset():
-    """Clear everything stored for this session/user's workspace (4.6)."""
+    """Clear everything stored for this session/user's workspace."""
     storage.reset_identity()
     clear_caches()
     return jsonify({'status': 'success'})
