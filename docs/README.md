@@ -12,15 +12,17 @@ It uses a role-based LLM architecture (pluggable across Google Gemini, Anthropic
 * **Run workbook:** Every run is kept in a numbered run rail in Results: star or rename a run, reopen an older one read-only (output, plots, its own interpretation), load its script back into the editor, and choose which runs the report is grounded in.
 * **Methods and assumptions card:** Each script prints a short summary of the test, N used, assumption checks (pass, warn, fail) and effect sizes, shown as a card above the terminal and cited in the interpretation. If a script prints none, the card says so.
 * **Multi-format ingestion:** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and SPSS (`.sav`), normalized to CSV internally, with native variable labels seeding the codebook for free.
-* **Role-based model routing:** Each step is addressed by a *role* (`pro`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
+* **Role-based model routing:** Each step is addressed by a *role* (`pro`/`pro_max`/`flash`/`lite`/`draft`) mapped to a model in config, so swapping a model is a config change, not a code change. Per-analysis token usage is surfaced in the UI.
 * **Sandboxed execution:** Generated scripts run in a throwaway working directory with a secret-free environment and (on POSIX) resource limits. `SANDBOX_MODE=docker` runs each execution in a network-less, non-root, read-only sibling container.
+* **Static pre-check:** Before any execution, a non-LLM AST check (`statlee/codecheck.py`) refuses Python imports outside an allowlist, dangerous `os`/`sys` members, reflection escapes and constant paths outside the run directory; R scripts get a regex denylist.
 * **Run-guard:** The server remembers the script it produced; the editable code editor lets you tweak it, and any hand-edited script is re-moderated before it is allowed to run.
-* **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo.
+* **Conversational data wrangling:** Describe a transform in plain English ("drop rows with missing income, then z-score age"); STATlee runs it in the sandbox and tracks every dataset version with undo/redo and a revert to the original upload. It runs on the cheapest model tier (`WRANGLE_ROLE=lite`).
 * **AI interpretation & auto-debugging:** Translates dense terminal output and p-values into plain-English Markdown insights, and switches to a debugging assistant when a run fails.
 * **AI report builder:** Synthesizes an academic report grounded strictly in your actual outputs, with targeted "revise this passage" edits.
 * **Reproducibility bundle:** The export zip runs as unzipped: the analysed data and the original upload, `cleaning.py` replaying your cleaning steps, the analysis script, `codebook.json`, `provenance.json` (every upload, cleaning step, run and interpretation with times, models and SHA-256 hashes), `environment.txt`, a README, and one folder per run. Choose all, starred or the latest run, and whether your typed prompts are included.
+* **Pro mode:** A toggle that switches code generation to a larger model (`MODEL_PRO_MAX`, `gemini-4-argon` by default) for hard or unusual analyses.
 * **Converse tab:** A guarded methods mentor for follow-up questions and a *guide mode* that helps turn a vague hunch into a rigorous, ready-to-run analysis prompt.
-* **Optional accounts:** Anonymous sandbox use by default (nothing persisted); optional email/password accounts persist datasets and analysis history.
+* **Optional accounts:** Anonymous use by default, with uploads deleted after `FILE_TTL_SECONDS` of inactivity; optional email/password accounts persist datasets and analysis history.
 
 ## Architecture
 
@@ -145,5 +147,11 @@ until you do.
 
 ## Hosting
 
-STATlee is not currently deployed; it runs locally (see the
-[Quickstart](../README.md#quickstart) in the main README).
+STATlee is not deployed to a public website; it runs locally or on a host you
+control (see the [Quickstart](../README.md#quickstart) in the main README).
+Self-hosted, its only running cost is the LLM provider's API, and it ships with
+controls to cap that spend: a global monthly ceiling on premium calls
+(`MONTHLY_PRIORITY_CALL_CEILING`, enforced with billing on or off), per-identity
+rate limits, cheapest-tier defaults for high-volume steps, and a production
+startup warning when no ceiling is set. The illustrative pricing model and the
+billing seam behind it are in [Pricing](PRICING.md).

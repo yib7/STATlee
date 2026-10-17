@@ -2,122 +2,113 @@
   <img src="statlee/static/images/logo-full.png" alt="STATlee" width="280">
 </p>
 
-<h1 align="center">Turn data questions into answers, in plain English.</h1>
+<h1 align="center">Plain-English statistics for social scientists</h1>
 
 <p align="center">
-  <b>STATlee</b> is AI data analysis for social scientists. Upload a dataset, describe the
-  analysis in plain English, and STATlee writes, moderates, sandboxes, runs, and
-  <i>explains</i> the statistics. No Python, no R, no syntax errors.
-</p>
-
-<p align="center">
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/PRICING.md">Pricing</a> ·
-  <a href="docs/CREDITS.md">Credits</a>
+  Ask a question about your survey data. STATlee has a model write the Python
+  or R, checks the script twice, runs it in a sandbox and explains the result.
 </p>
 
 <p align="center">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="Flask" src="https://img.shields.io/badge/Flask-app%20factory-000000?logo=flask&logoColor=white">
   <a href="https://github.com/yib7/STATlee/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yib7/STATlee/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1240%20passing-3fb950">
-  <img alt="LLM providers" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
+  <img alt="Tests: 1,500+ passing" src="https://img.shields.io/badge/tests-1%2C500%2B%20passing-3fb950">
+  <img alt="LLM providers: Gemini, Claude, OpenAI" src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20OpenAI-8E75B2">
   <a href="LICENSE"><img alt="License: Elastic 2.0" src="https://img.shields.io/badge/license-Elastic%202.0-005571"></a>
 </p>
 
-<p align="center">
-  <img src="docs/images/demo.gif" alt="STATlee end-to-end demo: upload a dataset, ask a question in plain English, watch it generate and run the code, then see the chart and a written report" width="900">
-</p>
+An LLM writes the analysis code, so the interesting part is what happens before
+that code runs:
 
-<p align="center">
-  <sub>Upload data, ask in plain English, get runnable code, a chart, and a written report. Try it with the included <a href="docs/examples/sample_survey.csv">sample survey dataset</a>.</sub>
-</p>
+- A non-LLM AST check (`statlee/codecheck.py`) refuses any Python import outside
+  an allowlist, then an LLM run-guard re-reviews any script the server did not
+  approve itself.
+- The script runs in a throwaway directory with secrets scrubbed from its
+  environment and a time limit. `SANDBOX_MODE=docker` gives each run its own
+  network-less, read-only, non-root container.
+- Every model call goes through one role-based layer (`pro`, `pro_max`, `draft`,
+  `flash`, `lite`) over Gemini, Claude or OpenAI. Changing a model or provider
+  is a setting, not a code change.
+- The export is a zip that runs as unzipped: data, `cleaning.py`, the analysis
+  script, per-run outputs, the codebook, and a `provenance.json` with SHA-256
+  hashes of what produced what.
+- 1,500+ tests run offline against a fake LLM, Playwright browser tests
+  included, on Linux and Windows in CI.
 
-<p align="center">
-  <img src="docs/images/app.png" alt="STATlee workspace: dataset upload, plain-English analysis prompt, and the Code / Data / Results / Converse / Report / Codebook tabs" width="900">
-</p>
+## Screenshots
 
----
-
-## Why STATlee
-
-Statistical software is hostile to non-coders. SPSS menus, Stata syntax, and R
-tibbles all stand between a researcher and a simple question like *"does income
-predict turnout?"* STATlee removes that wall: you ask in plain English and get a
-runnable analysis, charts, and a plain-English write-up you can defend.
-
-> **Try it:** the marketing landing page lives at **`/welcome`**; the app itself
-> is at **`/`**.
+<table>
+  <tr>
+    <td><img src="docs/images/screenshot-workspace.png" width="440" alt="Workspace with the sample survey loaded: the sidebar with the upload area and a plain-English prompt, and the generated Python script in the code editor"></td>
+    <td><img src="docs/images/screenshot-results.png" width="440" alt="Results tab: the numbered run rail, the Methods and assumptions card with its assumption checks, the terminal output and a generated plot"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/screenshot-codebook.png" width="440" alt="Codebook tab: an editable table of every variable with its type, label, value labels, missing codes and role"></td>
+    <td><img src="docs/images/screenshot-export.png" width="440" alt="Export dialog for the reproducibility bundle: choose all, starred or the latest run, and whether to include your prompts"></td>
+  </tr>
+</table>
 
 ## What it does
 
-- **Describe it, don't code it.** Natural-language requests become real
-  Python/R that runs and returns results, not just a code snippet.
-- **Statistically valid by design.** An *intelligent codebook* classifies each
-  variable (nominal / ordinal / continuous) so the model won't run a linear
-  model on a categorical outcome. Codebooks can be inferred from a PDF data
-  dictionary or even the original survey questionnaire.
-- **A codebook you can edit.** The Codebook tab lists every variable with its
-  type, label, value labels, missing codes, role (analyze, ID, survey weight,
-  ignore) and scale group. Labels, value labels and user-missing codes in `.sav`
-  and `.dta` files seed it automatically; your edits always win over file, PDF
-  and model guesses, are kept when you clean the data, and can be exported and
-  imported as JSON. The model is told about missing codes, weights and ID columns.
-- **Every run is kept.** The Results tab has a numbered run rail: star or rename
-  a run, reopen an older one read-only (output, plots, its own write-up), load its
-  script back into the editor, and pick which runs the report is grounded in.
-- **Methods and assumptions card.** Each script prints a short summary of the
-  test used, N used, assumption checks (pass, warn, fail) and effect sizes, shown
-  as a card above the terminal and cited in the plain-English write-up. If a
-  script prints none, the card says so instead of guessing.
-- **Secure sandbox.** Generated code runs in a throwaway working directory with
-  a **secret-free environment**, screened first by a non-LLM **static pre-check**
-  (an import allowlist for Python, so network, process/shell and `os`/env
-  modules never load, plus checks on file reads outside the run dir; a regex
-  denylist for R) and a **run-guard** that
-  re-moderates any hand-edited script. The default `SANDBOX_MODE=subprocess`
-  scrubs secrets from the environment but does **not** isolate the network or
-  host filesystem, so those two gates are the boundary; `SANDBOX_MODE=docker`
-  adds a **network-less**, non-root, read-only, resource-capped container per run
-  for kernel-enforced isolation. Prefer docker mode where the host holds secrets
-  or network access that matters.
-- **Answers you can explain.** Dense terminal output and p-values become
-  plain-English Markdown (effect sizes, significance, caveats), and a debugging
-  assistant kicks in when a run fails.
-- **Bring any format.** CSV, TSV, Excel (`.xlsx`/`.xls`), Stata (`.dta`), and
-  SPSS (`.sav`); native value labels seed the codebook for free.
-- **Conversational wrangling.** Clean your data by chatting (*"delete the
-  notes column", "filter for age > 30"*) with a back-and-forth transcript, full
-  version history (**undo / redo**), and a one-click **revert to the original
-  upload**. Runs on the cheapest model tier (`WRANGLE_ROLE=lite`) to keep costs
-  down. Plus an **AI report builder** grounded strictly in your real outputs.
-- **Reproducibility bundle.** Project export is a zip that runs as unzipped: the
-  data, `cleaning.py`, `analysis.py` (or `.R`), per-run outputs, the codebook,
-  a `provenance.json` of what produced what (hashes, models, timestamps), an
-  `environment.txt` of the sandbox's package versions, and a README. Choose which
-  runs go in and whether your prompts are included.
-- **Pro mode** toggle generates code with a larger model (`gemini-4-argon` by
-  default) for hard or unusual analyses, instead of the standard code model.
+- Reads CSV, TSV, Excel, Stata and SPSS files. Value labels in `.sav` and `.dta`
+  files seed the codebook.
+- Keeps an editable codebook: type, labels, missing codes, and role (ID, survey
+  weight, ignore). Your edits outrank file labels, a PDF data dictionary and the
+  model's guesses.
+- Turns a plain-English request into a script you can read and edit before it
+  runs. Pro mode switches code generation to a larger model (`gemini-4-argon`
+  by default).
+- Keeps every run in a run rail: star, rename, reopen, or pick the runs a report
+  is built from.
+- Shows a methods and assumptions card per run: test, N, assumption checks and
+  effect sizes.
+- Cleans data through chat, with undo, redo and a revert to the original upload.
+- Writes a plain-English interpretation, a debugging hint when a run fails, and
+  a report drafted only from your outputs.
+
+The app is at `/` and a short product page at `/welcome`. The full feature list
+is in [docs/README.md](docs/README.md).
 
 ## How it works
 
-```
-Upload data ──▶ Intelligent codebook ──▶ Describe analysis (plain English)
-     │                                              │
-     ▼                                              ▼
- Multi-format            moderation ▶ feature-select ▶ draft ▶ validate
- normalize to CSV                          │
-                                           ▼
-                          Secure sandbox (subprocess / Docker)
-                                           │
-                                           ▼
-                     Plain-English interpretation + charts ──▶ Report / export
+```mermaid
+flowchart TD
+    A["Upload: CSV, TSV, Excel, Stata, SPSS"] --> B["Normalize to CSV, profile columns"]
+    B --> C["Layered codebook<br/>your edits > file labels > PDF > model"]
+    C --> D["Plain-English request"]
+    D --> E{{"Moderation (LLM)"}}
+    E -->|allowed| F["Draft script<br/>role-based LLM layer"]
+    F --> G["Validate pass (LLM)"]
+    G --> H{{"AST static pre-check<br/>import allowlist, no LLM"}}
+    P["Script you edited"] --> H
+    H -->|passes| I{{"Run-guard<br/>server-approved, or LLM re-review"}}
+    I -->|passes| J["Sandbox run<br/>secret-free env, subprocess or Docker"]
+    J --> K["Results: output, plots,<br/>methods and assumptions card"]
+    K --> L["Interpretation and report"]
+    K --> M["Reproducibility bundle (.zip)"]
+    L --> M
+    E -->|blocked| X["Refused, nothing runs"]
+    H -->|refused| X
+    I -->|blocked| X
 ```
 
-Every model call goes through one **role-based LLM service** (`pro` / `flash` /
-`lite` / `draft`), so swapping a model, switching LLM provider, or pointing Pro
-mode at a stronger model is a config change, not a code change. Per-request
-token usage is surfaced live in the UI.
+A freshly drafted script gets both checks before the server approves it. At run
+time the static check runs on every script, and the LLM review is skipped only
+for the exact script the server approved. The request lifecycle and every module
+are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Stack
+
+- Backend: Python 3.11+ (3.12 pinned), Flask, SQLAlchemy with Alembic, SQLite
+  or PostgreSQL, Gunicorn.
+- Analysis: pandas, statsmodels, matplotlib, seaborn. R in the Docker images.
+- Models: the `google-genai`, `anthropic` and `openai` SDKs behind
+  `statlee/llm.py`.
+- Frontend: vanilla JavaScript, Tailwind CSS, CodeMirror 5, marked with
+  DOMPurify, self-hosted fonts.
+- Tooling: Docker Compose, hash-locked requirements, pytest with Playwright,
+  ruff, pip-audit, GitHub Actions.
 
 ## Quickstart
 
@@ -184,7 +175,7 @@ Skip this if you use Gemini. Set `LLM_PROVIDER` and that vendor's key in
 
 | `LLM_PROVIDER` | Key in `.env` | Get a key | Notes |
 |---|---|---|---|
-| `gemini` *(default)* | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Powers the multimodal paths (PDF codebook extraction, plot interpretation). |
+| `gemini` *(default)* | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | PDF codebooks and chart reading work with all three providers. |
 | `anthropic` | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) | Claude models; also accepts a local OAuth/subscription login for keyless dev. |
 | `openai` | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) | GPT models. |
 
@@ -248,93 +239,69 @@ hand-edited `requirements/*.txt`; the regeneration commands are at the top of
 both Docker images and these README steps on every push
 (`.github/workflows/ci.yml`).
 
-## Architecture at a glance
+## Demo
 
-The application lives in the `statlee/` package (entry point: `wsgi:app`, which
-loads `.env` and calls `statlee.app.create_app()`).
+<p align="center">
+  <img src="docs/images/demo.gif" width="900" alt="Walkthrough: load the sample survey, check a variable in the Codebook tab, ask whether income predicts turnout, watch the script generate and run, read the results with the Methods and assumptions card, build a report, and export the reproducibility bundle">
+</p>
 
-| Module | Responsibility |
-|---|---|
-| `statlee/config.py` | Validated, env-driven configuration (one source of truth). |
-| `statlee/app.py` | App factory + middleware (sessions, CSRF, rate limits, ProxyFix, request-id logging). |
-| `statlee/storage.py` | Per-identity file isolation + dataset version control. |
-| `statlee/runs.py` | Session workbook: every run kept under `runs/<run_id>/`, with the run and byte caps. |
-| `statlee/codebook.py` | Layered, editable variable codebook (user > file > PDF > model). |
-| `statlee/methods.py` | Parser for the methods and assumptions block scripts print. |
-| `statlee/bundle.py`, `statlee/environment.py` | Reproducibility bundle: provenance, README, environment probe. |
-| `statlee/codecheck.py` | Non-LLM static pre-check (Python import allowlist, R regex denylist). |
-| `statlee/sandbox.py` | Isolated code execution (subprocess or Docker). |
-| `statlee/llm.py` | Role-based LLM service (pluggable Gemini / Claude / OpenAI backend): usage tracking, Pro-mode routing, response cache. |
-| `statlee/billing.py` | Monetization seam: `check_and_debit` chokepoint (off by default; atomic debit + refund + monthly top-up when enabled). |
-| `statlee/prompts.py` | Every prompt builder in one reviewable place. |
-| `statlee/datatools.py` | Multi-format ingestion + metadata profiling. |
-| `statlee/models.py` | SQLAlchemy models (users, runs, issue reports). |
-| `statlee/routes/` | Blueprints: `auth`, `datasets`, `analyze`, `converse`, `misc`, `runs`, `codebook`. |
+The run uses [docs/examples/sample_survey.csv](docs/examples/sample_survey.csv),
+a synthetic 320-row survey.
 
-A deeper walkthrough (request lifecycle, security boundaries, data flow) is in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Limitations
 
-## Hosting & pricing
+- Self-host only. There is no hosted service or public demo.
+- It does not replace a statistician. Review the generated code and results;
+  the methods card is only as complete as what the script printed.
+- The default `SANDBOX_MODE=subprocess` is not kernel isolation: the script
+  shares the network and filesystem of wherever the app runs, so the two checks
+  are the boundary. Docker mode isolates each run, but needs the Docker CLI where
+  the app runs (the shipped Compose setup uses subprocess mode inside the app
+  container).
+- No survey weighting or APA tables yet. R scripts are checked by a regex
+  denylist only, which is best effort.
+- Tested on Linux and Windows; macOS is untested.
 
-STATlee runs locally for free and is **not currently deployed** to a public
-website, a deliberate, zero-cost choice. Self-hosted, its only real cost is the
-LLM provider's API (Gemini by default), and it ships with the controls to cap
-that spend at a number you choose: a global monthly ceiling on premium calls
-(enforced with billing on or off), per-identity rate limits, cheapest-tier
-defaults, and a production startup warning when no ceiling is set. The
-(illustrative) monetization model and how the billing seam backs it are in
-[Pricing](docs/PRICING.md).
+Next on the list: survey weights, APA tables with `.docx` export, a Likert and
+scale toolkit, and Docker as the default sandbox for production.
 
 ## Security
 
-Because STATlee executes model-generated (and user-editable) code, execution
-safety is layered. Every script passes a **non-LLM static pre-check** (an
-import allowlist for Python, so network, process/shell and `os`/env modules
-never load, plus checks on reads outside the run directory; a regex denylist for
-R) and an LLM **run-guard** that
-re-moderates edited scripts, before running in a throwaway, secret-free working
-directory. In the default `SANDBOX_MODE=subprocess` those two gates *are* the
-boundary: the environment is scrubbed of secrets, but the network and host
-filesystem remain reachable, so run that mode only where the host holds nothing
-sensitive. `SANDBOX_MODE=docker` makes the boundary kernel-enforced with a
-**network-less**, non-root, read-only, resource-capped container per run. Rate
-limits are keyed per-identity (client IP / account, not a resettable cookie) to
-protect against bill abuse. Responses carry a strict Content-Security-Policy
-and the usual hardening headers, CSRF is
-double-submit with a constant-time check, and the schema is versioned with
-Alembic so an existing database upgrades cleanly instead of breaking on a new
-column.
+- Rate limits are keyed per account or client IP, so clearing cookies does not
+  reset them. A monthly ceiling on premium model calls (`.env.example` sets
+  200) applies with billing on or off.
+- CSRF uses a double-submit token, and responses carry a strict
+  Content-Security-Policy plus the usual hardening headers.
+- The schema is versioned with Alembic, so an existing database upgrades at boot.
 
-**What leaves the server.** Model calls go to the one LLM provider you
-configure. They carry your question, column names, summary statistics and a
-few sample values from the first rows, the generated script and its output,
-chart images for interpretation, and any codebook PDF you upload. Email goes
-out only when `SMTP_HOST` is set: verification and reset links, and issue
-reports to `ISSUE_REPORT_TO`. There is no analytics or telemetry, and the
-fonts are served by the app itself, so a page view contacts no other host.
+What leaves the server:
 
-Found a vulnerability? See [SECURITY.md](.github/SECURITY.md) for how to report it
-privately. Release notes are in [CHANGELOG.md](CHANGELOG.md).
+- Model calls go to the one provider you configure. They carry your question,
+  column names, summary statistics, a few sample values from the first rows,
+  the generated script and its output, chart images for interpretation, and any
+  codebook PDF you upload.
+- Email goes out only when `SMTP_HOST` is set: verification and reset links,
+  and issue reports to `ISSUE_REPORT_TO`.
+- No analytics or telemetry. Fonts are served by the app, so a page view
+  contacts no other host.
 
-## Compliance & attribution
+To report a vulnerability, see [SECURITY.md](.github/SECURITY.md).
 
-STATlee's AI analysis is powered by your configured LLM provider,
-**[Google Gemini](https://ai.google.dev/)** by default (with optional Anthropic
-Claude or OpenAI backends), and the in-app footer attributes the active provider.
-Default Gemini use is subject to the
-[Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) and the
-[Prohibited Use Policy](https://ai.google.dev/gemini-api/terms#use-policy), which
-STATlee's moderation gate enforces.
+## Docs
 
-Third-party libraries and their licenses are listed in [CREDITS.md](docs/CREDITS.md).
-
-STATlee is a research aid: **always review generated code and results before
-relying on them.**
+- [docs/README.md](docs/README.md): full feature list, settings, Docker sandbox
+  mode, PostgreSQL, hosting.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): request lifecycle, analysis
+  pipeline, sandbox, module map.
+- [docs/PRICING.md](docs/PRICING.md): the illustrative pricing model and the
+  billing seam (billing is off by default).
+- [docs/CREDITS.md](docs/CREDITS.md): third-party libraries, licenses and
+  provider terms.
+- [CHANGELOG.md](CHANGELOG.md): release notes.
 
 ## License
 
-STATlee is **source-available** under the [Elastic License 2.0](LICENSE): you're
-free to use, modify, and self-host it, but you may **not** offer it to third
-parties as a hosted or managed service. This keeps the source open to read and
-learn from while reserving the right to run it commercially. See
-[CREDITS.md](docs/CREDITS.md) for third-party dependency licenses.
+Source-available under the [Elastic License 2.0](LICENSE). You can use, modify
+and self-host it, but not offer it to third parties as a hosted or managed
+service. Model calls are subject to your provider's terms (Gemini by default;
+see [CREDITS.md](docs/CREDITS.md)), which the moderation gate enforces.

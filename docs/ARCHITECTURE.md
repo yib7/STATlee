@@ -492,7 +492,7 @@ outputs/run_0001/            one folder per included run:
 7. **Save approved script**: only a script that passed both gates is remembered,
    so `/run` executes exactly what was produced and checked.
 
-`POST /run` enforces the **run-guard** (roadmap 0.4). Its gates run in this
+`POST /run` enforces the **run-guard**. Its gates run in this
 order, each one before anything that costs more:
 
 1. A script longer than `RUN_CODE_MAX` (200,000 characters) is a `413`, and a
@@ -829,8 +829,11 @@ wrangling/versioning, the run-guard, converse, auth, CSRF, the rate-limit key
 function, the billing seam, and Pro-mode routing. `tests/test_e2e_ui.py` and
 the other `test_e2e_*.py` files drive the real frontend in Chromium
 (Playwright) against a live localhost server that uses the same fake model; they
-skip when Playwright is not installed. `ruff` lints; CI runs ruff +
-byte-compile + pytest on push.
+skip when Playwright or its Chromium is not installed. On every push CI runs
+ruff, pip-audit on the lockfiles, byte-compile + pytest (Ubuntu on 3.11 and
+3.12, Windows on 3.12, Chromium installed so the e2e tests run), the sandbox
+tests against the real runner image, the app image build, migrations on
+PostgreSQL and against the models, and the README setup steps.
 
 ## Where to start reading
 

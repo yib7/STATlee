@@ -90,6 +90,9 @@ reproducibility bundle that records what produced what.
   CI's pip-audit now covers every locked package, transitive ones included.
 - The README setup is two numbered recipes: Quickstart (Docker Compose) and
   Development (a local virtual environment), and CI runs both as written.
+- The README opens with how generated code is checked before it runs, traces
+  the whole flow in a diagram, and adds Screenshots, Demo and Limitations
+  sections. The module table and hosting notes moved to `docs/README.md`.
 
 ### Fixed
 - The Anthropic provider works with SDK 1.x, which removed `temperature` from
@@ -156,8 +159,9 @@ reproducibility bundle that records what produced what.
 ### Internal
 - New settings: `MAX_RUNS_PER_IDENTITY` (in `.env.example`). One migration adds
   nullable `run_id`, `dataset_version` and `model` columns to `analysis_runs`.
-- Test suite grew from 884 to 1240 passing, including Playwright end-to-end
-  tests for the run rail, codebook editor, methods card and export dialog.
+- Test suite grew from 884 to over 1,500 passing, including Playwright end-to-end
+  tests for the run rail, codebook editor, methods card and export dialog, now
+  run in CI on Linux and Windows.
 
 ## [1.5.0] - 2026-10-08
 
