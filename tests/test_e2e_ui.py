@@ -132,8 +132,27 @@ def _new_page(browser, base_url, width=1440, height=900, scheme='light',
         ctx.add_init_script(init_script)
     page = ctx.new_page()
     page.on('dialog', lambda d: d.accept())   # window.confirm on dataset switch
+    failed, errors = [], []
+    page.on('requestfailed', lambda r: failed.append(f'{r.url} {r.failure}'))
+    page.on('pageerror', lambda e: errors.append(str(e)))
     page.goto(base_url + '/')
-    page.wait_for_function('() => window.CC && CC.editor && CC.authReady')
+    try:
+        page.wait_for_function('() => window.CC && CC.editor && CC.authReady')
+    except sync_api.Error:
+        # On the Windows CI runner the threaded dev server now and then drops
+        # one static request (a script never reaches the server log, the page
+        # still fires `load`, and boot never finishes). Reload once when a
+        # request failed; a page that cannot boot fails here regardless.
+        if not failed:
+            raise AssertionError(f'page did not boot; page errors: {errors}') from None
+        dropped, failed[:] = list(failed), []
+        page.reload()
+        try:
+            page.wait_for_function('() => window.CC && CC.editor && CC.authReady')
+        except sync_api.Error:
+            raise AssertionError(
+                f'page did not boot after a reload; first load dropped {dropped}, '
+                f'then {failed}; page errors: {errors}') from None
     # The boot /check_auth must have landed before a test reads or seeds
     # CC.state.user, or its reply can overwrite the test's state (3A C-01).
     page.evaluate('() => CC.authReady')
