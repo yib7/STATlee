@@ -288,11 +288,14 @@ def test_classify_failure_still_releases_the_composer():
     """Generation only needs CC.state.filename; the codebook is optional context
     that merges empty. Re-enabling ONLY on the success path stranded the user
     behind a permanently disabled Generate button when /classify_variables
-    failed. The release must be unconditional."""
+    failed. The release must not depend on success (only on the reply still
+    belonging to the loaded dataset, 3A C-16)."""
     data_js = _js_sources()['data.js']
     i = data_js.find('async function fetchCodebook')
     assert i != -1
-    body = data_js[i:i + 1200]
+    end = data_js.find('\n    }\n', i)
+    assert end != -1
+    body = data_js[i:end]
     assert 'finally' in body and 'releaseComposer()' in body, \
         'fetchCodebook must release the composer on the failure path too'
 

@@ -149,23 +149,30 @@
 
     async function fetchCodebook(filename, quiet) {
         if (!quiet) CC.pipeline.set('classify', 'active');
+        // A background re-classify (after a wrangle or a 409) is not awaited:
+        // by the time it lands another dataset, or a re-upload of this one,
+        // may be loaded. Its reply then describes data that is gone, and must
+        // touch neither the new codebook nor the new dataset's composer.
+        const forUpload = CC.state.uploadedAt;
+        const current = () => filename === CC.state.filename && forUpload === CC.state.uploadedAt;
         try {
             const { ok, data } = await CC.post('/classify_variables', { filename });
+            if (!current()) return;
             if (ok && data.codebook) {
                 CC.state.codebook = data.codebook;
                 CC.renderCodebookUI();
                 if (data.usage) CC.addUsage(data.usage);
                 // The classification is now in the server codebook (SP2),
                 // under any edits the user made: show the merged result.
-                if (CC.codebookEditor && filename === CC.state.filename) CC.codebookEditor.refresh();
+                if (CC.codebookEditor) CC.codebookEditor.refresh();
                 if (!quiet) CC.pipeline.set('classify', 'done', data.cached ? 'cached' : '');
             } else if (!quiet) {
                 CC.pipeline.set('classify', 'failed', (data && data.error) || 'failed');
             }
         } catch (e) {
-            if (!quiet) CC.pipeline.set('classify', 'failed', 'network error');
+            if (!quiet && current()) CC.pipeline.set('classify', 'failed', 'network error');
         } finally {
-            releaseComposer();
+            if (current()) releaseComposer();
         }
     }
 
