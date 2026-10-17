@@ -145,7 +145,10 @@ return `workspace: {moved: [...], skipped: [...]}` with the stored names, and
 the client names any skipped dataset.
 
 Password-reset and email-verification links are built from `PUBLIC_BASE_URL`,
-never from the request's `Host` header. With no SMTP configured the link (and
+never from the request's `Host` header. Every email (these links and issue
+reports) goes through `mailer.send`, which upgrades to STARTTLS with a
+certificate-verifying context before it logs in with `SMTP_PASSWORD`. An email
+address longer than 254 characters is refused before the format check. With no SMTP configured the link (and
 its token) is logged only in development; other environments log a warning
 without it. In production a missing `PUBLIC_BASE_URL` means no link is sent;
 for verification, `/register` then answers `202 verification_email_failed`.
